@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import authRoutes from './auth.routes.js';
 import healthRoutes from './health.routes.js';
 import userRoutes from './user.routes.js';
+import yarnLotRoutes from './yarnLot.routes.js';
 
 // Every /api resource router is mounted here, so the whole API surface is visible in one file.
 const router = Router();
@@ -19,5 +20,6 @@ router.use('/auth', authRoutes);
 router.use(authenticate);
 
 router.use('/users', userRoutes);
+router.use('/yarn-lots', yarnLotRoutes);
 
 export default router;
