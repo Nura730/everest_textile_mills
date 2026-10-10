@@ -525,7 +525,7 @@ const MATRIX = [
   {
     name: 'POST /api/sync/events',
     method: 'post',
-    allowed: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN],
+    allowed: ALL_ROLES, // each event is checked against its own route's roles (sync.test.js)
     build: async () => ({
       path: '/api/sync/events',
       body: { deviceId: 'matrix-device-01', events: [{ eventId: randomUUID(), type: 'RUN_RESUME', payload: { runId: new mongoose.Types.ObjectId().toString() }, recordedAt: new Date().toISOString() }] },

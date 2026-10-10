@@ -2,10 +2,14 @@ import { z } from 'zod';
 import { ROLES } from '../constants/roles.js';
 import { SYNC_OUTCOME, SyncEvent } from '../models/SyncEvent.js';
 import { reportProblemBodySchema } from '../validators/machine.validators.js';
-import { reasonBodySchema, recordRollBodySchema } from '../validators/production.validators.js';
+import { receiveLotBodySchema } from '../validators/inventory.validators.js';
+import { adminCreateOrderBodySchema, buyerCreateOrderBodySchema, updateOrderBodySchema } from '../validators/order.validators.js';
+import { completeRunBodySchema, reasonBodySchema, recordRollBodySchema } from '../validators/production.validators.js';
 import { inspectRollBodySchema, reworkDoneBodySchema } from '../validators/quality.validators.js';
 import { objectIdSchema } from '../validators/common.validators.js';
+import * as inventory from './inventory.service.js';
 import * as machines from './machine.service.js';
+import * as orders from './order.service.js';
 import * as production from './production.service.js';
 import * as quality from './quality.service.js';
 
@@ -20,50 +24,63 @@ import * as quality from './quality.service.js';
  * (bad data, wrong role, unknown record). A transient server failure is reported as RETRY and not
  * stored, so the device keeps the event and sends it again later.
  *
- * Offline actions are the floor and QC ones from the plan: production pause/resume, recording a roll,
- * reporting a machine problem, QC inspection (signature captured on the device), finishing rework.
+ * Offline actions (instruction.md Phase 13, plus the safe ordering and receiving steps): production
+ * pause/resume/complete, recording a roll, reporting a machine problem, QC inspection (signature captured
+ * on the device), finishing rework, placing or editing an order, recording a yarn receipt. Everything that
+ * needs live state or cannot be undone (confirming orders, reserving/issuing yarn, dispatch, invoices,
+ * user and master data) stays online-only.
  */
 
 const FLOOR = [ROLES.FLOOR_MANAGER, ROLES.ADMIN];
 const QC = [ROLES.QC_INSPECTOR, ROLES.ADMIN];
+const ORDERING = [ROLES.BUYER, ROLES.ADMIN];
+const STORE = [ROLES.STORE_KEEPER, ROLES.ADMIN];
+const empty = z.strictObject({});
 
-const runRef = z.object({ runId: objectIdSchema });
-const rollRef = z.object({ rollId: objectIdSchema });
-const machineRef = z.object({ machineId: objectIdSchema });
+/**
+ * One offline action. `idKey` names the record the action targets (taken out of the payload); the rest
+ * of the payload is the request body and is validated with the SAME schema as the online route, so the
+ * rules and the idempotency hash are identical: a queued copy of an online attempt whose response was
+ * lost replays the stored result instead of applying twice.
+ */
+const handler = (roles, idKey, bodySchema, apply) => ({ roles, idKey, bodySchema, apply });
 
-/** type → { roles, payload schema, apply(payload, context) } */
+/** type → handler. The online route each mirrors is noted. */
 export const SYNC_HANDLERS = Object.freeze({
-  RUN_PAUSE: {
-    roles: FLOOR,
-    schema: runRef.extend(reasonBodySchema.shape).strict(),
-    apply: ({ runId, ...body }, context) => production.pauseRun(runId, body, context),
-  },
-  RUN_RESUME: {
-    roles: FLOOR,
-    schema: runRef.strict(),
-    apply: ({ runId }, context) => production.resumeRun(runId, context),
-  },
-  ROLL_RECORD: {
-    roles: FLOOR,
-    schema: runRef.extend(recordRollBodySchema.shape).strict(),
-    apply: ({ runId, ...body }, context) => production.recordRoll(runId, body, context),
-  },
-  MACHINE_PROBLEM_REPORT: {
-    roles: FLOOR,
-    schema: machineRef.extend(reportProblemBodySchema.shape).strict(),
-    apply: ({ machineId, ...body }, context) => machines.reportProblem(machineId, body, context),
-  },
-  QC_INSPECT: {
-    roles: QC,
-    schema: rollRef.extend(inspectRollBodySchema.shape).strict(),
-    apply: ({ rollId, ...body }, context) => quality.inspectRoll(rollId, body, context),
-  },
-  REWORK_DONE: {
-    roles: FLOOR,
-    schema: rollRef.extend(reworkDoneBodySchema.shape).strict(),
-    apply: ({ rollId, ...body }, context) => quality.completeRework(rollId, body, context),
-  },
+  // POST /production-runs/:id/{pause,resume,complete,rolls}
+  RUN_PAUSE: handler(FLOOR, 'runId', reasonBodySchema, (id, body, ctx) => production.pauseRun(id, body, ctx)),
+  RUN_RESUME: handler(FLOOR, 'runId', empty, (id, body, ctx) => production.resumeRun(id, ctx)),
+  RUN_COMPLETE: handler(FLOOR, 'runId', completeRunBodySchema, (id, body, ctx) => production.completeRun(id, body, ctx)),
+  ROLL_RECORD: handler(FLOOR, 'runId', recordRollBodySchema, (id, body, ctx) => production.recordRoll(id, body, ctx)),
+  // POST /machines/:id/problems
+  MACHINE_PROBLEM_REPORT: handler(FLOOR, 'machineId', reportProblemBodySchema, (id, body, ctx) => machines.reportProblem(id, body, ctx)),
+  // POST /rolls/:id/inspections, /rolls/:id/rework-done
+  QC_INSPECT: handler(QC, 'rollId', inspectRollBodySchema, (id, body, ctx) => quality.inspectRoll(id, body, ctx)),
+  REWORK_DONE: handler(FLOOR, 'rollId', reworkDoneBodySchema, (id, body, ctx) => quality.completeRework(id, body, ctx)),
+  // POST /orders (a request only: nothing is confirmed until the admin confirms it online)
+  ORDER_CREATE: handler(ORDERING, null, (actor) => (actor.role === ROLES.ADMIN ? adminCreateOrderBodySchema : buyerCreateOrderBodySchema), (id, body, ctx) => orders.createOrder(body, ctx)),
+  // PATCH /orders/:id (expectedUpdatedAt makes a stale offline edit a CONFLICT, never an overwrite)
+  ORDER_UPDATE: handler(ORDERING, 'orderId', updateOrderBodySchema, (id, body, ctx) => orders.updateOrder(id, body, ctx)),
+  // POST /yarn-lots (records goods that physically arrived; only adds stock)
+  MATERIAL_RECEIVE: handler(STORE, null, receiveLotBodySchema, (id, body, ctx) => inventory.receiveLot(body, ctx)),
 });
+
+/** Splits and validates a payload: { success, id, body } or { success: false, issues }. */
+export function parsePayload(type, payload, actor) {
+  const h = SYNC_HANDLERS[type];
+  const { [h.idKey ?? '']: rawId, ...rest } = payload ?? {};
+  const issues = [];
+  let id = null;
+  if (h.idKey) {
+    const idResult = objectIdSchema.safeParse(rawId);
+    if (idResult.success) id = idResult.data;
+    else issues.push({ path: h.idKey, message: 'must be a valid id' });
+  }
+  const schema = typeof h.bodySchema === 'function' ? h.bodySchema(actor) : h.bodySchema;
+  const bodyResult = schema.safeParse(h.idKey ? rest : payload ?? {});
+  if (!bodyResult.success) issues.push(...bodyResult.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })));
+  return issues.length ? { success: false, issues } : { success: true, id, body: bodyResult.data };
+}
 export const SYNC_EVENT_TYPES = Object.keys(SYNC_HANDLERS);
 
 const failure = (code, message, details) => ({ code, message, ...(details ? { details } : {}) });
@@ -106,14 +123,14 @@ async function processOne(event, { deviceId, actor, requestId }) {
     outcome = SYNC_OUTCOME.REJECTED;
     error = failure('FORBIDDEN', 'Your role cannot perform this action.');
   } else {
-    const parsed = handler.schema.safeParse(event.payload);
+    const parsed = parsePayload(event.type, event.payload, actor);
     if (!parsed.success) {
       outcome = SYNC_OUTCOME.REJECTED;
-      error = failure('VALIDATION_ERROR', 'The recorded data is not valid.', parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })));
+      error = failure('VALIDATION_ERROR', 'The recorded data is not valid.', parsed.issues);
     } else {
       try {
         const context = { actor, requestId, idempotencyKey: event.eventId, source: 'OFFLINE' };
-        const applied = await handler.apply(parsed.data, context);
+        const applied = await handler.apply(parsed.id, parsed.body, context);
         outcome = SYNC_OUTCOME.APPLIED;
         result = applied.body ?? null;
       } catch (err) {
@@ -151,7 +168,17 @@ async function processOne(event, { deviceId, actor, requestId }) {
 export async function syncEvents({ deviceId, events }, { actor, requestId }) {
   const ordered = [...events].sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
   const results = [];
-  for (const event of ordered) results.push(await processOne(event, { deviceId, actor, requestId }));
+  for (const [index, event] of ordered.entries()) {
+    const result = await processOne(event, { deviceId, actor, requestId });
+    results.push(result);
+    // Later events may depend on this one (pause, then resume): never apply them out of order.
+    if (result.outcome === 'RETRY') {
+      for (const later of ordered.slice(index + 1)) {
+        results.push({ eventId: later.eventId, type: later.type, outcome: 'RETRY', result: null, error: failure('NOT_PROCESSED', 'Not processed because an earlier action must be sent first.') });
+      }
+      break;
+    }
+  }
   const counts = Object.fromEntries([...Object.values(SYNC_OUTCOME), 'RETRY'].map((o) => [o, results.filter((r) => r.outcome === o).length]));
   return { results, counts };
 }

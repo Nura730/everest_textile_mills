@@ -193,7 +193,7 @@ Notes:
 | `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
 | `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
 | `GET /api/costing/*`, `POST /api/costing/rates` | | | | | ✓ |
-| `POST /api/sync/events` | | ✓ | ✓ | | ✓ |
+| `POST /api/sync/events` (each event: its own route's roles) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `GET /api/intelligence/overview`, `GET /api/intelligence/orders/:id` | ✓ | ✓ | | | ✓ |
 | `GET /api/sync/events` | ✓ own | ✓ own | ✓ own | ✓ own | ✓ all |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
@@ -968,7 +968,7 @@ Rules, not a model: every verdict lists its factors and the numbers behind them.
 
 ## Offline sync (Phase 15)
 
-`POST /api/sync/events` (FLOOR_MANAGER, QC_INSPECTOR, ADMIN):
+`POST /api/sync/events` (every role; each event is checked against the roles of its own online route):
 
 ```json
 { "deviceId": "web-…", "events": [ { "eventId": "<uuid>", "type": "ROLL_RECORD", "payload": { "runId": "…", "lengthMetres": 120 }, "recordedAt": "2026-10-11T09:30:00+05:30" } ] }
@@ -976,17 +976,29 @@ Rules, not a model: every verdict lists its factors and the numbers behind them.
 
 1-25 events per batch (the 100 KB body limit applies; a QC signature is sent in its own batch). Events are
 applied in `recordedAt` order, each through the same service as the online route, with `source: OFFLINE`
-and `eventId` as the idempotency key. The device uses the SAME uuid as the Idempotency-Key of its online
-attempt, so an action whose response was lost is replayed, not applied twice.
+and `eventId` as the idempotency key. The payload is `{ <record id field>, ...<the online route's body> }`
+and the body is validated with the online route's own schema, so rules and idempotency hashes are
+identical: the device uses the SAME uuid as the Idempotency-Key of its online attempt, and an action whose
+response was lost is replayed, not applied twice. If an event comes back `RETRY`, the rest of the batch is
+not processed (also `RETRY`, code `NOT_PROCESSED`), so dependent actions never run out of order.
 
 | type | payload | roles |
 |---|---|---|
 | `RUN_PAUSE` | `{ runId, reason }` | FLOOR_MANAGER, ADMIN |
 | `RUN_RESUME` | `{ runId }` | FLOOR_MANAGER, ADMIN |
+| `RUN_COMPLETE` | `{ runId, note? }` | FLOOR_MANAGER, ADMIN |
 | `ROLL_RECORD` | `{ runId, lengthMetres, weightKg? }` | FLOOR_MANAGER, ADMIN |
 | `MACHINE_PROBLEM_REPORT` | `{ machineId, category, severity, description, … }` | FLOOR_MANAGER, ADMIN |
 | `QC_INSPECT` | `{ rollId, result, defects?, notes?, signature? }` | QC_INSPECTOR, ADMIN |
 | `REWORK_DONE` | `{ rollId, note? }` | FLOOR_MANAGER, ADMIN |
+| `ORDER_CREATE` | body of `POST /api/orders` | BUYER, ADMIN |
+| `ORDER_UPDATE` | `{ orderId, expectedUpdatedAt, quantityMetres?, requiredBy?, buyerNotes? }` (stale → `CONFLICT`) | BUYER, ADMIN |
+| `MATERIAL_RECEIVE` | body of `POST /api/yarn-lots` | STORE_KEEPER, ADMIN |
+
+Online-only (never queued): confirming, rejecting or cancelling orders; reserving, issuing, returning or
+releasing yarn; stock adjustments; planning, starting or cancelling runs; maintenance and problem
+resolution; finished goods, dispatch and invoices; users, buyers, products, machines, rate card, audit
+corrections.
 
 Response `{ results: [{ eventId, type, outcome, originalOutcome?, result, error }], counts }`. Outcomes:
 `APPLIED`; `DUPLICATE` (eventId seen before, `originalOutcome` returned); `CONFLICT` (a 409 business rule:
