@@ -184,6 +184,11 @@ Notes:
 | `POST /api/rolls/:id/inspections` | | | ✓ | | ✓ |
 | `POST /api/rolls/:id/rework-done` | | ✓ | | | ✓ |
 | `GET /api/qc/inspections`, `GET /api/qc/summary` | | ✓ | ✓ | | ✓ |
+| `GET /api/finished-goods`, `GET /api/summary/fulfilment` | ✓ | ✓ | ✓ | | ✓ |
+| `PATCH /api/finished-goods/:id/location`, `POST /api/dispatches`, `/:id/confirm`, `/:id/cancel` | ✓ | | | | ✓ |
+| `GET /api/dispatches`, `GET /api/dispatches/:id` | ✓ | ✓ | ✓ | ✓ own | ✓ |
+| `POST /api/dispatches/:id/invoice` | | | | | ✓ |
+| `GET /api/invoices`, `GET /api/invoices/:id` | | | | ✓ own | ✓ |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -933,6 +938,30 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
 
+## Finished goods, dispatch and invoices (Phases 11-12)
+
+```
+QC PASS ─▶ finished good IN_STOCK (roll FINISHED)
+order PRODUCTION_COMPLETED + no roll awaiting QC/rework + stock ─▶ READY_FOR_DISPATCH
+prepare: IN_STOCK ─▶ RESERVED_FOR_DISPATCH      cancel: back to IN_STOCK
+confirm (signed): RESERVED ─▶ DISPATCHED; order ─▶ DISPATCHED when nothing is left in stock
+invoice (one per confirmed dispatch): order ─▶ INVOICED when every confirmed dispatch is invoiced
+```
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/finished-goods` | Query: `orderId`, `status` (`IN_STOCK`\|`RESERVED_FOR_DISPATCH`\|`DISPATCHED`), `q`, paging |
+| `PATCH /api/finished-goods/:id/location` (Idempotency-Key) | `{ location }`; the only editable field; not once dispatched |
+| `POST /api/dispatches` (Idempotency-Key) | `{ orderId, finishedGoodIds[], vehicleNumber?, notes? }`. Order must be `READY_FOR_DISPATCH`; every good must be `IN_STOCK` and of this order (409 `FINISHED_GOODS_UNAVAILABLE`, `details.finishedGoodIds`); duplicates 400. Guarded per good: two dispatches cannot take the same roll |
+| `POST /api/dispatches/:id/confirm` (Idempotency-Key) | `{ signature: { accepted: true, image }, vehicleNumber? }` — without a signature 400 `SIGNATURE_REQUIRED`. Only `PREPARED` |
+| `POST /api/dispatches/:id/cancel` (Idempotency-Key) | `{ reason }`; only `PREPARED`; goods back in stock |
+| `POST /api/dispatches/:id/invoice` (ADMIN; Idempotency-Key) | Confirmed dispatch only; one invoice per dispatch (409 `DUPLICATE_RESOURCE`). Lines at the order's own price per metre; **GST 5% (assumption for woven fabric, HSN 5208–5407)**; integer paise |
+| `GET /api/invoices`, `/:id` | ADMIN all; BUYER own company only (others 404) |
+| `GET /api/dispatches`, `/:id` | Internal roles all; BUYER own company only |
+
+Audit: `FINISHED_GOOD_CREATED`, `FINISHED_GOOD_MOVED`, `DISPATCH_PREPARED`, `DISPATCH_CONFIRMED`,
+`DISPATCH_CANCELLED`, `INVOICE_ISSUED`, `ORDER_READY_FOR_DISPATCH`, `ORDER_DISPATCHED`, `ORDER_INVOICED`.
+
 ## Rolls and quality control (Phases 9-10)
 
 ```
@@ -1113,6 +1142,7 @@ the current factory state. No `422` is used anywhere.
 | `YARN_NOT_ISSUED` | 409 | Starting a run before any of the order's yarn is on the floor | Ask the store to issue yarn |
 | `NO_OUTPUT_RECORDED` | 409 | Completing a run without a roll | Record rolls first |
 | `QUANTITY_EXCEEDS_ORDER` | 409 | Planning more than is left of the order; `details.remainingMetres` | Lower the target |
+| `FINISHED_GOODS_UNAVAILABLE` | 409 | A chosen finished good is not in stock for the order | Refresh the stock and choose again |
 | `SIGNATURE_REQUIRED` | 400 | A QC pass (or dispatch) without the signature; `details.statement` | Ask the person to accept the statement and sign |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
