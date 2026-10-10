@@ -1,316 +1,406 @@
 import { useState } from 'react';
-import { Package, Search, Plus, AlertTriangle, Download, ArrowUpDown, BookmarkPlus, X, CheckCircle2 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { CheckCircle2, PackagePlus, RefreshCw, Scale, ShieldAlert } from 'lucide-react';
+import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
+import { inventoryApi } from '../api/endpoints.js';
+import { useAuth } from '../auth/AuthContext.jsx';
+import { can } from '../auth/roles.js';
+import { Field, Modal } from '../components/ui/Modal.jsx';
+import { PageHeader } from '../components/ui/PageHeader.jsx';
+import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { useToast } from '../components/ui/Toast.jsx';
+import { useApiQuery } from '../hooks/useApiQuery.js';
+import { formatDate, formatDateTime, formatNumber, formatPaise } from '../utils/format.js';
 
-const categoryFilters = ['All', 'Yarn', 'Fiber', 'Dye', 'Chemical', 'Parts'];
+const MATERIALS = ['COTTON', 'POLYESTER', 'VISCOSE', 'NYLON', 'WOOL', 'SILK', 'LINEN', 'BLEND'];
+const TX_LABELS = {
+  RECEIPT: 'Received',
+  ADJUSTMENT: 'Adjustment',
+  RESERVATION: 'Reserved',
+  RESERVATION_RELEASE: 'Released',
+  ISSUE: 'Issued to production',
+  RETURN: 'Returned',
+};
+
+function StockBar({ total, reserved }) {
+  const pct = total > 0 ? Math.min(100, (reserved / total) * 100) : 0;
+  return (
+    <div className="stock-bar" title={`${formatNumber(reserved, 'kg')} reserved of ${formatNumber(total, 'kg')}`}>
+      <div className="stock-bar-fill" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function ReceiveModal({ onClose, onDone }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ lotNumber: '', material: 'COTTON', colour: '', yarnCount: '', supplierName: '', quantityKg: '', costRupees: '' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const update = (field) => (event) => {
+    setForm((current) => ({ ...current, [field]: event.target.value }));
+    setErrors((current) => ({ ...current, [field]: undefined }));
+    setKey(newIdempotencyKey());
+  };
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (busy) return;
+    const qty = Number(form.quantityKg);
+    const cost = Number(form.costRupees);
+    const found = {};
+    if (!(qty > 0)) found.quantityKg = 'Enter the received quantity in kg.';
+    if (!(cost >= 0) || form.costRupees === '') found.costPerKgPaise = 'Enter the cost per kg in rupees.';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+
+    const body = {
+      lotNumber: form.lotNumber,
+      material: form.material,
+      colour: form.colour,
+      supplierName: form.supplierName,
+      quantityKg: qty,
+      costPerKgPaise: Math.round(cost * 100),
+      ...(form.yarnCount.trim() ? { yarnCount: form.yarnCount.trim() } : {}),
+    };
+    setBusy(true);
+    try {
+      const { data, replayed } = await inventoryApi.receive(body, key);
+      toast.success(replayed ? `Lot ${data.lot.lotNumber} was already received.` : `Stock updated: lot ${data.lot.lotNumber} received (${formatNumber(data.lot.totalKg, 'kg')}).`);
+      onDone();
+    } catch (error) {
+      if (error.code === 'DUPLICATE_RESOURCE') setErrors({ lotNumber: 'This lot number has already been received.' });
+      else {
+        const fields = fieldErrorsOf(error);
+        setErrors(fields);
+        if (!Object.keys(fields).length) toast.error(error, { title: 'Yarn not received' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="Receive yarn"
+      subtitle="Creates a lot, its ledger entry and an audit record in one transaction."
+      onClose={onClose}
+      busy={busy}
+      wide
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="receive-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Receive lot'}</button>
+        </>
+      }
+    >
+      <form id="receive-form" className="erp-form-grid two-col" onSubmit={onSubmit} noValidate>
+        <Field label="Lot / GRN number" htmlFor="r-lot" error={errors.lotNumber} required>
+          <input id="r-lot" className="erp-input" value={form.lotNumber} onChange={update('lotNumber')} disabled={busy} placeholder="GRN-2026-0104" />
+        </Field>
+        <Field label="Supplier" htmlFor="r-supplier" error={errors.supplierName} required>
+          <input id="r-supplier" className="erp-input" value={form.supplierName} onChange={update('supplierName')} disabled={busy} />
+        </Field>
+        <Field label="Material" htmlFor="r-material" error={errors.material} required>
+          <select id="r-material" className="erp-input" value={form.material} onChange={update('material')} disabled={busy}>
+            {MATERIALS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Field>
+        <Field label="Colour" htmlFor="r-colour" error={errors.colour} required>
+          <input id="r-colour" className="erp-input" value={form.colour} onChange={update('colour')} disabled={busy} placeholder="Navy" />
+        </Field>
+        <Field label="Quantity (kg)" htmlFor="r-qty" error={errors.quantityKg} hint="At most 3 decimals." required>
+          <input id="r-qty" className="erp-input" inputMode="decimal" value={form.quantityKg} onChange={update('quantityKg')} disabled={busy} />
+        </Field>
+        <Field label="Cost per kg (₹)" htmlFor="r-cost" error={errors.costPerKgPaise} required>
+          <input id="r-cost" className="erp-input" inputMode="decimal" value={form.costRupees} onChange={update('costRupees')} disabled={busy} placeholder="320.00" />
+        </Field>
+        <Field label="Yarn count (optional)" htmlFor="r-count" error={errors.yarnCount}>
+          <input id="r-count" className="erp-input" value={form.yarnCount} onChange={update('yarnCount')} disabled={busy} placeholder="40s" />
+        </Field>
+      </form>
+    </Modal>
+  );
+}
+
+function AdjustModal({ lot, onClose, onDone }) {
+  const toast = useToast();
+  const [deltaKg, setDeltaKg] = useState('');
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (busy) return;
+    const delta = Number(deltaKg);
+    const found = {};
+    if (!delta) found.deltaKg = 'Enter a non-zero change, e.g. -2.5 or 10.';
+    if (reason.trim().length < 5) found.reason = 'Give a reason of at least 5 characters.';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    setBusy(true);
+    try {
+      const { data } = await inventoryApi.adjust(lot.id, { deltaKg: delta, reason: reason.trim() }, key);
+      toast.success(`Stock updated successfully: ${data.lot.lotNumber} is now ${formatNumber(data.lot.totalKg, 'kg')}.`);
+      onDone();
+    } catch (error) {
+      if (error.code === 'INSUFFICIENT_STOCK') {
+        setErrors({ deltaKg: `Unable to save: at most ${formatNumber(error.details.maxReductionKg, 'kg')} can be removed — ${formatNumber(error.details.reservedKg, 'kg')} is reserved for orders.` });
+      } else {
+        const fields = fieldErrorsOf(error);
+        setErrors(fields);
+        if (!Object.keys(fields).length) toast.error(error, { title: 'Stock not adjusted' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Adjust ${lot.lotNumber}`}
+      subtitle={`Now ${formatNumber(lot.totalKg, 'kg')} in stock, ${formatNumber(lot.reservedKg, 'kg')} reserved. The ledger keeps both entries.`}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="adjust-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Record adjustment'}</button>
+        </>
+      }
+    >
+      <form id="adjust-form" className="erp-form-grid" onSubmit={onSubmit} noValidate>
+        <Field label="Change (kg)" htmlFor="a-delta" error={errors.deltaKg} hint="Negative to write off, positive after a recount." required>
+          <input id="a-delta" className="erp-input" inputMode="decimal" value={deltaKg} onChange={(event) => { setDeltaKg(event.target.value); setErrors({}); setKey(newIdempotencyKey()); }} disabled={busy} placeholder="-2.5" />
+        </Field>
+        <Field label="Reason" htmlFor="a-reason" error={errors.reason} required>
+          <textarea id="a-reason" className="erp-input" rows={2} value={reason} onChange={(event) => { setReason(event.target.value); setErrors({}); setKey(newIdempotencyKey()); }} disabled={busy} placeholder="Water damage on two cones" />
+        </Field>
+      </form>
+    </Modal>
+  );
+}
+
+function LedgerModal({ lot, onClose }) {
+  const ledger = useApiQuery(() => inventoryApi.lotTransactions(lot.id, { limit: 100 }), [lot.id]);
+  return (
+    <Modal title={`Ledger — ${lot.lotNumber}`} subtitle="Every movement of this lot, newest first. Entries are never edited." onClose={onClose} wide>
+      {ledger.error && <ErrorState error={ledger.error} onRetry={ledger.reload} />}
+      {!ledger.error && !ledger.data && <LoadingState />}
+      {ledger.data && (
+        <table className="erp-data-table">
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Movement</th>
+              <th scope="col" className="num">Stock Δ</th>
+              <th scope="col" className="num">Reserved Δ</th>
+              <th scope="col">Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ledger.data.transactions.map((tx) => (
+              <tr key={tx.id}>
+                <td>{formatDateTime(tx.createdAt)}</td>
+                <td>{TX_LABELS[tx.type] ?? tx.type}</td>
+                <td className="num">{tx.deltaTotalKg > 0 ? '+' : ''}{formatNumber(tx.deltaTotalKg, 'kg')}</td>
+                <td className="num">{tx.deltaReservedKg > 0 ? '+' : ''}{formatNumber(tx.deltaReservedKg, 'kg')}</td>
+                <td>{tx.reason ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Modal>
+  );
+}
+
+function Reconciliation() {
+  const toast = useToast();
+  const [state, setState] = useState({ busy: false, report: null });
+  async function run() {
+    setState({ busy: true, report: null });
+    try {
+      const { data } = await inventoryApi.reconciliation();
+      setState({ busy: false, report: data });
+      if (data.balanced) toast.success(`Stock verified: all ${data.lotsChecked} lots match their ledgers.`);
+      else toast.warning(`${data.mismatches.length} lot(s) do not match their ledger. See details below.`);
+    } catch (error) {
+      setState({ busy: false, report: null });
+      toast.error(error, { title: 'Reconciliation failed' });
+    }
+  }
+  const report = state.report;
+  return (
+    <div className="erp-card section-gap">
+      <div className="card-header">
+        <div>
+          <h3 className="card-title">Prove the numbers</h3>
+          <p className="card-subtitle">Recomputes every lot's balance from its ledger and flags any difference.</p>
+        </div>
+        <button type="button" className="erp-btn-outline" onClick={run} disabled={state.busy}>
+          <Scale size={15} aria-hidden="true" /> {state.busy ? 'Checking…' : 'Run reconciliation'}
+        </button>
+      </div>
+      {report && report.balanced && (
+        <p className="ok-line"><CheckCircle2 size={16} aria-hidden="true" /> Balanced — {report.lotsChecked} lots checked at {formatDateTime(report.checkedAt)}.</p>
+      )}
+      {report && !report.balanced && (
+        <table className="erp-data-table">
+          <thead><tr><th scope="col">Lot</th><th scope="col">Issues</th><th scope="col">Stored</th><th scope="col">Ledger says</th></tr></thead>
+          <tbody>
+            {report.mismatches.map((m) => (
+              <tr key={m.lotId}>
+                <td>{m.lotNumber ?? m.lotId}</td>
+                <td><ShieldAlert size={14} aria-hidden="true" /> {m.issues.join(', ')}</td>
+                <td>{m.stored ? `${formatNumber(m.stored.totalKg, 'kg')} / ${formatNumber(m.stored.reservedKg, 'kg')} reserved` : '—'}</td>
+                <td>{formatNumber(m.ledger.totalKg, 'kg')} / {formatNumber(m.ledger.reservedKg, 'kg')} reserved</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 export default function Inventory() {
-  const { inventory, reserveYarn, orders } = useApp();
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [reservingItem, setReservingItem] = useState(null);
-  const [reserveAmount, setReserveAmount] = useState(250);
-  const [reserveOrderId, setReserveOrderId] = useState(orders[0]?.id || 'ORD-2410-001');
-
-  const filtered = inventory.filter((item) => {
-    const matchesFilter = activeFilter === 'All' || item.category === activeFilter;
-    const matchesSearch =
-      !searchTerm ||
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.color.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.supplier.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
-
-  const shortageCount = inventory.filter((i) => i.shortage).length;
-
-  const handleReserveSubmit = (e) => {
-    e.preventDefault();
-    if (reservingItem) {
-      reserveYarn(reservingItem.id, reserveAmount, reserveOrderId);
-      setReservingItem(null);
-    }
+  const { user } = useAuth();
+  const [tab, setTab] = useState('summary');
+  const [material, setMaterial] = useState('');
+  const [modal, setModal] = useState(null); // { type: 'receive' | 'adjust' | 'ledger', lot }
+  const summary = useApiQuery(() => inventoryApi.summary({ material }), [material]);
+  const lots = useApiQuery(() => inventoryApi.lots({ material, limit: 100 }), [material]);
+  const lotList = lots.data?.lots ?? [];
+  const showsCost = lotList.some((lot) => lot.costPerKgPaise !== undefined);
+  const refresh = () => {
+    summary.reload();
+    lots.reload();
   };
 
   return (
-    <div className="erp-page-container">
-      <div className="erp-page-header">
-        <div className="erp-page-header-text">
-          <h1 className="erp-page-title">Raw Material Inventory</h1>
-          <p className="erp-page-subtitle">
-            Section 6: Yarn Lot Tracking, E-Commerce Style Reservation, Available vs Reserved Stock
-          </p>
-        </div>
-        <div className="erp-page-actions">
-          <button className="erp-btn-outline">
-            <Download size={16} />
-            <span>Export Stock</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Shortage Alert */}
-      {shortageCount > 0 && (
-        <div className="erp-alert-box">
-          <div className="erp-alert-icon">
-            <AlertTriangle size={20} />
-          </div>
-          <div className="erp-alert-content">
-            <div className="erp-alert-title">
-              Critical Inventory Buffer Deficit: {shortageCount} Materials Under Threshold
-            </div>
-            <div className="erp-alert-desc">
-              Viscose Staple Fiber, Reactive Black Dye, and Bamboo Viscose Yarn have fallen below safety limits.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Summary KPI Cards */}
-      <div className="erp-tall-kpi-grid" style={{ marginBottom: 20 }}>
-        <div className="erp-tall-kpi-card">
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Material Catalog</span>
-            <Package size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value">{inventory.length}</div>
-          <div className="tall-kpi-subtext">Active SKUs & Batches</div>
-        </div>
-
-        <div className="erp-tall-kpi-card">
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Yarn Stock (Total)</span>
-            <Package size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value">16,375 kg</div>
-          <div className="tall-kpi-subtext">Cumulative physical yarn</div>
-        </div>
-
-        <div className="erp-tall-kpi-card">
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Reserved for Orders</span>
-            <BookmarkPlus size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value">11,106 kg</div>
-          <div className="tall-kpi-subtext">Committed to active orders</div>
-        </div>
-
-        <div className={`erp-tall-kpi-card ${shortageCount > 0 ? 'error' : ''}`}>
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Buffer Shortages</span>
-            <AlertTriangle size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value" style={shortageCount > 0 ? { color: 'var(--color-error)' } : {}}>
-            {shortageCount}
-          </div>
-          <div className="tall-kpi-subtext" style={shortageCount > 0 ? { color: 'var(--color-error)' } : {}}>
-            Reorder PO required
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="erp-filter-bar">
-        <div className="filter-chips-row">
-          {categoryFilters.map((filter) => (
-            <button
-              key={filter}
-              className={`erp-filter-chip ${activeFilter === filter ? 'active' : ''}`}
-              onClick={() => setActiveFilter(filter)}
-            >
-              {filter}
+    <div>
+      <PageHeader
+        title="Yarn inventory"
+        subtitle="Stock by lot. Available = in stock − reserved for orders. Every change is in the ledger."
+        breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Yarn inventory' }]}
+        actions={
+          <>
+            <button type="button" className="erp-btn-outline" onClick={refresh} aria-label="Refresh stock">
+              <RefreshCw size={15} className={summary.loading || lots.loading ? 'spin' : ''} aria-hidden="true" /> Refresh
             </button>
-          ))}
-        </div>
-        <div className="erp-search-box">
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Search material, yarn, supplier, lot..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="erp-card">
-        <div className="erp-table-wrapper">
-          <table className="erp-data-table">
-            <thead>
-              <tr>
-                <th>Item ID</th>
-                <th>Material Specification</th>
-                <th>Category</th>
-                <th>Color / Shade</th>
-                <th>Total Physical</th>
-                <th>Reserved Stock</th>
-                <th>Available Stock</th>
-                <th>Supplier & Lot</th>
-                <th>Storage Bin</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((item) => (
-                <tr key={item.id}>
-                  <td className="table-primary-cell">{item.id}</td>
-                  <td>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <div className="text-xs text-secondary">
-                        Min Buffer: {item.minStock.toLocaleString()} {item.unit}
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="erp-status-badge outline">{item.category}</span>
-                  </td>
-                  <td>{item.color}</td>
-                  <td>
-                    {item.totalStock.toLocaleString()} {item.unit}
-                  </td>
-                  <td>
-                    <span style={{ color: 'var(--color-gray-700)', fontWeight: 500 }}>
-                      {item.reservedStock.toLocaleString()} {item.unit}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color: item.shortage ? 'var(--color-error)' : 'var(--color-black)',
-                      }}
-                    >
-                      {item.availableStock.toLocaleString()} {item.unit}
-                    </span>
-                    {item.shortage && (
-                      <span className="erp-status-badge error" style={{ marginLeft: 6, fontSize: 10 }}>
-                        Shortage
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <div>
-                      <div style={{ fontSize: 12 }}>{item.supplier}</div>
-                      <div className="text-xs text-secondary" style={{ fontFamily: 'monospace' }}>
-                        {item.lotNumber}
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 12, color: 'var(--color-gray-600)' }}>{item.location}</td>
-                  <td>
-                    {item.category === 'Yarn' && (
-                      <button
-                        className="erp-btn-sm erp-btn-outline"
-                        onClick={() => {
-                          setReservingItem(item);
-                          setReserveAmount(Math.min(item.availableStock, 500));
-                        }}
-                        disabled={item.availableStock <= 0}
-                      >
-                        <BookmarkPlus size={13} />
-                        <span>Reserve</span>
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* MODAL: E-Commerce Style Yarn Reservation (Store Keeper Section 2 & 6) */}
-      {reservingItem && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box">
-            <div className="modal-header">
-              <div>
-                <h3 className="modal-title">E-Commerce Material Selection & Reservation</h3>
-                <p className="modal-subtitle">
-                  Section 6: {reservingItem.name} ({reservingItem.color}) • Lot {reservingItem.lotNumber}
-                </p>
-              </div>
-              <button className="modal-close-btn" onClick={() => setReservingItem(null)}>
-                <X size={18} />
+            {can.receiveYarn(user.role) && (
+              <button type="button" className="erp-btn-primary" onClick={() => setModal({ type: 'receive' })}>
+                <PackagePlus size={15} aria-hidden="true" /> Receive yarn
               </button>
-            </div>
+            )}
+          </>
+        }
+      />
 
-            <form onSubmit={handleReserveSubmit}>
-              <div className="modal-body">
-                <div className="reservation-metric-banner">
-                  <div className="reserve-stat">
-                    <span className="text-xs text-secondary">Total Stock</span>
-                    <strong>
-                      {reservingItem.totalStock} {reservingItem.unit}
-                    </strong>
-                  </div>
-                  <div className="reserve-stat">
-                    <span className="text-xs text-secondary">Currently Reserved</span>
-                    <strong>
-                      {reservingItem.reservedStock} {reservingItem.unit}
-                    </strong>
-                  </div>
-                  <div className="reserve-stat highlight">
-                    <span className="text-xs text-secondary">Available Stock</span>
-                    <strong style={{ fontSize: 18 }}>
-                      {reservingItem.availableStock} {reservingItem.unit}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="erp-form-grid" style={{ marginTop: 16 }}>
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="erp-label">Target Manufacturing Order</label>
-                    <select
-                      className="erp-select"
-                      value={reserveOrderId}
-                      onChange={(e) => setReserveOrderId(e.target.value)}
-                    >
-                      {orders.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.id} — {o.customer} ({o.quantity}m {o.fabric})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="erp-label">Reservation Quantity ({reservingItem.unit})</label>
-                    <input
-                      type="number"
-                      className="erp-input"
-                      min="10"
-                      max={reservingItem.availableStock}
-                      value={reserveAmount}
-                      onChange={(e) => setReserveAmount(Number(e.target.value))}
-                      required
-                    />
-                    <div className="text-xs text-secondary" style={{ marginTop: 4 }}>
-                      Max available: {reservingItem.availableStock} {reservingItem.unit}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="erp-btn-outline"
-                  onClick={() => setReservingItem(null)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="erp-btn-primary">
-                  Confirm Material Reservation
-                </button>
-              </div>
-            </form>
+      <div className="erp-card">
+        <div className="toolbar">
+          <div className="erp-tabs-bar" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === 'summary'} className={`erp-tab-btn ${tab === 'summary' ? 'active' : ''}`} onClick={() => setTab('summary')}>Stock by colour</button>
+            <button type="button" role="tab" aria-selected={tab === 'lots'} className={`erp-tab-btn ${tab === 'lots' ? 'active' : ''}`} onClick={() => setTab('lots')}>Lots ({lots.meta?.total ?? '…'})</button>
           </div>
+          <label className="erp-label" htmlFor="material-filter">Material</label>
+          <select id="material-filter" className="erp-input toolbar-select" value={material} onChange={(event) => setMaterial(event.target.value)}>
+            <option value="">All</option>
+            {MATERIALS.map((m) => <option key={m}>{m}</option>)}
+          </select>
         </div>
-      )}
+
+        {tab === 'summary' && (
+          <>
+            {summary.error && <ErrorState error={summary.error} onRetry={summary.reload} />}
+            {!summary.error && !summary.data && <LoadingState label="Loading stock…" />}
+            {summary.data && summary.data.summary.length === 0 && (
+              <EmptyState title="No yarn in stock">{can.receiveYarn(user.role) ? 'Receive the first lot to start tracking stock.' : 'The store has not received any yarn yet.'}</EmptyState>
+            )}
+            {summary.data?.summary.length > 0 && (
+              <table className="erp-data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Material · colour</th>
+                    <th scope="col" className="num">Lots</th>
+                    <th scope="col" className="num">In stock</th>
+                    <th scope="col" className="num">Reserved</th>
+                    <th scope="col" className="num">Available</th>
+                    <th scope="col">Reserved share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.data.summary.map((row) => (
+                    <tr key={`${row.material}-${row.colour}`}>
+                      <td className="table-primary-cell">{row.material} · {row.colour}</td>
+                      <td className="num">{row.lots}</td>
+                      <td className="num">{formatNumber(row.totalKg, 'kg')}</td>
+                      <td className="num">{formatNumber(row.reservedKg, 'kg')}</td>
+                      <td className="num"><strong>{formatNumber(row.availableKg, 'kg')}</strong></td>
+                      <td><StockBar total={row.totalKg} reserved={row.reservedKg} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+
+        {tab === 'lots' && (
+          <>
+            {lots.error && <ErrorState error={lots.error} onRetry={lots.reload} />}
+            {!lots.error && !lots.data && <LoadingState label="Loading lots…" />}
+            {lots.data && lotList.length === 0 && <EmptyState title="No lots" />}
+            {lotList.length > 0 && (
+              <div className="erp-table-wrapper">
+                <table className="erp-data-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Lot</th>
+                      <th scope="col">Material · colour</th>
+                      <th scope="col">Supplier</th>
+                      <th scope="col">Received</th>
+                      <th scope="col" className="num">In stock</th>
+                      <th scope="col" className="num">Reserved</th>
+                      <th scope="col" className="num">Available</th>
+                      {showsCost && <th scope="col" className="num">Cost / kg</th>}
+                      <th scope="col"><span className="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lotList.map((lot) => (
+                      <tr key={lot.id}>
+                        <td className="mono">{lot.lotNumber}</td>
+                        <td>{lot.material} · {lot.colour}{lot.yarnCount && <div className="cell-sub">{lot.yarnCount}</div>}</td>
+                        <td>{lot.supplierName}</td>
+                        <td>{formatDate(lot.receivedAt)}</td>
+                        <td className="num">{formatNumber(lot.totalKg, 'kg')}</td>
+                        <td className="num">{formatNumber(lot.reservedKg, 'kg')}</td>
+                        <td className="num"><strong>{formatNumber(lot.availableKg, 'kg')}</strong></td>
+                        {showsCost && <td className="num">{formatPaise(lot.costPerKgPaise)}</td>}
+                        <td className="row-actions">
+                          <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'ledger', lot })}>Ledger</button>
+                          {can.adjustStock(user.role) && (
+                            <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'adjust', lot })}>Adjust</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {can.reconcileStock(user.role) && <Reconciliation />}
+
+      {modal?.type === 'receive' && <ReceiveModal onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
+      {modal?.type === 'adjust' && <AdjustModal lot={modal.lot} onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
+      {modal?.type === 'ledger' && <LedgerModal lot={modal.lot} onClose={() => setModal(null)} />}
     </div>
   );
 }

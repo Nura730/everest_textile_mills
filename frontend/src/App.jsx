@@ -1,44 +1,92 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppProvider } from './context/AppContext';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider } from './auth/AuthContext.jsx';
+import { RequireAuth, RequireRole } from './auth/RequireAuth.jsx';
+import { LIVE_NAV, PREVIEW_NAV } from './auth/roles.js';
 import AppLayout from './components/AppLayout';
+import { PreviewNotice } from './components/ui/PageHeader.jsx';
+import { ToastProvider } from './components/ui/Toast.jsx';
+import { AppProvider } from './context/AppContext';
+// Live screens (real backend data)
+import Buyers from './pages/Buyers';
 import Dashboard from './pages/Dashboard';
-import Orders from './pages/Orders';
-import Production from './pages/Production';
 import Inventory from './pages/Inventory';
-import QualityControl from './pages/QualityControl';
-import Machines from './pages/Machines';
-import Dispatch from './pages/Dispatch';
-import BOM from './pages/BOM';
-import StockLedger from './pages/StockLedger';
-import Reports from './pages/Reports';
-import Analytics from './pages/Analytics';
+import Login from './pages/Login';
+import OrderDetail from './pages/OrderDetail';
+import Orders from './pages/Orders';
+import Products from './pages/Products';
 import Users from './pages/Users';
+// Preview screens (sample data from context/AppContext; backend modules are planned phases)
+import Analytics from './pages/Analytics';
+import BOM from './pages/BOM';
+import Dispatch from './pages/Dispatch';
+import Machines from './pages/Machines';
+import Production from './pages/Production';
+import QualityControl from './pages/QualityControl';
+import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import StockLedger from './pages/StockLedger';
+
+const LIVE_PAGES = {
+  '/dashboard': <Dashboard />,
+  '/orders': <Orders />,
+  '/products': <Products />,
+  '/buyers': <Buyers />,
+  '/inventory': <Inventory />,
+  '/users': <Users />,
+};
+
+const PREVIEW_PAGES = {
+  '/machines': <Machines />,
+  '/production': <Production />,
+  '/quality': <QualityControl />,
+  '/dispatch': <Dispatch />,
+  '/bom': <BOM />,
+  '/ledger': <StockLedger />,
+  '/reports': <Reports />,
+  '/analytics': <Analytics />,
+  '/settings': <Settings />,
+};
+
+const ordersRoles = LIVE_NAV.find((item) => item.to === '/orders').roles;
 
 function App() {
   return (
-    <AppProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<AppLayout />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="orders" element={<Orders />} />
-            <Route path="production" element={<Production />} />
-            <Route path="inventory" element={<Inventory />} />
-            <Route path="bom" element={<BOM />} />
-            <Route path="ledger" element={<StockLedger />} />
-            <Route path="quality" element={<QualityControl />} />
-            <Route path="machines" element={<Machines />} />
-            <Route path="dispatch" element={<Dispatch />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="analytics" element={<Analytics />} />
-            <Route path="users" element={<Users />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AppProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <AppProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route element={<RequireAuth />}>
+                <Route path="/" element={<AppLayout />}>
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  {LIVE_NAV.map((item) => (
+                    <Route
+                      key={item.to}
+                      path={item.to.slice(1)}
+                      element={<RequireRole roles={item.roles}>{LIVE_PAGES[item.to]}</RequireRole>}
+                    />
+                  ))}
+                  <Route path="orders/:id" element={<RequireRole roles={ordersRoles}><OrderDetail /></RequireRole>} />
+                  {PREVIEW_NAV.map((item) => (
+                    <Route
+                      key={item.to}
+                      path={item.to.slice(1)}
+                      element={
+                        <RequireRole roles={item.roles}>
+                          <PreviewNotice phase={item.phase}>{PREVIEW_PAGES[item.to]}</PreviewNotice>
+                        </RequireRole>
+                      }
+                    />
+                  ))}
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Route>
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </AppProvider>
+      </AuthProvider>
+    </ToastProvider>
   );
 }
 
