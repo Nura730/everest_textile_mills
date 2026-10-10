@@ -192,6 +192,7 @@ Notes:
 | `GET /api/audit` | ✓ (inventory) | ✓ (production) | ✓ (QC) | ✓ own milestones | ✓ all |
 | `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
 | `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
+| `GET /api/costing/*`, `POST /api/costing/rates` | | | | | ✓ |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -940,6 +941,33 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
+
+## Costing and profitability (Phase 14)
+
+Owner-only. `GET /api/costing/orders/:id` returns the cost sheet of one order:
+
+| Figure | Source |
+|---|---|
+| Material | Net yarn issued to the order (ISSUE − RETURN ledger rows) × each lot's `costPerKgPaise` |
+| Labour | Each run's RUNNING hours (from its status history; pauses excluded) × `labourPaisePerHour` |
+| Machine | Same hours × `machinePaisePerHour[machine type]` |
+| Rework | Rework rounds on the order's rolls × `reworkPaisePerRoll` |
+| Overhead | `overheadBasisPoints` of material + labour + machine + rework |
+| Waste | Share of material + labour + machine that went into rejected rolls (shown, already included) |
+| Revenue | Sum of invoice subtotals (ex-GST); before any invoice, the order value as `EXPECTED` |
+
+Also `profitPaise`, `marginPercent`, `costPerMetrePaise` (per good metre), per-lot and per-run detail, the
+assumptions list, and the rate-card version used (the one in force when production started).
+
+`GET /api/costing/summary` — every order from IN_PRODUCTION on, with totals split into invoiced and in
+progress. `GET /api/costing/overview` — owner dashboard counts (orders by status, machines by status, yarn
+stock, QC, fulfilment, invoiced revenue). `GET /api/costing/rates` — current, history, defaults.
+`POST /api/costing/rates` — `{ labourPaisePerHour, machinePaisePerHour: { SPINNING, WEAVING, DYEING,
+FINISHING }, reworkPaisePerRoll, overheadBasisPoints, workingHoursPerDay, note? }` → `201`, a new append-only
+version (audited `RATE_CARD_SAVED`).
+
+Default rates (assumptions until the owner saves their own): labour ₹120/h; machines ₹80 spinning, ₹60
+weaving, ₹150 dyeing, ₹70 finishing per hour; rework ₹250 per round; overhead 8%; 16 working hours/day.
 
 ## Audit center and buyer timeline (Phase 13, buyer portal)
 
