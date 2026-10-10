@@ -14,6 +14,8 @@ export const ERROR_CODES = Object.freeze({
   NOT_FOUND: 404,
   CONFLICT: 409,
   DUPLICATE_RESOURCE: 409,
+  // Same Idempotency-Key sent with a different request.
+  IDEMPOTENCY_KEY_REUSED: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,
   LAST_ACTIVE_ADMIN: 409,
