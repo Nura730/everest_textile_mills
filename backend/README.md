@@ -146,7 +146,7 @@ Notes:
 
 `STORE_KEEPER`, `FLOOR_MANAGER`, `QC_INSPECTOR`, `BUYER`, `ADMIN`
 
-### Permission matrix (Phase 2)
+### Permission matrix
 
 | Endpoint | STORE_KEEPER | FLOOR_MANAGER | QC_INSPECTOR | BUYER | ADMIN |
 |---|:-:|:-:|:-:|:-:|:-:|
@@ -155,6 +155,13 @@ Notes:
 | `GET /api/users` | | | | | ✓ |
 | `POST /api/users` | | | | | ✓ |
 | `PATCH /api/users/:id/status` | | | | | ✓ |
+| `GET /api/yarn-lots` | ✓ | ✓ (no cost) | | | ✓ |
+| `POST /api/yarn-lots` | ✓ | | | | ✓ |
+| `GET /api/yarn-lots/:id` | ✓ | ✓ (no cost) | | | ✓ |
+| `GET /api/yarn-lots/:id/transactions` | ✓ | ✓ | | | ✓ |
+| `POST /api/yarn-lots/:id/adjustments` | | | | | ✓ |
+| `GET /api/inventory/yarn-summary` | ✓ | ✓ | | | ✓ |
+| `GET /api/inventory/reconciliation` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -353,6 +360,163 @@ INACTIVE ──activate──▶ ACTIVE     can log in again; old tokens stay re
 | 409 | `CANNOT_DEACTIVATE_SELF` | An admin tried to deactivate their own account |
 | 409 | `LAST_ACTIVE_ADMIN` | Would leave no active admin (only reachable when two admins deactivate each other at the same moment) |
 
+## Idempotency (all stock-changing calls)
+
+Every call that changes stock **must** send an `Idempotency-Key` header: 8–64 letters, digits or
+hyphens. **Use a new UUID per user action** (`crypto.randomUUID()`), and **reuse the same key when
+retrying that action** (timeout, network drop, offline queue).
+
+| Situation | Result |
+|---|---|
+| First call | Executes; `201` |
+| Same key, same body again | Nothing changes; the **original** response is returned with header `Idempotent-Replayed: true` |
+| Same key, different body | `409 IDEMPOTENCY_KEY_REUSED` — generate a new key |
+| No/invalid header | `400 VALIDATION_ERROR` (`details[0].location: "headers"`) |
+| The call failed (4xx/5xx) | Nothing was stored; retrying with the same key runs it again |
+
+So after a timeout the frontend never has to guess "did it go through?": retry with the same key.
+
+## Yarn inventory
+
+Units: quantities in **kg** (number, at most 3 decimals; stored internally as integer grams).
+Money in integer **paise** (`32000` = ₹320.00). Available stock is always `totalKg − reservedKg`.
+
+### Lot object
+
+```json
+{
+  "id": "6ac9ec4caf83621b4a3f61a4",
+  "lotNumber": "GRN-2026-0104",
+  "material": "COTTON",
+  "colour": "Navy",
+  "yarnCount": "40s",
+  "supplierName": "Sri Lakshmi Spinners",
+  "totalKg": 1250,
+  "reservedKg": 0,
+  "availableKg": 1250,
+  "receivedAt": "2026-10-09T05:00:00.000Z",
+  "receivedBy": "6ac9ec4c180949dc12c8d1ec",
+  "createdAt": "2026-10-10T07:42:04.914Z",
+  "costPerKgPaise": 32000
+}
+```
+
+`costPerKgPaise` is present **only for STORE_KEEPER and ADMIN**; the floor manager never receives it.
+Materials: `COTTON`, `POLYESTER`, `VISCOSE`, `NYLON`, `WOOL`, `SILK`, `LINEN`, `BLEND`.
+
+### `POST /api/yarn-lots` — receive yarn (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+```bash
+curl -s -X POST http://localhost:4000/api/yarn-lots \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3f2c9a1e-5b7d-4c1a-9e8f-0123456789ab" \
+  -d '{"lotNumber":"GRN-2026-0104","material":"COTTON","colour":"navy","yarnCount":"40s",
+       "supplierName":"Sri Lakshmi Spinners","quantityKg":1250,"costPerKgPaise":32000,
+       "receivedAt":"2026-10-09T10:30:00+05:30"}'
+```
+
+| Field | Rule |
+|---|---|
+| `lotNumber` | 3–40 chars, letters/digits/`/`/`-`; upper-cased; **unique** |
+| `material` | one of the materials above |
+| `colour` | letters, spaces, hyphens; normalised to Title Case (`navy blue` → `Navy Blue`) |
+| `yarnCount` | optional, ≤ 20 chars |
+| `supplierName` | 2–120 chars |
+| `quantityKg` | > 0, ≤ 100,000, ≤ 3 decimals |
+| `costPerKgPaise` | integer ≥ 0 |
+| `receivedAt` | optional ISO 8601 with offset; not in the future; default now |
+
+`201 Created`: `{ "success": true, "data": { "lot": { …Lot object… } } }`
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad field, unknown field, missing `Idempotency-Key` |
+| 403 | `FORBIDDEN` | Not STORE_KEEPER/ADMIN |
+| 409 | `DUPLICATE_RESOURCE` | Lot number exists; `details.fields: ["lotNumber"]` |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | Key already used for a different receipt |
+
+### `GET /api/yarn-lots` — list lots (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
+
+Query: `material`, `colour` (case-insensitive), `includeDepleted=true|false` (default false: lots with
+0 kg hidden), `page`, `limit` (≤ 100). Sorted **oldest first** (use older yarn first).
+
+```json
+{ "success": true, "data": { "lots": [ { …Lot… }, { …Lot… } ] }, "meta": { "page": 1, "limit": 50, "total": 2 } }
+```
+
+### `GET /api/yarn-lots/:id` — one lot
+
+`200`: `{ "data": { "lot": { …Lot… } } }`. `404 NOT_FOUND` if unknown.
+
+### `GET /api/yarn-lots/:id/transactions` — the ledger behind a lot (newest first)
+
+```json
+{
+  "success": true,
+  "data": {
+    "transactions": [
+      { "id": "…", "type": "ADJUSTMENT", "yarnLotId": "…", "deltaTotalKg": -2.5, "deltaReservedKg": 0,
+        "orderId": null, "reservationId": null, "runId": null, "reason": "Water damage on two cones",
+        "actorId": "…", "createdAt": "2026-10-10T07:42:05.069Z" },
+      { "id": "…", "type": "RECEIPT", "yarnLotId": "…", "deltaTotalKg": 1250, "deltaReservedKg": 0,
+        "orderId": null, "reservationId": null, "runId": null, "reason": null,
+        "actorId": "…", "createdAt": "2026-10-10T07:42:04.917Z" }
+    ]
+  },
+  "meta": { "page": 1, "limit": 50, "total": 2 }
+}
+```
+
+Types: `RECEIPT`, `ADJUSTMENT` (now); `RESERVATION`, `RESERVATION_RELEASE`, `ISSUE`, `RETURN` (Phase 4).
+
+### `GET /api/inventory/yarn-summary` — the catalog (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
+
+Stock grouped by material and colour across all lots. Query: `material`, `includeDepleted`.
+
+```json
+{
+  "success": true,
+  "data": {
+    "summary": [
+      { "material": "COTTON", "colour": "Navy", "lots": 2, "totalKg": 1650, "reservedKg": 0,
+        "availableKg": 1650, "oldestReceivedAt": "2026-10-09T05:00:00.000Z" }
+    ]
+  }
+}
+```
+
+### `POST /api/yarn-lots/:id/adjustments` — correct stock (ADMIN; Idempotency-Key)
+
+Body: `{ "deltaKg": -2.5, "reason": "Water damage on two cones" }` — `deltaKg` non-zero, ±100,000,
+≤ 3 decimals; `reason` 5–500 chars.
+
+`201`: `{ "data": { "lot": { …Lot after… }, "transaction": { …ADJUSTMENT row… } } }`
+
+A lot can never go below what is reserved for orders (or below 0):
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INSUFFICIENT_STOCK",
+    "message": "Adjustment would leave less stock than is reserved for orders",
+    "requestId": "…",
+    "details": { "totalKg": 1247.5, "reservedKg": 850, "maxReductionKg": 397.5, "requestedDeltaKg": -500 }
+  }
+}
+```
+
+### `GET /api/inventory/reconciliation` — prove the numbers (ADMIN)
+
+Recomputes every lot's balances from its ledger.
+
+```json
+{ "success": true, "data": { "checkedAt": "…", "lotsChecked": 2, "balanced": true, "mismatches": [] } }
+```
+
+A mismatch looks like
+`{ "lotId", "lotNumber", "issues": ["TOTAL_MISMATCH" | "RESERVED_MISMATCH" | "INVARIANT_VIOLATED" | "LEDGER_WITHOUT_LOT"], "stored": { "totalKg", "reservedKg" }, "ledger": { "totalKg", "reservedKg", "entries" } }`.
+
 ### Unknown route
 
 ```bash
@@ -376,6 +540,8 @@ the current factory state. No `422` is used anywhere.
 | `NOT_FOUND` | 404 | Route or resource does not exist | Show not-found state |
 | `CONFLICT` | 409 | Request conflicts with current state | Show `message`, refresh data |
 | `DUPLICATE_RESOURCE` | 409 | A unique value already exists | Show which `details.fields` clash |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | Same `Idempotency-Key`, different request | Generate a new key for the new action |
+| `INSUFFICIENT_STOCK` | 409 | Not enough stock for the change (`details` has the numbers) | Show `details`, refresh stock |
 | `CANNOT_DEACTIVATE_SELF` | 409 | Admin targeted own account | Show `message` |
 | `LAST_ACTIVE_ADMIN` | 409 | Would leave no active admin | Show `message` |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
@@ -383,8 +549,8 @@ the current factory state. No `422` is used anywhere.
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
 | `SERVICE_UNAVAILABLE` | 503 | Database unreachable | Retry later (offline queue may retry) |
 
-Domain codes are added with their phase and will be listed here, e.g. `INSUFFICIENT_STOCK` (409),
-`INVALID_STATE_TRANSITION` (409), `ALREADY_DISPATCHED` (409). They are **not available yet**.
+Domain codes are added with their phase, e.g. `INVALID_STATE_TRANSITION` (409) and
+`ALREADY_DISPATCHED` (409). Codes not in the table above are **not available yet**.
 
 ### Example bodies for the other errors
 
@@ -422,9 +588,12 @@ src/
   server.js         process entry: config → DB → listen → graceful shutdown
   config/           env (zod-validated), db connection, logger
   constants/        roles
-  models/           Mongoose models (User)
+  models/           Mongoose models (User, YarnLot, InventoryTransaction, AuditLog, IdempotencyRecord)
+  models/plugins/   appendOnly (ledger and audit log can't be updated or deleted)
+  repositories/     data access with guarded atomic updates (yarn lots, ledger)
+  audit/            recordAudit(): audit entry inside the business transaction
   validators/       zod request schemas
-  services/         business rules: auth, users, password hashing, tokens
+  services/         business rules: auth, users, inventory, idempotency, password hashing, tokens
   middleware/       requestLogger, authenticate, authorize, rateLimit, validate, notFound, errorHandler
   routes/           URL → handler mapping; index.js mounts everything under /api
   controllers/      HTTP in/out only, no business rules
@@ -448,6 +617,9 @@ tests/
 - Validate input with `validate({ params, query, body })` (zod); controllers read **`req.validated`**
   only. Use `z.strictObject` for bodies that create or change state.
 - Never return a model directly: map it through a public-shape function (e.g. `toPublicUser`).
+- Every stock/production/sync mutation: route has `requireIdempotencyKey`; service wraps its work in
+  `executeIdempotent()` and writes business change + ledger + `recordAudit()` with the same `session`.
+- Store quantities as integers (grams, centimetres) and money as integer paise; convert at the edge.
 - Respond with `sendSuccess(res, data, { status, meta })`.
 
 ## Known limitations
