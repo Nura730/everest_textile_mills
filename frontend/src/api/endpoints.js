@@ -160,3 +160,12 @@ export const auditApi = {
   actions: () => apiRequest("/audit/actions"),
   correct: (id, note) => apiRequest(`/audit/${id}/corrections`, { method: "POST", body: { note } }),
 };
+
+// Phase 14: costing (owner only).
+export const costingApi = {
+  summary: () => apiRequest("/costing/summary"),
+  overview: () => apiRequest("/costing/overview"),
+  order: (id) => apiRequest(`/costing/orders/${id}`),
+  rates: () => apiRequest("/costing/rates"),
+  saveRates: (body) => apiRequest("/costing/rates", { method: "POST", body }),
+};

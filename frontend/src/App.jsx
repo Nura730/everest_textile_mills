@@ -14,6 +14,7 @@ import MachineDetail from './pages/MachineDetail';
 import MachineList from './pages/MachineList';
 import ProductionList from './pages/ProductionList';
 import AuditTrail from './pages/AuditTrail';
+import Costing from './pages/Costing';
 import DispatchPage from './pages/DispatchPage';
 import Invoices from './pages/Invoices';
 import QcQueue from './pages/QcQueue';
@@ -32,7 +33,6 @@ import Dispatch from './pages/Dispatch';
 import Machines from './pages/Machines';
 import Production from './pages/Production';
 import QualityControl from './pages/QualityControl';
-import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import StockLedger from './pages/StockLedger';
 
@@ -48,6 +48,7 @@ const LIVE_PAGES = {
   '/dispatch': <DispatchPage />,
   '/invoices': <Invoices />,
   '/audit': <AuditTrail />,
+  '/costing': <Costing />,
   '/rolls': <RollList />,
   '/users': <Users />,
 };
@@ -59,7 +60,6 @@ const PREVIEW_PAGES = {
   '/dispatch-board': <Dispatch />,
   '/bom': <BOM />,
   '/ledger': <StockLedger />,
-  '/reports': <Reports />,
   '/analytics': <Analytics />,
   '/settings': <Settings />,
 };

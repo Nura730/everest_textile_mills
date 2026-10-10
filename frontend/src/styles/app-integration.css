@@ -204,6 +204,8 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .delivery-warning { background: var(--color-error-light); color: var(--color-error-dark); }
 .audit-change { font-size: 0.75rem; word-break: break-word; }
 
+.plain-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 0.875rem; }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */
