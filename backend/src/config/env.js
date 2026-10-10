@@ -4,20 +4,43 @@ import { z } from 'zod';
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'];
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  MONGODB_URI: z
-    .string({ error: 'is required' })
-    .regex(/^mongodb(\+srv)?:\/\//, { error: 'must start with mongodb:// or mongodb+srv://' }),
-  LOG_LEVEL: z.enum(LOG_LEVELS).optional(),
-  CORS_ORIGINS: z
-    .string()
-    .default('http://localhost:5173')
-    .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
-    .pipe(z.array(z.url({ error: 'must be a comma-separated list of URLs' })).min(1)),
-  JSON_BODY_LIMIT: z.string().default('100kb'),
-});
+const MIN_PRODUCTION_BCRYPT_ROUNDS = 10;
+
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    MONGODB_URI: z
+      .string({ error: 'is required' })
+      .regex(/^mongodb(\+srv)?:\/\//, { error: 'must start with mongodb:// or mongodb+srv://' }),
+    LOG_LEVEL: z.enum(LOG_LEVELS).optional(),
+    CORS_ORIGINS: z
+      .string()
+      .default('http://localhost:5173')
+      .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
+      .pipe(z.array(z.url({ error: 'must be a comma-separated list of URLs' })).min(1)),
+    JSON_BODY_LIMIT: z.string().default('100kb'),
+    // HS256 secret. Short secrets can be brute-forced offline from any captured token.
+    JWT_SECRET: z
+      .string({ error: 'is required' })
+      .min(32, { error: 'must be at least 32 characters (see .env.example for a generator command)' }),
+    // One shift by default. No refresh tokens: re-login after expiry.
+    JWT_EXPIRES_IN: z
+      .string()
+      .regex(/^\d+[smhd]$/, { error: 'must look like 30m, 8h or 1d' })
+      .default('8h'),
+    // ~250ms per hash at 12. Tests use 4 for speed; production must not go below 10.
+    BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+  })
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production' && env.BCRYPT_ROUNDS < MIN_PRODUCTION_BCRYPT_ROUNDS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['BCRYPT_ROUNDS'],
+        message: `must be at least ${MIN_PRODUCTION_BCRYPT_ROUNDS} in production`,
+      });
+    }
+  });
 
 export class EnvValidationError extends Error {
   constructor(issues) {
@@ -44,6 +67,9 @@ export function parseEnv(source) {
     logLevel: env.LOG_LEVEL ?? (env.NODE_ENV === 'test' ? 'silent' : 'info'),
     corsOrigins: Object.freeze(env.CORS_ORIGINS),
     jsonBodyLimit: env.JSON_BODY_LIMIT,
+    jwtSecret: env.JWT_SECRET,
+    jwtExpiresIn: env.JWT_EXPIRES_IN,
+    bcryptRounds: env.BCRYPT_ROUNDS,
   });
 }
 
