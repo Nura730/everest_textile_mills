@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
@@ -517,6 +518,17 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  // ── Phase 15: offline sync ──
+  {
+    name: 'POST /api/sync/events',
+    method: 'post',
+    allowed: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN],
+    build: async () => ({
+      path: '/api/sync/events',
+      body: { deviceId: 'matrix-device-01', events: [{ eventId: randomUUID(), type: 'RUN_RESUME', payload: { runId: new mongoose.Types.ObjectId().toString() }, recordedAt: new Date().toISOString() }] },
+    }),
+  },
+  { name: 'GET /api/sync/events', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/sync/events' }) },
   // ── Phase 14: costing (owner only) ──
   { name: 'GET /api/costing/summary', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/costing/summary' }) },
   { name: 'GET /api/costing/overview', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/costing/overview' }) },

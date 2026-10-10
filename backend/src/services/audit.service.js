@@ -24,7 +24,7 @@ const ROLE_ACTIONS = {
 };
 
 /** Milestones a buyer may see on their own orders (no internal operations, no figures). */
-const BUYER_ACTIONS = new Set([
+export const BUYER_ACTIONS = new Set([
   'ORDER_CREATED',
   'ORDER_UPDATED',
   'ORDER_CONFIRMED',
@@ -69,13 +69,13 @@ function stripMoney(value) {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !MONEY_KEY.test(key)).map(([key, v]) => [key, stripMoney(v)]));
 }
 
-function allowedFor(role, action) {
+export function allowedFor(role, action) {
   if (role === ROLES.ADMIN) return true;
   if (role === ROLES.BUYER) return BUYER_ACTIONS.has(action);
   return (ROLE_ACTIONS[role] ?? []).some((pattern) => pattern.test(action));
 }
 
-function toPublicEntry(entry, actor, names) {
+export function toPublicEntry(entry, actor, names) {
   if (actor.role === ROLES.BUYER) {
     return { id: String(entry._id), action: entry.action, label: BUYER_LABELS[entry.action] ?? entry.action, orderId: entry.orderId ? String(entry.orderId) : null, at: entry.at };
   }
