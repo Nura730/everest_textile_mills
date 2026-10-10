@@ -8,6 +8,7 @@ import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
 import { ProductionRun } from '../../src/models/ProductionRun.js';
 import { QcInspection } from '../../src/models/QcInspection.js';
+import { RateCard } from '../../src/models/RateCard.js';
 import { Roll } from '../../src/models/Roll.js';
 import { Signature } from '../../src/models/Signature.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
@@ -44,6 +45,7 @@ export async function ensureInventoryCollections() {
     FinishedGood.init(),
     Dispatch.init(),
     Invoice.init(),
+    RateCard.init(),
   ]);
 }
 
@@ -65,6 +67,7 @@ export async function clearInventory() {
     FinishedGood.deleteMany({}),
     Dispatch.deleteMany({}),
     Invoice.deleteMany({}),
+    RateCard.collection.deleteMany({}),
   ]);
 }
 
