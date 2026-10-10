@@ -1,0 +1,33 @@
+{
+  "name": "everest-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Everest Textile Manufacturing System - backend API",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js | pino-pretty",
+    "start": "node src/server.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --watch"
+  },
+  "dependencies": {
+    "cors": "2.8.6",
+    "dotenv": "18.0.7",
+    "express": "5.3.0",
+    "helmet": "8.3.0",
+    "mongoose": "9.11.1",
+    "pino": "10.4.0",
+    "pino-http": "11.0.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "jest": "30.5.2",
+    "mongodb-memory-server": "11.3.0",
+    "pino-pretty": "13.2.0",
+    "supertest": "7.3.1"
+  }
+}
