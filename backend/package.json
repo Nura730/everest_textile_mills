@@ -9,7 +9,8 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "dev": "node --watch src/server.js | pino-pretty",
+    "dev": "node --watch src/server.js",
+    "dev:pretty": "node --watch src/server.js | pino-pretty",
     "start": "node src/server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --watch",
