@@ -175,7 +175,7 @@ export default function RunDetail() {
               <tbody>
                 {rolls.map((r) => (
                   <tr key={r.id}>
-                    <td className="mono">{r.rollNumber}</td>
+                    <td className="mono"><Link to={`/rolls/${r.id}`}>{r.rollNumber}</Link></td>
                     <td className="num">{formatNumber(r.lengthMetres, 'm')}</td>
                     <td className="num">{r.weightKg !== null ? formatNumber(r.weightKg, 'kg') : '—'}</td>
                     <td>{r.yarnLots.map((lot) => lot.lotNumber).join(', ') || '—'}</td>

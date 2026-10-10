@@ -183,6 +183,15 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 
 .run-progress { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
 
+.signature-pad { display: flex; flex-direction: column; gap: 6px; }
+.signature-canvas { width: 100%; max-width: 400px; aspect-ratio: 10 / 3; border: 1px dashed var(--color-gray-400); border-radius: 8px; background: var(--color-white); touch-action: none; cursor: crosshair; }
+.signature-actions { display: flex; justify-content: space-between; align-items: center; max-width: 400px; }
+.signature-block { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--color-gray-100); }
+.signature-record { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-gray-200); }
+.signature-image { max-width: 240px; border: 1px solid var(--color-gray-200); border-radius: 6px; background: var(--color-white); }
+.defect-row { display: grid; grid-template-columns: 1.3fr 0.8fr 2fr auto; gap: 8px; margin-top: 8px; }
+@media (max-width: 600px) { .defect-row { grid-template-columns: 1fr 1fr; } }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */

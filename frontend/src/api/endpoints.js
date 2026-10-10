@@ -122,3 +122,18 @@ export const productionApi = {
   recordRoll: (id, body, idempotencyKey) =>
     apiRequest(`/production-runs/${id}/rolls`, { method: "POST", body, idempotencyKey }),
 };
+
+// Phases 9-10: rolls (traceability) and QC.
+export const rollsApi = {
+  list: (query) => apiRequest("/rolls", { query }),
+  trace: (id) => apiRequest(`/rolls/${id}`),
+  inspect: (id, body, idempotencyKey) =>
+    apiRequest(`/rolls/${id}/inspections`, { method: "POST", body, idempotencyKey }),
+  reworkDone: (id, note, idempotencyKey) =>
+    apiRequest(`/rolls/${id}/rework-done`, { method: "POST", body: note ? { note } : {}, idempotencyKey }),
+};
+
+export const qcApi = {
+  inspections: (query) => apiRequest("/qc/inspections", { query }),
+  summary: () => apiRequest("/qc/summary"),
+};
