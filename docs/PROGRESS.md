@@ -14,10 +14,10 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 |---|---|---|---|---|---|
 | 1 | Foundation | ✅ Done | `feature/backend` | #3 (merged to `main`) | 75 |
 | 2 | Auth & RBAC | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 270 |
-| — | Domain model (`docs/DATABASE.md`) | ✅ Done (D1–D8 await confirmation) | `feature/backend` | via `feature/backend` | — |
+| — | Domain model (`docs/DATABASE.md`) | ✅ Done (D1, D2, D5 confirmed; D3, D4, D6–D8 pending) | `feature/backend` | via `feature/backend` | — |
 | 3 | Yarn inventory | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 439 |
-| 4 | Material reservation | ⏸ Waiting on decision D5 (phase order) | | | |
-| 5 | Orders (+ ownership checks) | Not started | | | |
+| 5 | Buyers, catalog, orders (+ ownership) — built before 4 (D5) | 🟡 Implemented, **uncommitted** (awaiting owner review) | `feature/backend` | — | 621 |
+| 4 | Material reservation | ⏳ Next | | | |
 | 6 | Feasibility | Not started | | | |
 | 7 | Machines | Not started | | | |
 | 8 | Production runs | Not started | | | |
@@ -41,14 +41,26 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 - Cost visible to STORE_KEEPER/ADMIN only.
 - Docs: `docs/features/phase-03-inventory.md`, `docs/learning/phase-03-inventory.md`, README contract.
 
+## Phase 5 — what is done (uncommitted)
+
+- `Buyer` (company), `Product` (fabric catalog with yarn g/m), `Order` (snapshots, statusHistory), `Counter`.
+- `users.buyerId`: required for BUYER at account creation; `req.user.buyerId` read from the DB.
+- Ownership: buyers read, list and cancel only their company's orders (404 otherwise).
+- Field visibility: money for ADMIN + owning BUYER; yarn requirement for internal roles.
+- Transitions: `ORDER_CREATED → CANCELLED` (owner/ADMIN), `ORDER_CREATED → REJECTED` (ADMIN).
+- Idempotent create/cancel/reject; order numbers from a counter inside the transaction.
+- `seed:dev` adds buyer `BUY-DEV` (linked to buyer@) and two products.
+- Docs: `docs/features/phase-05-orders.md`, `docs/learning/phase-05-orders.md`, README contract, DATABASE.md.
+
 ## Next
 
-Blocked on the owner's answers to D1–D8 in `docs/DATABASE.md` §7, especially **D5**: build orders
-(Phase 5) before reservation (Phase 4), because a reservation is always for an order.
+1. Owner reviews and commits Phase 5.
+2. Phase 4 — material reservation for orders (reserve, release, issue, return) on the existing ledger.
+3. Phase 6 — feasibility and `ORDER_CREATED → CONFIRMED`.
 
 ## Open decisions / process issues
 
-- **D1–D8** (`docs/DATABASE.md` §7) need confirmation before Phase 4/5.
+- **D3, D4, D6, D7, D8** (`docs/DATABASE.md` §7) still need confirmation (D7 is already built as proposed).
 - **Integration:** the team merges `feature/backend` into `main` through PRs (as with PRs #3–#24).
   `develop` is not used in practice and is still at Phase 1.
 - **PRs must be opened by hand**: `gh` is not installed.
@@ -60,5 +72,8 @@ Blocked on the owner's answers to D1–D8 in `docs/DATABASE.md` §7, especially 
 - Reconciliation loads all lots into memory (fine at factory scale).
 - Login rate limits are in memory (per process, reset on restart); `trust proxy` needed behind a proxy.
 - Audit events for login and user management are specified but not emitted until Phase 13.
+- Existing BUYER accounts without `buyerId` see no orders until linked; there is no admin "link an
+  existing user to a company" endpoint yet (`seed:dev` links `buyer@everest.local`).
+- Orders cannot progress past `ORDER_CREATED` until Phase 6 (confirmation after feasibility).
 - SIGTERM graceful-shutdown test is skipped on Windows.
 - Dev-only `npm audit` advisories in `sprintf-js` (via Jest); runtime dependencies have none.

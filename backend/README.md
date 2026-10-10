@@ -33,7 +33,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm start` | Production start, JSON logs on stdout |
 | `npm test` | Jest (native ESM) against an in-memory MongoDB replica set |
 | `npm run test:watch` | Same, in watch mode |
-| `npm run seed:dev` | Creates `admin@`, `store@`, `floor@`, `qc@`, `buyer@everest.local`, all with `SEED_PASSWORD`. Idempotent, never overwrites a password, **refuses in production** |
+| `npm run seed:dev` | Creates `admin@`, `store@`, `floor@`, `qc@`, `buyer@everest.local` (all with `SEED_PASSWORD`), the buyer company `BUY-DEV` (linked to `buyer@`), and products `COT-NAVY-PLAIN` and `POL-WHITE-TWILL`. Idempotent, never overwrites a password, **refuses in production** |
 | `npm run bootstrap:admin` | Creates the **first** admin from `BOOTSTRAP_ADMIN_*`. Works in production; refuses while an active admin exists; never promotes an existing account |
 
 The first `npm test` downloads a `mongod` binary (~100 MB) into the npm cache; it needs internet once.
@@ -162,6 +162,14 @@ Notes:
 | `POST /api/yarn-lots/:id/adjustments` | | | | | ✓ |
 | `GET /api/inventory/yarn-summary` | ✓ | ✓ | | | ✓ |
 | `GET /api/inventory/reconciliation` | | | | | ✓ |
+| `GET /api/buyers`, `GET /api/buyers/:id` | | | | | ✓ |
+| `POST /api/buyers` | | | | | ✓ |
+| `GET /api/products`, `GET /api/products/:id` | ✓ | ✓ | ✓ | ✓ (no yarn spec) | ✓ |
+| `POST /api/products` | | | | | ✓ |
+| `GET /api/orders`, `GET /api/orders/:id` | ✓ (no money) | ✓ (no money) | ✓ (no money) | ✓ own only | ✓ |
+| `POST /api/orders` | | | | ✓ own company | ✓ (names buyer) |
+| `POST /api/orders/:id/cancel` | | | | ✓ own | ✓ |
+| `POST /api/orders/:id/reject` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -176,10 +184,15 @@ Every endpoint that returns a user returns exactly this shape (never a password 
   "email": "admin@everest.local",
   "role": "ADMIN",
   "isActive": true,
+  "buyerId": null,
   "lastLoginAt": "2026-10-10T07:17:41.029Z",
   "createdAt": "2026-10-10T07:17:40.931Z"
 }
 ```
+
+`buyerId` is the buyer **company** a BUYER account belongs to (`null` for staff). A BUYER account
+with `buyerId: null` (created before companies existed) sees no orders and cannot place any until an
+admin links it.
 
 ## Endpoints
 
@@ -285,6 +298,7 @@ curl -s -X POST http://localhost:4000/api/users \
 | `email` | valid email, stored lowercased, unique |
 | `password` | 10 characters minimum, 72 **bytes** maximum |
 | `role` | one of the five roles (uppercase) |
+| `buyerId` | **required when `role` is `BUYER`** (an existing, active buyer company id); **not allowed** for any other role |
 
 Any other field (`isActive`, `passwordHash`, …) is rejected with 400.
 
@@ -292,10 +306,11 @@ Any other field (`isActive`, `passwordHash`, …) is rejected with 400.
 
 | Status | Code | When |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Invalid field or unknown field (`details` lists each) |
+| 400 | `VALIDATION_ERROR` | Invalid field or unknown field (`details` lists each); `buyerId` missing for a BUYER, present for staff, or not an existing company |
 | 401 | `UNAUTHENTICATED` | No/invalid token |
 | 403 | `FORBIDDEN` | Caller is not ADMIN (returned before validation) |
 | 409 | `DUPLICATE_RESOURCE` | Email already exists (case-insensitive); `details.fields: ["email"]` |
+| 409 | `BUYER_INACTIVE` | The buyer company is inactive |
 
 ```json
 {
@@ -517,6 +532,250 @@ Recomputes every lot's balances from its ledger.
 A mismatch looks like
 `{ "lotId", "lotNumber", "issues": ["TOTAL_MISMATCH" | "RESERVED_MISMATCH" | "INVARIANT_VIOLATED" | "LEDGER_WITHOUT_LOT"], "stored": { "totalKg", "reservedKg" }, "ledger": { "totalKg", "reservedKg", "entries" } }`.
 
+## Buyers, products and orders
+
+Units: order quantities in **metres** (number, at most 2 decimals; stored as integer cm). Money in
+integer **paise** (`18000` = ₹180.00 per metre). Deadlines are **calendar dates** `YYYY-MM-DD`.
+
+### Buyer object
+
+```json
+{
+  "id": "6aca0138c330ed1ed243ade5",
+  "code": "BUY-SRT",
+  "name": "Surat Fabrics Pvt Ltd",
+  "contactName": "Priya Shah",
+  "email": "orders@suratfabrics.example",
+  "phone": "+91 98250 12345",
+  "address": "Ring Road, Surat, Gujarat",
+  "isActive": true,
+  "createdAt": "2026-10-10T09:11:20.451Z"
+}
+```
+
+### `POST /api/buyers` — create a buyer company (ADMIN)
+
+```bash
+curl -s -X POST http://localhost:4000/api/buyers -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"buy-srt","name":"Surat Fabrics Pvt Ltd","contactName":"Priya Shah",
+       "email":"orders@suratfabrics.example","phone":"+91 98250 12345","address":"Ring Road, Surat, Gujarat"}'
+```
+
+| Field | Rule |
+|---|---|
+| `code` | 2–20 letters/digits/`-`, upper-cased, **unique** |
+| `name` | 2–120 chars |
+| `contactName`, `email`, `phone`, `address` | optional |
+
+`201`: `{ "data": { "buyer": { …Buyer object… } } }`. `409 DUPLICATE_RESOURCE` (`fields: ["code"]`) if the code exists.
+Then create the buyer's login with `POST /api/users` and `"role": "BUYER", "buyerId": "<buyer id>"`.
+
+### `GET /api/buyers`, `GET /api/buyers/:id` (ADMIN)
+
+Query: `isActive=true|false`, `page`, `limit`. Sorted by name. `404` for an unknown id.
+
+### Product object
+
+```json
+{
+  "id": "6aca0138c330ed1ed243ade7",
+  "code": "COT-NAVY-PLAIN",
+  "name": "Navy Cotton Plain",
+  "material": "COTTON",
+  "colour": "Navy",
+  "weave": "PLAIN",
+  "widthCm": 150,
+  "gsm": 110,
+  "machineType": "WEAVING",
+  "pricePerMetrePaise": 18000,
+  "isActive": true,
+  "createdAt": "2026-10-10T09:11:20.478Z",
+  "yarnGramsPerMetre": 170
+}
+```
+
+`yarnGramsPerMetre` (yarn consumed per metre, including process waste) is **not sent to buyers**.
+
+### `POST /api/products` — add a catalog fabric (ADMIN)
+
+```bash
+curl -s -X POST http://localhost:4000/api/products -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"cot-navy-plain","name":"Navy Cotton Plain","material":"COTTON","colour":"navy",
+       "weave":"PLAIN","widthCm":150,"gsm":110,"yarnGramsPerMetre":170,"pricePerMetrePaise":18000}'
+```
+
+| Field | Rule |
+|---|---|
+| `code` | 2–30 letters/digits/`-`, upper-cased, **unique** |
+| `material` | same list as yarn |
+| `colour` | normalised to Title Case |
+| `weave` | `PLAIN`, `TWILL`, `SATIN`, `DOBBY` |
+| `widthCm` | integer 50–400 |
+| `gsm` | integer 20–1000 (grams per m²) |
+| `yarnGramsPerMetre` | integer, **at least gsm × width / 100** (the fabric's own weight per metre) |
+| `machineType` | optional, default `WEAVING` |
+| `pricePerMetrePaise` | integer ≥ 1 |
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "requestId": "c9ed3e22-…",
+    "details": [
+      { "location": "body", "path": "yarnGramsPerMetre",
+        "message": "must be at least 165 (the fabric's own weight per metre: gsm × width)" }
+    ]
+  }
+}
+```
+
+### `GET /api/products`, `GET /api/products/:id` (all roles)
+
+Query: `material`, `colour`, `page`, `limit`; `includeInactive=true` works for ADMIN only — everyone
+else always gets active products, and an inactive product's detail is `404` for them.
+
+### Order object
+
+What each role receives:
+
+| Field | BUYER (own orders) | ADMIN | STORE_KEEPER / FLOOR_MANAGER / QC_INSPECTOR |
+|---|:-:|:-:|:-:|
+| id, orderNumber, status, buyer, product, quantityMetres, requiredBy, buyerNotes, statusHistory, timestamps | ✓ | ✓ | ✓ |
+| `pricePerMetrePaise`, `orderValuePaise` | ✓ | ✓ | |
+| `requiredYarnKg`, `createdBy`, `statusHistory[].by` | | ✓ | ✓ |
+
+As seen by the buyer:
+
+```json
+{
+  "id": "6aca0138c330ed1ed243adeb",
+  "orderNumber": "ORD-2026-0001",
+  "status": "ORDER_CREATED",
+  "buyer": { "id": "6aca0138c330ed1ed243ade5", "code": "BUY-SRT", "name": "Surat Fabrics Pvt Ltd" },
+  "product": { "id": "6aca0138c330ed1ed243ade7", "code": "COT-NAVY-PLAIN", "name": "Navy Cotton Plain",
+               "material": "COTTON", "colour": "Navy" },
+  "quantityMetres": 5000,
+  "requiredBy": "2026-11-09",
+  "buyerNotes": "Pack in 100 m rolls",
+  "statusHistory": [
+    { "from": null, "to": "ORDER_CREATED", "at": "2026-10-10T09:11:20.583Z", "byRole": "BUYER", "reason": null }
+  ],
+  "createdAt": "2026-10-10T09:11:20.591Z",
+  "updatedAt": "2026-10-10T09:11:20.591Z",
+  "pricePerMetrePaise": 18000,
+  "orderValuePaise": 90000000
+}
+```
+
+The same order for ADMIN additionally has `"requiredYarnKg": 850`, `"createdBy": "…"` and `"by"` on each
+history entry. For the floor manager: `requiredYarnKg`, `createdBy`, `by` — but no price or value.
+
+Product and price are **copied onto the order** when it is created; editing the catalog later never
+changes an existing order.
+
+### Order statuses
+
+```
+ORDER_CREATED ──cancel (owning BUYER or ADMIN)──▶ CANCELLED
+ORDER_CREATED ──reject (ADMIN)──────────────────▶ REJECTED
+```
+
+Only these transitions exist today. `CONFIRMED` (after the feasibility check) and the later statuses
+(`MATERIAL_RESERVED`, `IN_PRODUCTION`, `PRODUCTION_COMPLETED`, `READY_FOR_DISPATCH`, `DISPATCHED`,
+`INVOICED`) arrive with their phases. Any other change returns `409 INVALID_STATE_TRANSITION`.
+
+### `POST /api/orders` — place an order (BUYER, ADMIN; Idempotency-Key)
+
+As a buyer (the company comes from your account; **do not send `buyerId`**):
+
+```bash
+curl -s -X POST http://localhost:4000/api/orders -H "Authorization: Bearer $BUYER_TOKEN" \
+  -H "Content-Type: application/json" -H "Idempotency-Key: $(node -e "console.log(crypto.randomUUID())")" \
+  -d '{"productId":"6aca0138c330ed1ed243ade7","quantityMetres":5000,"requiredBy":"2026-11-09",
+       "buyerNotes":"Pack in 100 m rolls"}'
+```
+
+As an admin (phone order), add `"buyerId": "<buyer company id>"` (required).
+
+| Field | Rule |
+|---|---|
+| `productId` | an existing, active product |
+| `quantityMetres` | > 0, ≤ 1,000,000, ≤ 2 decimals |
+| `requiredBy` | `YYYY-MM-DD`, **after today** (India time), at most 2 years ahead |
+| `buyerNotes` | optional, ≤ 500 chars |
+| `buyerId` | ADMIN only, required for ADMIN |
+
+Anything else — `status`, `orderNumber`, prices, `buyerId` from a buyer — is rejected with 400.
+
+`201`: `{ "data": { "order": { …Order object… } } }`
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad/unknown field, missing Idempotency-Key, product or buyer id that does not exist (`details[].message: "does not exist"`) |
+| 403 | `FORBIDDEN` | Role not allowed, or a BUYER account not linked to a company |
+| 409 | `PRODUCT_INACTIVE` / `BUYER_INACTIVE` | Retired product / inactive company |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | Key already used for a different order |
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "requestId": "401d331c-…",
+    "details": [
+      { "location": "body", "path": "quantityMetres", "message": "must have at most 2 decimal places" },
+      { "location": "body", "path": "requiredBy", "message": "must be after today" }
+    ]
+  }
+}
+```
+
+### `GET /api/orders` (all roles; BUYER sees own only)
+
+Query: `status`, `productId`, `buyerId` (ignored for buyers), `page`, `limit`. Newest first.
+
+```json
+{ "success": true, "data": { "orders": [ { …Order… } ] }, "meta": { "page": 1, "limit": 10, "total": 1 } }
+```
+
+### `GET /api/orders/:id` (all roles; BUYER own only)
+
+Another company's order returns **404 `NOT_FOUND`** (exactly like a missing order), never 403.
+
+### `POST /api/orders/:id/cancel` (owning BUYER, ADMIN; Idempotency-Key)
+
+Body: `{ "reason": "Buyer changed plans" }` (5–500 chars). `200` with the updated order:
+
+```json
+"statusHistory": [
+  { "from": null, "to": "ORDER_CREATED", "at": "…", "byRole": "BUYER", "reason": null },
+  { "from": "ORDER_CREATED", "to": "CANCELLED", "at": "…", "byRole": "BUYER", "reason": "Buyer changed plans" }
+]
+```
+
+Cancelling again:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_STATE_TRANSITION",
+    "message": "An order in status CANCELLED cannot become CANCELLED",
+    "requestId": "0ceabd6a-…",
+    "details": { "from": "CANCELLED", "to": "CANCELLED", "allowed": [] }
+  }
+}
+```
+
+### `POST /api/orders/:id/reject` (ADMIN; Idempotency-Key)
+
+Body: `{ "reason": "Deadline cannot be met" }`. Same responses as cancel; ends in `REJECTED`.
+
 ### Unknown route
 
 ```bash
@@ -544,13 +803,16 @@ the current factory state. No `422` is used anywhere.
 | `INSUFFICIENT_STOCK` | 409 | Not enough stock for the change (`details` has the numbers) | Show `details`, refresh stock |
 | `CANNOT_DEACTIVATE_SELF` | 409 | Admin targeted own account | Show `message` |
 | `LAST_ACTIVE_ADMIN` | 409 | Would leave no active admin | Show `message` |
+| `INVALID_STATE_TRANSITION` | 409 | Status change not allowed from the current status; `details`: `{ from, to, allowed }` | Refresh the record; show `message` |
+| `BUYER_INACTIVE` | 409 | The buyer company is inactive | Show `message` |
+| `PRODUCT_INACTIVE` | 409 | The product is no longer sold | Refresh the catalog |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
 | `SERVICE_UNAVAILABLE` | 503 | Database unreachable | Retry later (offline queue may retry) |
 
-Domain codes are added with their phase, e.g. `INVALID_STATE_TRANSITION` (409) and
-`ALREADY_DISPATCHED` (409). Codes not in the table above are **not available yet**.
+Domain codes are added with their phase, e.g. `ALREADY_DISPATCHED` (409). Codes not in the table
+above are **not available yet**.
 
 ### Example bodies for the other errors
 
@@ -588,7 +850,8 @@ src/
   server.js         process entry: config → DB → listen → graceful shutdown
   config/           env (zod-validated), db connection, logger
   constants/        roles
-  models/           Mongoose models (User, YarnLot, InventoryTransaction, AuditLog, IdempotencyRecord)
+  models/           Mongoose models (User, Buyer, Product, Order, Counter, YarnLot,
+                    InventoryTransaction, AuditLog, IdempotencyRecord)
   models/plugins/   appendOnly (ledger and audit log can't be updated or deleted)
   repositories/     data access with guarded atomic updates (yarn lots, ledger)
   audit/            recordAudit(): audit entry inside the business transaction

@@ -48,18 +48,24 @@ syncEvents (offline device events)    counters (business numbers)    costRates  
 ### users *(Phase 2)*
 `name`, `email` (lowercase, **unique**), `passwordHash` (`select:false`), `role`
 (`STORE_KEEPER|FLOOR_MANAGER|QC_INSPECTOR|BUYER|ADMIN`), `isActive`, `tokenVersion`, `lastLoginAt`,
-`createdBy → users`, `buyerId → buyers` *(Phase 5; required iff role = BUYER)*, timestamps.
+`createdBy → users`, `buyerId → buyers` *(Phase 5)*, timestamps.
+`buyerId` is required for role BUYER **when the account is created** (`POST /api/users`), not by the
+schema: accounts that predate buyer companies stay valid and fail closed (see no orders) until linked.
 
-### buyers *(Phase 5)*
+### buyers *(Phase 5, built)*
 A buyer **company**. `code` (**unique**, e.g. `BUY-SRT`), `name`, `contactName`, `email`, `phone`,
-`address`, `isActive`, timestamps. One company can have several BUYER users.
-Ownership rule: a BUYER user sees only orders whose `buyerId` equals their own `buyerId`.
+`address`, `isActive`, `createdBy`, timestamps. One company can have several BUYER users.
+Ownership rule: a BUYER user sees only orders whose `buyerId` equals their own `buyerId`; anything
+else is answered as 404.
+Indexes: `{ code: 1 }` unique; `{ isActive: 1, name: 1 }` (admin list).
 
-### products *(Phase 5)* — the fabric catalog
-`code` (**unique**, e.g. `COT-NAVY-PLAIN`), `name`, `material`, `colour`, `machineType` (which
-machines can make it, e.g. `WEAVING`), `yarnGramsPerMetre` (yarn consumed per metre, **including**
-standard process waste), `defaultPricePerMetrePaise`, `isActive`.
+### products *(Phase 5, built)* — the fabric catalog
+`code` (**unique**, e.g. `COT-NAVY-PLAIN`), `name`, `material`, `colour`, `weave`
+(`PLAIN|TWILL|SATIN|DOBBY`), `widthCm`, `gsm`, `machineType` (which machines can make it, e.g.
+`WEAVING`), `yarnGramsPerMetre` (yarn consumed per metre, **including** standard process waste;
+must be ≥ ⌊gsm × widthCm / 100⌋), `defaultPricePerMetrePaise`, `isActive`, `createdBy`, timestamps.
 This is what turns "5,000 m Navy Cotton" into "850 kg Navy Cotton yarn" (5,000 × 170 g/m).
+Indexes: `{ code: 1 }` unique; `{ isActive: 1, material: 1, colour: 1 }` (catalog browsing).
 
 ### yarnLots *(Phase 3)* — one document per received batch
 | Field | Notes |
@@ -105,11 +111,21 @@ ACTIVE ──issue part──▶ PARTIALLY_ISSUED ──issue rest──▶ FULL
   └──release/cancel─────────┴──▶ RELEASED   (remaining reserved grams return to available)
 ```
 
-### orders *(Phase 5)*
-`orderNumber` (**unique**), `buyerId`, `productId`, product snapshot (`material`, `colour`,
-`yarnGramsPerMetre`, `pricePerMetrePaise`), `quantityCm`, `requiredYarnGrams` (computed),
-`requiredBy` (deadline), `status`, `feasibility` (latest snapshot: `status`, `reasons[]`, `inputs`,
-`computedAt`), `estimatedCompletionAt`, `createdBy`, `confirmedBy`, `version`, timestamps.
+### orders *(Phase 5, built)*
+Built now: `orderNumber` (**unique**, `ORD-<year>-<seq>` from `counters` inside the creation
+transaction), `buyerId`, buyer snapshot (`code`, `name`), `productId`, product snapshot (`code`,
+`name`, `material`, `colour`, `yarnGramsPerMetre`, `pricePerMetrePaise`), `quantityCm`,
+`requiredYarnGrams` = ⌈quantityCm × g/m ÷ 100⌉, `orderValuePaise` = round(quantityCm × price ÷ 100),
+`requiredBy` (calendar date stored as UTC midnight; must be after today in India, ≤ 2 years),
+`status`, `statusHistory[]` (`from`, `to`, `at`, `by`, `byRole`, `reason` — small, feeds the buyer
+timeline; the audit log stays the full record), `buyerNotes`, `createdBy`, `createdByRole`, timestamps.
+Later phases add: `feasibility` (latest snapshot: `status`, `reasons[]`, `inputs`, `computedAt`)
+and `estimatedCompletionAt` (Phase 6), `confirmedBy`.
+Status changes are guarded updates (`{ _id, status: <expected> }`), so concurrent changes cannot
+both apply. Indexes: `{ orderNumber: 1 }` unique; `{ buyerId: 1, createdAt: -1 }` (a buyer's list);
+`{ status: 1, requiredBy: 1 }` (work queue by deadline); `{ createdAt: -1 }` (staff list).
+Transitions implemented in Phase 5: `ORDER_CREATED → CANCELLED` (owning BUYER or ADMIN) and
+`ORDER_CREATED → REJECTED` (ADMIN), both with a reason.
 
 ```
 ORDER_CREATED ──confirm (runs feasibility)──▶ CONFIRMED ──reserve yarn──▶ MATERIAL_RESERVED
@@ -268,11 +284,11 @@ These are not covered by the agreed defaults and change what we would defend to 
 
 | # | Decision | Proposed | Alternative |
 |---|---|---|---|
-| D1 | **Single-line orders** | One product per order ("5,000 m Navy Cotton"). Multi-line is future work | `items[]` with per-line feasibility, production and dispatch — roughly doubles Phases 5–12 |
-| D2 | **Fabric catalog** (`products`) with `yarnGramsPerMetre` | Buyer picks a catalog product; yarn requirement is derived | Admin types the yarn requirement per order |
+| D1 ✅ confirmed | **Single-line orders** | One product per order ("5,000 m Navy Cotton"). Multi-line is future work | `items[]` with per-line feasibility, production and dispatch — roughly doubles Phases 5–12 |
+| D2 ✅ confirmed | **Fabric catalog** (`products`) with `yarnGramsPerMetre` | Buyer picks a catalog product; yarn requirement is derived | Admin types the yarn requirement per order |
 | D3 | **Single-stage production** | A run on one machine (type from the product) produces finished fabric rolls; spinning/dyeing are machine types but not chained stages | Multi-stage routing (spin → weave → dye) with WIP between stages |
 | D4 | **Machine states**: `AVAILABLE, ASSIGNED, RUNNING, PAUSED, DOWN, MAINTENANCE` | **No `IDLE`**: it is indistinguishable from `AVAILABLE` in our model | Keep `IDLE` meaning "assigned but waiting" (= our `ASSIGNED`) |
-| D5 | **Phase order** | Orders (Phase 5) **before** reservation (Phase 4): a reservation is always *for an order*. This matches `instruction.md` §25 (orders → feasibility → reservation) | Keep order and stub orders inside Phase 4 |
+| D5 ✅ confirmed | **Phase order** | Orders (Phase 5) **before** reservation (Phase 4): a reservation is always *for an order*. This matches `instruction.md` §25 (orders → feasibility → reservation) | Keep order and stub orders inside Phase 4 |
 | D6 | **Labour cost** | Hourly rate × production-run hours from `costRates`; no attendance/wage module | Build attendance and wages (in the problem statement, not in the phase list) |
 | D7 | **Stock adjustments** | ADMIN only, reason required, cannot reduce a lot below its reserved grams | Store Keeper may adjust; Admin reviews |
 | D8 | **Idempotency records kept forever** | No TTL (hackathon data volume is small; offline devices may retry late) | 30-day TTL |
