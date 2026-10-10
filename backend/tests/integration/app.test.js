@@ -7,6 +7,7 @@ import { parseEnv } from '../../src/config/env.js';
 const config = parseEnv({
   NODE_ENV: 'test',
   MONGODB_URI: process.env.MONGODB_URI,
+  JWT_SECRET: process.env.JWT_SECRET,
   CORS_ORIGINS: 'http://localhost:5173',
 });
 const app = createApp({ config, logger: createLogger({ level: 'silent' }) });
