@@ -199,7 +199,7 @@ const MATRIX = [
   {
     name: 'POST /api/yarn-lots/:id/adjustments',
     method: 'post',
-    allowed: [ROLES.ADMIN],
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
     build: async () => ({
       path: `/api/yarn-lots/${(await existingLot())._id}/adjustments`,
       body: { deltaKg: 1, reason: 'Matrix recount' },
@@ -339,11 +339,20 @@ const MATRIX = [
       };
     },
   },
+  {
+    name: 'PATCH /api/yarn-lots/:id',
+    method: 'patch',
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    build: async () => {
+      const lot = await existingLot();
+      return { path: `/api/yarn-lots/${lot._id}`, body: { expectedUpdatedAt: lot.updatedAt.toISOString(), supplierName: 'Matrix Supplier Two' } };
+    },
+  },
   // ── Phase 4: material reservation ──
   {
     name: 'POST /api/orders/:id/reserve',
     method: 'post',
-    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    allowed: [ROLES.FLOOR_MANAGER, ROLES.ADMIN],
     build: async () => {
       await existingLot({ totalGrams: 1_000_000 });
       const order = await createTestOrder({ buyer: matrixBuyer, product: matrixProduct, createdBy: MATRIX_ACTOR, status: 'CONFIRMED' });

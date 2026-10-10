@@ -53,7 +53,7 @@ beforeEach(async () => {
   buyerUser = await createTestUser({ role: ROLES.BUYER, buyerId: buyerCo._id });
   product = await createTestProduct();
   const order = await createTestOrder({ buyer: buyerCo, product, createdBy: admin._id, status: 'CONFIRMED', quantityCm: 500_000, requiredYarnGrams: 850_000 });
-  expect((await post(store, `/api/orders/${order._id}/reserve`)).status).toBe(200);
+  expect((await post(floor, `/api/orders/${order._id}/reserve`)).status).toBe(200);
   expect((await post(store, `/api/orders/${order._id}/issue`, { quantityKg: 850 })).status).toBe(200);
   const planned = await post(floor, '/api/production-runs', { orderId: String(order._id), machineId: String(loom._id), targetMetres: 5000 });
   run = planned.body.data.run;

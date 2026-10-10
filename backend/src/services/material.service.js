@@ -132,7 +132,7 @@ async function appendLedgerRow(type, { lot, reservation, order, deltaTotal, delt
 const reservationSummary = (reservations) => reservations.map((r) => ({ lotNumber: r.lotNumber, grams: r.reservedGrams }));
 
 /**
- * Reserve the order's whole yarn requirement (STORE_KEEPER or ADMIN). Without `allocations` the
+ * Reserve the order's whole yarn requirement (FLOOR_MANAGER or ADMIN). Without `allocations` the
  * oldest lots are used first; with them, the store keeper's choice is used as long as it matches
  * the order's material and colour and adds up exactly. All or nothing: a partial reservation is
  * never stored.

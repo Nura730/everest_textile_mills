@@ -71,7 +71,8 @@ afterAll(async () => {
 });
 
 const post = (actor, path, body = {}, key = newKey()) => request(app).post(path).set('Authorization', bearer(actor)).set('Idempotency-Key', key).send(body);
-const reserve = (actor = store, body = {}, key) => post(actor, `/api/orders/${order._id}/reserve`, body, key);
+// Reserving yarn for production is the floor manager's job (the store issues and returns it).
+const reserve = (actor = floor, body = {}, key) => post(actor, `/api/orders/${order._id}/reserve`, body, key);
 const issue = (quantityKg, actor = store) => post(actor, `/api/orders/${order._id}/issue`, { quantityKg });
 const giveBack = (quantityKg, reason = 'Unused cones back from loom 3', actor = store) => post(actor, `/api/orders/${order._id}/return`, { quantityKg, reason });
 const lotKg = async (lot) => {
@@ -100,7 +101,7 @@ describe('POST /api/orders/:id/reserve — automatic (oldest lots first)', () =>
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => String(row.orderId) === String(order._id) && row.reservationId && row.deltaTotalGrams === 0)).toBe(true);
     expect(await AuditLog.findOne({ action: 'MATERIAL_RESERVED' }).lean()).toMatchObject({ after: { totalGrams: 850_000, mode: 'FIFO' } });
-    expect((await Order.findById(order._id).lean()).statusHistory.at(-1)).toMatchObject({ from: 'CONFIRMED', to: 'MATERIAL_RESERVED', byRole: 'STORE_KEEPER' });
+    expect((await Order.findById(order._id).lean()).statusHistory.at(-1)).toMatchObject({ from: 'CONFIRMED', to: 'MATERIAL_RESERVED', byRole: 'FLOOR_MANAGER' });
     expect(await reconciled()).toBe(true);
   });
 
@@ -121,8 +122,8 @@ describe('POST /api/orders/:id/reserve — automatic (oldest lots first)', () =>
   it('replays a retried reservation instead of reserving twice', async () => {
     await addLot({ kg: 1000, daysAgo: 1 });
     const key = newKey();
-    await reserve(store, {}, key);
-    const retry = await reserve(store, {}, key);
+    await reserve(floor, {}, key);
+    const retry = await reserve(floor, {}, key);
     expect(retry.headers['idempotent-replayed']).toBe('true');
     expect(await MaterialReservation.countDocuments()).toBe(1);
   });
@@ -131,7 +132,7 @@ describe('POST /api/orders/:id/reserve — automatic (oldest lots first)', () =>
     await addLot({ kg: 1000, daysAgo: 1 });
     const other = await createTestOrder({ buyer: buyerCo, product, createdBy: admin._id, status: 'CONFIRMED' });
 
-    const results = await Promise.all([reserve(), post(store, `/api/orders/${other._id}/reserve`)]);
+    const results = await Promise.all([reserve(), post(floor, `/api/orders/${other._id}/reserve`)]);
 
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
     expect((await YarnLot.findOne().lean()).reservedGrams).toBe(850_000);
@@ -150,20 +151,20 @@ describe('POST /api/orders/:id/reserve — automatic (oldest lots first)', () =>
     expect((await reserve()).body.error).toMatchObject({ code: 'INVALID_STATE_TRANSITION', details: { from: 'MATERIAL_RESERVED' } });
   });
 
-  it.each([ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.BUYER])('is forbidden for %s', async (role) => {
+  it.each([ROLES.STORE_KEEPER, ROLES.QC_INSPECTOR, ROLES.BUYER])('is forbidden for %s', async (role) => {
     const actor = role === ROLES.BUYER ? buyerUser : await createTestUser({ role });
     expect((await reserve(actor)).status).toBe(403);
   });
 });
 
-describe('POST /api/orders/:id/reserve — the store keeper picks lots', () => {
+describe('POST /api/orders/:id/reserve — the floor manager picks lots', () => {
   let a;
   let b;
   beforeEach(async () => {
     a = await addLot({ kg: 500, daysAgo: 10 });
     b = await addLot({ kg: 1000, daysAgo: 2 });
   });
-  const pick = (allocations) => reserve(store, { allocations });
+  const pick = (allocations) => reserve(floor, { allocations });
 
   it('uses the chosen lots and amounts (not FIFO)', async () => {
     const res = await pick([{ yarnLotId: String(b._id), quantityKg: 850 }]);

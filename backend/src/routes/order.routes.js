@@ -26,6 +26,8 @@ const router = Router();
 // internal planning roles only. Moving yarn (reserve, issue, return) is the store's job.
 const FEASIBILITY_VIEWERS = [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN];
 const STORE = [ROLES.STORE_KEEPER, ROLES.ADMIN];
+// Reserving yarn for production is a floor decision; issuing and returning physical yarn is the store's.
+const RESERVERS = [ROLES.FLOOR_MANAGER, ROLES.ADMIN];
 
 /** The body a caller may send depends on who they are: only an ADMIN may name the buyer. */
 function validateCreateOrderBody(req, res, next) {
@@ -83,7 +85,7 @@ router.post(
 );
 router.post(
   "/:id/reserve",
-  authorize(...STORE),
+  authorize(...RESERVERS),
   requireIdempotencyKey,
   validate({ params: orderIdParamsSchema, body: reserveOrderBodySchema }),
   orderController.reserveMaterial,

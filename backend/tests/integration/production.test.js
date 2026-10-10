@@ -43,7 +43,7 @@ async function reservedOrder({ issueKg = 850, quantityCm = 500_000, requiredYarn
   });
   await InventoryTransaction.create({ type: 'RECEIPT', yarnLotId: lot._id, deltaTotalGrams: 2_000_000, deltaReservedGrams: 0, actorId: admin._id });
   const created = await createTestOrder({ buyer: buyerCo, product, createdBy: admin._id, status: 'CONFIRMED', quantityCm, requiredYarnGrams });
-  expect((await post(store, `/api/orders/${created._id}/reserve`)).status).toBe(200);
+  expect((await post(floor, `/api/orders/${created._id}/reserve`)).status).toBe(200);
   if (issueKg) expect((await post(store, `/api/orders/${created._id}/issue`, { quantityKg: issueKg })).status).toBe(200);
   return created;
 }

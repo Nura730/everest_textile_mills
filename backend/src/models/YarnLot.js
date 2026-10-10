@@ -59,6 +59,7 @@ export function toPublicLot(lot, { includeCost }) {
     receivedAt: lot.receivedAt,
     receivedBy: String(lot.receivedBy),
     createdAt: lot.createdAt,
+    updatedAt: lot.updatedAt,
   };
   if (includeCost) publicLot.costPerKgPaise = lot.costPerKgPaise;
   return publicLot;

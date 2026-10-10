@@ -10,6 +10,7 @@ import {
   listLotsQuerySchema,
   lotIdParamsSchema,
   receiveLotBodySchema,
+  updateLotBodySchema,
 } from '../validators/inventory.validators.js';
 
 // Mounted at /api/yarn-lots, after authenticate.
@@ -27,16 +28,24 @@ router.post(
   inventoryController.receiveLot,
 );
 router.get('/:id', canViewStock, validate({ params: lotIdParamsSchema }), inventoryController.getLot);
+// Descriptive details only (supplier, count, cost, lot number; material/colour before use).
+router.patch(
+  '/:id',
+  authorize(ROLES.STORE_KEEPER, ROLES.ADMIN),
+  validate({ params: lotIdParamsSchema, body: updateLotBodySchema }),
+  inventoryController.updateLot,
+);
 router.get(
   '/:id/transactions',
   canViewStock,
   validate({ params: lotIdParamsSchema, query: ledgerQuerySchema }),
   inventoryController.getLotTransactions,
 );
-// Write-offs and count corrections need owner authority (docs/DATABASE.md D7).
+// Write-offs and count corrections: the store keeper records them, the owner too. Always through the
+// ledger with a reason, audited; never below what is reserved (D7, revised: store keeper added).
 router.post(
   '/:id/adjustments',
-  authorize(ROLES.ADMIN),
+  authorize(ROLES.STORE_KEEPER, ROLES.ADMIN),
   requireIdempotencyKey,
   validate({ params: lotIdParamsSchema, body: adjustLotBodySchema }),
   inventoryController.adjustLot,

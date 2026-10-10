@@ -7,6 +7,11 @@ export async function receiveLot(req, res) {
   return sendIdempotent(res, result);
 }
 
+export async function updateLot(req, res) {
+  const lot = await inventoryService.updateLot(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendSuccess(res, { lot });
+}
+
 export async function listLots(req, res) {
   const { lots, meta } = await inventoryService.listLots(req.validated.query, req.user);
   return sendSuccess(res, { lots }, { meta });
