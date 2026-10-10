@@ -3,16 +3,12 @@ import { useApiQuery } from '../../hooks/useApiQuery.js';
 import { liveMatch, useLive } from '../../realtime/realtimeBus.js';
 import { estimateText } from '../../utils/insights.js';
 import { ErrorState, LoadingState } from '../ui/States.jsx';
+import { StatusBadge } from '../ui/StatusBadge.jsx';
 
-const LEVEL = {
-  LATE: { label: 'Late', tone: 'error' },
-  AT_RISK: { label: 'At risk', tone: 'active' },
-  ON_TRACK: { label: 'On track', tone: 'neutral' },
-};
+const LEVEL_LABELS = { LATE: 'Late', AT_RISK: 'At risk', ON_TRACK: 'On track' };
 
 export function RiskBadge({ level }) {
-  const config = LEVEL[level] ?? { label: level, tone: 'neutral' };
-  return <span className={`erp-status-badge ${config.tone}`}>{config.label}</span>;
+  return <StatusBadge domain="RISK" state={level} label={LEVEL_LABELS[level] ?? level} />;
 }
 
 /** Factors and recommendations, both explained in words. */

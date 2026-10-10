@@ -1,20 +1,20 @@
 import { Check, Circle, CircleDot, Clock, XCircle } from 'lucide-react';
 import { daysUntil, formatDateTime } from '../../utils/format.js';
+import { StatusBadge } from './StatusBadge.jsx';
 import { ORDER_STEPS, STATUS_LABELS, isOpenOrder } from '../../utils/orderStatus.js';
 
 export function OrderStatusBadge({ status }) {
-  const tone = status === 'CANCELLED' || status === 'REJECTED' ? 'error' : status === 'ORDER_CREATED' ? 'outline' : 'active';
-  return <span className={`erp-status-badge ${tone}`}>{STATUS_LABELS[status] ?? status}</span>;
+  return <StatusBadge domain="ORDER" state={status} label={STATUS_LABELS[status] ?? status} />;
 }
 
 /** "Due in 5 days" / "Overdue by 2 days" — only for orders still in progress. */
 export function DeadlineChip({ order }) {
   if (!isOpenOrder(order)) return null;
   const days = daysUntil(order.requiredBy);
-  if (days < 0) return <span className="deadline-chip overdue">Overdue by {-days} day{days === -1 ? '' : 's'}</span>;
-  if (days === 0) return <span className="deadline-chip overdue">Due today</span>;
-  if (days <= 7) return <span className="deadline-chip soon">Due in {days} day{days === 1 ? '' : 's'}</span>;
-  return <span className="deadline-chip">In {days} days</span>;
+  if (days < 0) return <StatusBadge tone="danger" label={`Overdue by ${-days} day${days === -1 ? '' : 's'}`} />;
+  if (days === 0) return <StatusBadge tone="danger" label="Due today" />;
+  if (days <= 7) return <StatusBadge tone="warning" label={`Due in ${days} day${days === 1 ? '' : 's'}`} />;
+  return <StatusBadge tone="neutral" label={`In ${days} days`} />;
 }
 
 /**

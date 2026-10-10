@@ -82,7 +82,7 @@ export default function QcQueue() {
     <div>
       <PageHeader
         title="Quality control"
-        subtitle="Inspect rolls as they come off the machines. A pass is signed by the inspector. Live data."
+        subtitle="Inspect rolls as they come off the machines. Every decision is signed with the inspector's key."
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Quality control' }]}
         actions={<button type="button" className="erp-btn-outline" onClick={reload} aria-label="Refresh"><RefreshCw size={15} aria-hidden="true" /> Refresh</button>}
       />

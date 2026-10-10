@@ -48,7 +48,7 @@ export default function ProductionList() {
     <div>
       <PageHeader
         title="Production"
-        subtitle="Production runs: which order is on which machine, and how much has been produced. Live data."
+        subtitle="Production runs: which order is on which machine, and how much has been produced."
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Production' }]}
         actions={
           <>

@@ -3,11 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Box, Building2, CheckCircle2, ClipboardList, Factory, FlaskConical, Plus, Shirt, Users as UsersIcon } from 'lucide-react';
 import { buyersApi, inventoryApi, machinesApi, ordersApi, productsApi, usersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { PREVIEW_NAV, ROLES, ROLE_LABELS } from '../auth/roles.js';
+import { PREVIEW_NAV, ROLES, ROLE_LABELS, SHOW_SAMPLE_SCREENS } from '../auth/roles.js';
+import { OperationalInsights } from '../attention/OperationalInsights.jsx';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge } from '../components/ui/OrderStatus.jsx';
 import { isOpenOrder } from '../utils/orderStatus.js';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
+import { StatusBadge } from '../components/ui/StatusBadge.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
 import { daysUntil, formatDate, formatNumber, formatPaise } from '../utils/format.js';
@@ -127,11 +129,11 @@ function YarnDemand({ summary, openOrders }) {
                 <td className="num">{row.orders ? `${formatNumber(row.neededKg, 'kg')} (${row.orders} order${row.orders > 1 ? 's' : ''})` : '—'}</td>
                 <td>
                   {row.orders === 0 ? (
-                    <span className="erp-status-badge neutral">No demand</span>
+                    <StatusBadge tone="neutral" label="No demand" />
                   ) : gap >= 0 ? (
-                    <span className="erp-status-badge active">Covered</span>
+                    <StatusBadge tone="success" label="Covered" />
                   ) : (
-                    <span className="deadline-chip overdue">Short by {formatNumber(-gap, 'kg')}</span>
+                    <StatusBadge tone="danger" label={`Short by ${formatNumber(-gap, 'kg')}`} />
                   )}
                 </td>
               </tr>
@@ -148,8 +150,9 @@ function YarnDemand({ summary, openOrders }) {
 }
 
 function ModuleStatus({ role }) {
+  // A development aid only: production builds have no sample screens to point to.
   const previews = PREVIEW_NAV.filter((item) => item.roles.includes(role));
-  if (previews.length === 0) return null;
+  if (!SHOW_SAMPLE_SCREENS || previews.length === 0) return null;
   return (
     <div className="erp-card">
       <h3 className="card-title">What is live</h3>
@@ -386,7 +389,7 @@ function QcDashboard() {
 }
 
 const DASHBOARDS = {
-  [ROLES.ADMIN]: { component: AdminDashboard, subtitle: 'Factory-wide overview from live data.' },
+  [ROLES.ADMIN]: { component: AdminDashboard, subtitle: 'Factory-wide overview.' },
   [ROLES.BUYER]: { component: BuyerDashboard, subtitle: 'Your company’s orders and where each one stands.' },
   [ROLES.STORE_KEEPER]: { component: StoreDashboard, subtitle: 'Yarn stock and what open orders will need.' },
   [ROLES.FLOOR_MANAGER]: { component: FloorDashboard, subtitle: 'The work queue for the production floor.' },
@@ -400,6 +403,7 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title={`Welcome, ${user.name.split(' ')[0]}`} subtitle={`${ROLE_LABELS[user.role]} · ${config.subtitle}`} />
+      <OperationalInsights />
       <Board />
     </div>
   );

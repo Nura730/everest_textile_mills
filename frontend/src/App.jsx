@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext.jsx';
 import { RequireAuth, RequireRole } from './auth/RequireAuth.jsx';
-import { LIVE_NAV, PREVIEW_NAV } from './auth/roles.js';
+import { LIVE_NAV, PREVIEW_NAV, SHOW_SAMPLE_SCREENS } from './auth/roles.js';
 import AppLayout from './components/AppLayout';
 import { PreviewNotice } from './components/ui/PageHeader.jsx';
 import { ToastProvider } from './components/ui/Toast.jsx';
@@ -91,7 +91,8 @@ function App() {
                   <Route path="machines/:id" element={<RequireRole roles={machineRoles}><MachineDetail /></RequireRole>} />
                   <Route path="production/:id" element={<RequireRole roles={productionRoles}><RunDetail /></RequireRole>} />
                   <Route path="rolls/:id" element={<RequireRole roles={rollRoles}><RollDetail /></RequireRole>} />
-                  {PREVIEW_NAV.map((item) => (
+                  {/* Sample-data screens: development builds only. */}
+                  {SHOW_SAMPLE_SCREENS && PREVIEW_NAV.map((item) => (
                     <Route
                       key={item.to}
                       path={item.to.slice(1)}

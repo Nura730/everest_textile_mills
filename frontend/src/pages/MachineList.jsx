@@ -115,7 +115,7 @@ export default function MachineList() {
     <div>
       <PageHeader
         title="Machines"
-        subtitle="Every machine on the floor, its state and open problems. Live data."
+        subtitle="Every machine on the floor, its recorded state and open problems."
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Machines' }]}
         actions={
           <>

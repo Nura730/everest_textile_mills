@@ -23,7 +23,7 @@ export default function RollList() {
 
   return (
     <div>
-      <PageHeader title="Rolls" subtitle="Every roll produced, with its QC status. Open a roll to trace it. Live data." breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Rolls' }]} />
+      <PageHeader title="Rolls" subtitle="Every roll produced, with its QC status. Open a roll to trace it." breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Rolls' }]} />
       <div className="erp-card">
         <FilterBar active={active} onClear={clear} label="Roll filters">
           <SearchInput id="roll-search" value={filters.q} onChange={(value) => set('q', value)} placeholder="Search roll, order, run or machine" />

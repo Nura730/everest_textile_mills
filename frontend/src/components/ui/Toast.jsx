@@ -21,17 +21,24 @@ let nextId = 1;
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const timers = useRef(new Map());
+  const visible = useRef([]); // what is on screen now, for duplicate suppression
 
   const dismiss = useCallback((id) => {
     clearTimeout(timers.current.get(id));
     timers.current.delete(id);
+    visible.current = visible.current.filter((toast) => toast.id !== id);
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
   const show = useCallback(
     (type, message, { title, reference, duration } = {}) => {
+      // The same notification already on screen (a retry, a re-render): don't stack a copy.
+      const same = visible.current.find((t) => t.type === type && t.title === title && t.message === message);
+      if (same) return same.id;
       const id = nextId++;
-      setToasts((current) => [...current.slice(-4), { id, type, title, message, reference }]);
+      const toast = { id, type, title, message, reference };
+      visible.current = [...visible.current.slice(-4), toast];
+      setToasts((current) => [...current.slice(-4), toast]);
       const ms = duration === undefined ? DURATION[type] : duration;
       if (ms) timers.current.set(id, setTimeout(() => dismiss(id), ms));
       return id;

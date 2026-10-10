@@ -11,6 +11,7 @@ import { DISPATCH_STATUS_LABELS } from '../utils/machineStatus.js';
 import { FilterBar, FilterSelect, SearchInput } from '../components/ui/Filters.jsx';
 import { ConfirmDialog } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
+import { StatusBadge } from '../components/ui/StatusBadge.jsx';
 import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
@@ -60,7 +61,7 @@ export default function DispatchPage() {
     <div>
       <PageHeader
         title="Dispatch"
-        subtitle="Finished goods are QC-passed rolls. Only goods in stock can be dispatched; final dispatch is signed. Live data."
+        subtitle="Finished goods are QC-passed rolls. Only goods in stock can be dispatched; the final handoff is cryptographically signed."
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Dispatch' }]}
         actions={<button type="button" className="erp-btn-outline" onClick={reload} aria-label="Refresh"><RefreshCw size={15} aria-hidden="true" /> Refresh</button>}
       />
@@ -148,7 +149,7 @@ export default function DispatchPage() {
                       <td>{g.productName} <span className="cell-sub">{g.material} · {g.colour}</span></td>
                       <td className="num">{formatNumber(g.lengthMetres, 'm')}</td>
                       <td>{g.location}</td>
-                      <td><span className="erp-status-badge outline">{FG_LABELS[g.status]}</span></td>
+                      <td><StatusBadge domain="FINISHED_GOOD" state={g.status} label={FG_LABELS[g.status]} /></td>
                       <td className="row-actions">{store && g.status !== 'DISPATCHED' && <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'move', good: g, key: newIdempotencyKey(), text: g.location })}>Move</button>}</td>
                     </tr>
                   ))}

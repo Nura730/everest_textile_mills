@@ -234,6 +234,76 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .sync-item.failed { background: var(--color-error-light); }
 .pending-row td { font-style: italic; background: var(--color-gray-50); }
 
+:root {
+  /* Semantic status tones (utils/statusTones.js). Text on tint ≥ 4.5:1 contrast. */
+  --tone-success-bg: #e8f5ec; --tone-success-fg: #14532d; --tone-success-border: #b7e0c3;
+  --tone-warning-bg: #fff6e0; --tone-warning-fg: #7a4300; --tone-warning-border: #f2d394;
+  --tone-danger-bg: #fdecec; --tone-danger-fg: #8f1d1d; --tone-danger-border: #f3bcbc;
+  --tone-info-bg: #e8f0fd; --tone-info-fg: #1c3f8c; --tone-info-border: #bccff3;
+  --tone-neutral-bg: #f1f2f4; --tone-neutral-fg: #3f4651; --tone-neutral-border: #d9dce1;
+}
+.status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid; font-size: 0.75rem; font-weight: 600; line-height: 1.5; white-space: nowrap; }
+.status-badge.tone-success { background: var(--tone-success-bg); color: var(--tone-success-fg); border-color: var(--tone-success-border); }
+.status-badge.tone-warning { background: var(--tone-warning-bg); color: var(--tone-warning-fg); border-color: var(--tone-warning-border); }
+.status-badge.tone-danger { background: var(--tone-danger-bg); color: var(--tone-danger-fg); border-color: var(--tone-danger-border); }
+.status-badge.tone-info { background: var(--tone-info-bg); color: var(--tone-info-fg); border-color: var(--tone-info-border); }
+.status-badge.tone-neutral { background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); border-color: var(--tone-neutral-border); }
+
+.nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--tone-danger-fg); color: #fff; font-size: 0.6875rem; font-weight: 700; line-height: 18px; text-align: center; }
+.nav-count-dot { position: absolute; top: 6px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--tone-danger-fg); }
+.erp-sidebar-item { position: relative; }
+.insights-panel .card-title { display: flex; align-items: center; gap: 6px; }
+.insights-empty { display: flex; align-items: center; gap: 6px; color: var(--tone-success-fg); margin: 4px 0; }
+.insight-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.insight { border: 1px solid var(--color-gray-200); border-left: 4px solid var(--tone-neutral-border); border-radius: 6px; padding: 10px 12px; }
+.insight.insight-high { border-left-color: var(--tone-danger-fg); }
+.insight.insight-medium { border-left-color: var(--tone-warning-border); }
+.insight.insight-low { border-left-color: var(--tone-info-border); }
+.insight-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.insight-why { font-size: 0.8125rem; color: var(--color-gray-700, #374151); margin-top: 4px; }
+.insight-affected { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.insight-chip { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); text-decoration: none; white-space: nowrap; }
+.insight-action { font-size: 0.8125rem; font-weight: 600; margin-top: 6px; }
+/* Signing progress */
+.sign-progress { display: grid; gap: 12px; }
+.sign-head { display: flex; gap: 10px; align-items: flex-start; }
+.sign-status { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 6px; font-size: 0.875rem; border: 1px solid; }
+.sign-status.running, .sign-status.ok { background: var(--tone-info-bg); color: var(--tone-info-fg); border-color: var(--tone-info-border); }
+.sign-status.ok { background: var(--tone-success-bg); color: var(--tone-success-fg); border-color: var(--tone-success-border); }
+.sign-status.warn { background: var(--tone-warning-bg); color: var(--tone-warning-fg); border-color: var(--tone-warning-border); }
+.sign-status.bad { background: var(--tone-danger-bg); color: var(--tone-danger-fg); border-color: var(--tone-danger-border); }
+.sign-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sign-stage { display: flex; gap: 8px; align-items: flex-start; font-size: 0.875rem; }
+.sign-stage.ok svg { color: var(--tone-success-fg); }
+.sign-stage.bad svg { color: var(--tone-danger-fg); }
+.sign-stage.warn svg { color: var(--tone-warning-fg); }
+.sign-stage.idle { color: var(--color-gray-500); }
+.sign-meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 0.8125rem; }
+.sign-meta dt { color: var(--color-gray-500); }
+.sign-meta dd { margin: 0; min-width: 0; }
+.sign-details { border-top: 1px solid var(--color-gray-200); padding-top: 10px; display: grid; gap: 8px; }
+.sign-verdict { font-weight: 600; }
+.sign-verdict.ok { color: var(--tone-success-fg); }
+.sign-verdict.bad { color: var(--tone-danger-fg); }
+.sign-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wrap-anywhere { overflow-wrap: anywhere; }
+
+/* Layout refinement: same look, less crowding. */
+.erp-tall-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.erp-card { border-radius: 12px; padding: 18px 20px; }
+.erp-data-table td { vertical-align: middle; }
+.erp-data-table td.table-primary-cell, .erp-data-table td a, .erp-data-table code { white-space: nowrap; }
+.erp-data-table td .cell-sub { white-space: normal; }
+.card-header { gap: 12px; flex-wrap: wrap; }
+.erp-btn-sm { white-space: nowrap; }
+@media (max-width: 640px) {
+  .erp-main-content { padding: 16px; }
+  .erp-card { padding: 14px 16px; }
+  .sign-meta { grid-template-columns: 1fr; }
+}
+
+.signature-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */

@@ -10,7 +10,7 @@ import { PendingActions } from '../offline/PendingActions.jsx';
 import { useOnline } from '../offline/useQueue.js';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLE_LABELS, can } from '../auth/roles.js';
-import { RunStatusBadge } from '../components/machines/MachineStatus.jsx';
+import { RollStatusBadge, RunStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -19,8 +19,6 @@ import { useApiQuery } from '../hooks/useApiQuery.js';
 import { formatDateTime, formatNumber } from '../utils/format.js';
 import { RUN_STATUS_LABELS } from '../utils/machineStatus.js';
 import { RunProgress } from './ProductionList.jsx';
-
-const ROLL_STATUS_LABELS = { QC_PENDING: 'Awaiting QC', QC_PASSED: 'QC passed', IN_REWORK: 'In rework', REJECTED: 'Rejected', FINISHED: 'Finished' };
 
 /** Record one produced roll. Weight is optional (a roll may be weighed later). */
 function RecordRollModal({ run, onClose, onDone }) {
@@ -200,7 +198,7 @@ export default function RunDetail() {
                     <td className="num">{formatNumber(r.lengthMetres, 'm')}</td>
                     <td className="num">{r.weightKg !== null ? formatNumber(r.weightKg, 'kg') : '—'}</td>
                     <td>{r.yarnLots.map((lot) => lot.lotNumber).join(', ') || '—'}</td>
-                    <td><span className="erp-status-badge outline">{ROLL_STATUS_LABELS[r.status] ?? r.status}</span></td>
+                    <td><RollStatusBadge status={r.status} /></td>
                     <td>{formatDateTime(r.producedAt)}</td>
                   </tr>
                 ))}

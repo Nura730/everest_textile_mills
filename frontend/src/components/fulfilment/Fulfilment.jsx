@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { SigningProgress } from '../signing/SigningProgress.jsx';
+import { useSignedSubmit } from '../signing/useSignedSubmit.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
 import { fieldErrorsOf, newIdempotencyKey } from '../../api/client.js';
 import { fulfilmentApi } from '../../api/endpoints.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
@@ -6,13 +9,12 @@ import { formatDate, formatDateTime, formatNumber, formatPaise } from '../../uti
 import { DISPATCH_STATUS_LABELS } from '../../utils/machineStatus.js';
 import { Field, Modal } from '../ui/Modal.jsx';
 import { SignaturePad } from '../ui/SignaturePad.jsx';
+import { StatusBadge } from '../ui/StatusBadge.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../ui/States.jsx';
 import { useToast } from '../ui/Toast.jsx';
 
-const DISPATCH_TONES = { PREPARED: 'outline', CONFIRMED: 'active', CANCELLED: 'error' };
-
 export function DispatchStatusBadge({ status }) {
-  return <span className={`erp-status-badge ${DISPATCH_TONES[status] ?? 'neutral'}`}>{DISPATCH_STATUS_LABELS[status] ?? status}</span>;
+  return <StatusBadge domain="DISPATCH" state={status} label={DISPATCH_STATUS_LABELS[status] ?? status} title={status === 'PREPARED' ? 'Awaiting signed confirmation' : undefined} />;
 }
 
 /** Choose in-stock finished goods of one ready order and prepare a dispatch. */
@@ -103,52 +105,80 @@ export function PrepareDispatchModal({ order, onClose, onDone }) {
 }
 
 /** Final dispatch: the store keeper accepts the statement and signs (instruction.md §11). */
+/**
+ * Confirm a prepared dispatch (custody handoff). The store keeper accepts the statement; the server signs
+ * the dispatch record (rolls, quantity, vehicle) with the store keeper's own RSA key and verifies it before
+ * saving. The drawn signature is an optional handwritten acknowledgment. Online only: the goods leave now.
+ */
 export function ConfirmDispatchModal({ dispatch, onClose, onDone }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [accepted, setAccepted] = useState(false);
   const [image, setImage] = useState(null);
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [key] = useState(newIdempotencyKey);
   const statement = `I confirm that the finished goods in dispatch ${dispatch.dispatchNumber} have been dispatched.`;
+  const signed = useSignedSubmit({
+    call: (k) => fulfilmentApi.confirm(dispatch.id, { signature: { accepted: true, ...(image ? { image } : {}) } }, k),
+  });
 
-  async function submit() {
-    if (busy) return;
-    if (!accepted || !image) return setError('Tick the statement and sign to confirm the dispatch.');
-    setBusy(true);
-    try {
-      const { data } = await fulfilmentApi.confirm(dispatch.id, { signature: { accepted: true, image } }, key);
-      toast.success(`Dispatch ${dispatch.dispatchNumber} confirmed and signed.${data.orderStatus === 'DISPATCHED' ? ' The order is fully dispatched.' : ''}`);
-      onDone();
-    } catch (err) {
-      toast.error(err, { title: 'Dispatch not confirmed' });
-      onDone();
-    } finally {
-      setBusy(false);
+  function submit() {
+    if (signed.busy) return;
+    if (!accepted) return setError('Tick the statement to sign the dispatch.');
+    signed.submit();
+  }
+  function finish() {
+    if (signed.phase === 'success') {
+      toast.success(`Dispatch ${dispatch.dispatchNumber} confirmed. Signature verified on the server.${signed.result.orderStatus === 'DISPATCHED' ? ' The order is fully dispatched.' : ''}`, { title: 'Dispatched' });
     }
+    onDone();
   }
 
+  const signing = signed.phase !== 'idle';
   return (
     <Modal
       title={`Confirm dispatch ${dispatch.dispatchNumber}`}
       subtitle={`${dispatch.orderNumber} · ${dispatch.rollCount} roll${dispatch.rollCount === 1 ? '' : 's'} · ${formatNumber(dispatch.totalMetres, 'm')}`}
-      onClose={onClose}
-      busy={busy}
+      onClose={signed.phase === 'success' ? finish : onClose}
+      busy={signed.busy}
+      wide={signing}
       footer={
-        <>
-          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className="erp-btn-primary" onClick={submit} disabled={busy}>{busy ? 'Confirming…' : 'Sign and confirm'}</button>
-        </>
+        signing ? (
+          <button type="button" className="erp-btn-primary" onClick={signed.phase === 'success' ? finish : onClose} disabled={signed.busy}>{signed.phase === 'success' ? 'Done' : 'Close'}</button>
+        ) : (
+          <>
+            <button type="button" className="erp-btn-outline" onClick={onClose}>Cancel</button>
+            <button type="button" className="erp-btn-primary" onClick={submit}>Sign and confirm</button>
+          </>
+        )
       }
     >
-      <p className="confirm-message">Rolls: {dispatch.lines.map((l) => l.rollNumber).join(', ')}</p>
-      <div className="signature-block">
-        <label className="filter-check" htmlFor="dsp-accept">
-          <input id="dsp-accept" type="checkbox" checked={accepted} onChange={(e) => { setAccepted(e.target.checked); setError(null); }} disabled={busy} /> {statement}
-        </label>
-        <SignaturePad onChange={(value) => { setImage(value); setError(null); }} disabled={busy} label="Store keeper signature" />
-      </div>
-      {error && <p className="login-field-error" role="alert">{error}</p>}
+      {signing ? (
+        <SigningProgress
+          signer={user}
+          approvalLabel="Dispatch authorization"
+          recordLabel={`Dispatch ${dispatch.dispatchNumber}`}
+          phase={signed.phase}
+          stages={signed.stages}
+          result={signed.result}
+          error={signed.error}
+          onRetry={signed.retry}
+          onCheckAgain={signed.checkAgain}
+          onBack={signed.reset}
+        />
+      ) : (
+        <>
+          <p className="confirm-message">Rolls: {dispatch.lines.map((l) => l.rollNumber).join(', ')}</p>
+          <div className="signature-block">
+            <div className="erp-label">Signed approval</div>
+            <label className="filter-check" htmlFor="dsp-accept">
+              <input id="dsp-accept" type="checkbox" checked={accepted} onChange={(e) => { setAccepted(e.target.checked); setError(null); signed.reset(); }} /> {statement}
+            </label>
+            <p className="cell-sub">The server signs this handoff with your personal RSA key and verifies it before saving.</p>
+            <SignaturePad onChange={(value) => { setImage(value); setError(null); signed.reset(); }} label="Handwritten acknowledgment (optional, visual only)" />
+          </div>
+          {error && <p className="login-field-error" role="alert">{error}</p>}
+        </>
+      )}
     </Modal>
   );
 }

@@ -175,3 +175,19 @@ export const intelligenceApi = {
   overview: () => apiRequest("/intelligence/overview"),
   order: (id) => apiRequest(`/intelligence/orders/${id}`),
 };
+
+// Cryptographic signatures: independent verification and public key information.
+export const signaturesApi = {
+  verify: (id) => apiRequest(`/signatures/${id}/verify`),
+  myKey: () => apiRequest("/signatures/keys/me"),
+};
+
+// What needs the signed-in user's attention (badges, dashboard insights).
+export const attentionApi = {
+  get: () => apiRequest("/summary/attention"),
+};
+
+// Editing a yarn lot's descriptive details (store keeper, admin).
+export const yarnLotsApi = {
+  update: (id, body) => apiRequest(`/yarn-lots/${id}`, { method: "PATCH", body }),
+};

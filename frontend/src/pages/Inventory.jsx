@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, PackagePlus, RefreshCw, Scale, ShieldAlert } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
-import { inventoryApi } from '../api/endpoints.js';
+import { inventoryApi, yarnLotsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { CachedNotice } from '../offline/CachedNotice.jsx';
 import { PendingActions } from '../offline/PendingActions.jsx';
@@ -142,6 +142,112 @@ function ReceiveModal({ onClose, onDone }) {
         <Field label="Yarn count (optional)" htmlFor="r-count" error={errors.yarnCount}>
           <input id="r-count" className="erp-input" value={form.yarnCount} onChange={update('yarnCount')} disabled={busy} placeholder="40s" />
         </Field>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Edit a lot's descriptive details (store keeper, admin). Quantities are not here: stock only changes
+ * through receipts, adjustments, reservations, issues and returns (the ledger). Material and colour
+ * are refused by the server once yarn from the lot was reserved or issued.
+ */
+function EditLotModal({ lot, onClose, onDone }) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    lotNumber: lot.lotNumber,
+    material: lot.material,
+    colour: lot.colour,
+    yarnCount: lot.yarnCount ?? '',
+    supplierName: lot.supplierName,
+    costRupees: lot.costPerKgPaise !== undefined ? String(lot.costPerKgPaise / 100) : '',
+  });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const update = (field) => (event) => {
+    setForm((current) => ({ ...current, [field]: event.target.value }));
+    setErrors((current) => ({ ...current, [field]: undefined }));
+  };
+  const inUse = lot.reservedKg > 0;
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (busy) return;
+    const found = {};
+    if (!/^[A-Za-z0-9][A-Za-z0-9/-]{2,39}$/.test(form.lotNumber.trim())) found.lotNumber = '3-40 characters: letters, digits, "/" or "-".';
+    if (!/^[\p{L}][\p{L} -]{1,49}$/u.test(form.colour.trim())) found.colour = 'Letters, spaces and hyphens (2-50).';
+    if (form.supplierName.trim().length < 2) found.supplierName = 'At least 2 characters.';
+    const cost = form.costRupees === '' ? undefined : rupeesToPaise(form.costRupees);
+    if (form.costRupees !== '' && cost === null) found.costPerKgPaise = 'Rupees per kg, at most 2 decimals.';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    const wanted = {
+      lotNumber: form.lotNumber.trim().toUpperCase(),
+      material: form.material,
+      colour: form.colour.trim(),
+      yarnCount: form.yarnCount.trim() === '' ? null : form.yarnCount.trim(),
+      supplierName: form.supplierName.trim(),
+      ...(cost !== undefined ? { costPerKgPaise: cost } : {}),
+    };
+    const changes = Object.fromEntries(Object.entries(wanted).filter(([k, v]) => (lot[k] ?? null) !== v));
+    if (Object.keys(changes).length === 0) return onClose();
+    setBusy(true);
+    try {
+      const { data } = await yarnLotsApi.update(lot.id, { expectedUpdatedAt: lot.updatedAt, ...changes });
+      toast.success(`Lot ${data.lot.lotNumber} updated on the server.`, { title: 'Yarn details saved' });
+      onDone();
+    } catch (error) {
+      const fields = fieldErrorsOf(error);
+      if (error.code === 'DUPLICATE_RESOURCE') setErrors({ lotNumber: 'Another lot already has this number.' });
+      else if (error.details?.reason === 'STALE_EDIT') {
+        toast.error(error, { title: 'Changed by someone else' });
+        onDone();
+      } else if (error.details?.reason === 'LOT_IN_USE') setErrors({ material: 'Yarn from this lot is already reserved or issued: material and colour can no longer change.' });
+      else if (Object.keys(fields).length) setErrors(fields);
+      else toast.error(error, { title: 'Yarn details not saved' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Edit lot ${lot.lotNumber}`}
+      subtitle="Descriptive details only. To change the quantity, record an adjustment (it goes through the ledger)."
+      onClose={onClose}
+      busy={busy}
+      wide
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="edit-lot-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save details'}</button>
+        </>
+      }
+    >
+      <form id="edit-lot-form" className="erp-form-grid two-col" onSubmit={onSubmit} noValidate>
+        <Field label="Lot / GRN number" htmlFor="el-lot" error={errors.lotNumber} required>
+          <input id="el-lot" className="erp-input" value={form.lotNumber} onChange={update('lotNumber')} disabled={busy} />
+        </Field>
+        <Field label="Supplier" htmlFor="el-supplier" error={errors.supplierName} required>
+          <input id="el-supplier" className="erp-input" value={form.supplierName} onChange={update('supplierName')} disabled={busy} />
+        </Field>
+        <Field label="Material" htmlFor="el-material" error={errors.material} hint={inUse ? 'Locked: yarn from this lot is reserved.' : undefined}>
+          <select id="el-material" className="erp-input" value={form.material} onChange={update('material')} disabled={busy || inUse}>
+            {MATERIALS.map((m) => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+          </select>
+        </Field>
+        <Field label="Colour" htmlFor="el-colour" error={errors.colour}>
+          <input id="el-colour" className="erp-input" value={form.colour} onChange={update('colour')} disabled={busy || inUse} />
+        </Field>
+        <Field label="Yarn count (optional)" htmlFor="el-count">
+          <input id="el-count" className="erp-input" value={form.yarnCount} onChange={update('yarnCount')} disabled={busy} placeholder="e.g. 30s" />
+        </Field>
+        {lot.costPerKgPaise !== undefined && (
+          <Field label="Cost per kg (₹)" htmlFor="el-cost" error={errors.costPerKgPaise} hint="Corrections are audited; costing of orders uses the new value.">
+            <input id="el-cost" className="erp-input" inputMode="decimal" value={form.costRupees} onChange={update('costRupees')} disabled={busy} />
+          </Field>
+        )}
+        <div className="form-notice-box">In stock {formatNumber(lot.totalKg, 'kg')} · reserved {formatNumber(lot.reservedKg, 'kg')} — quantities are changed only through the ledger.</div>
       </form>
     </Modal>
   );
@@ -315,7 +421,7 @@ export default function Inventory() {
   const { user } = useAuth();
   const [tab, setTab] = useState('summary');
   const { filters, set, clear, query, active } = useFilters(NO_STOCK_FILTERS);
-  const [modal, setModal] = useState(null); // { type: 'receive' | 'adjust' | 'ledger', lot }
+  const [modal, setModal] = useState(null); // { type: 'receive' | 'edit' | 'adjust' | 'ledger', lot }
   // The summary already groups by colour, so the colour filter applies to the lots list only.
   const summary = useApiQuery(
     () => inventoryApi.summary({ material: query.material, includeDepleted: query.includeDepleted }),
@@ -450,6 +556,9 @@ export default function Inventory() {
                         {showsCost && <td className="num">{formatPaise(lot.costPerKgPaise)}</td>}
                         <td className="row-actions">
                           <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'ledger', lot })}>Ledger</button>
+                          {can.editLot(user.role) && (
+                            <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'edit', lot })} disabled={!online} title={online ? 'Edit supplier, count, cost or lot number' : 'Needs a connection.'}>Edit</button>
+                          )}
                           {can.adjustStock(user.role) && (
                             <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'adjust', lot })} disabled={!online} title={online ? undefined : 'Needs a connection: an adjustment depends on the current balance.'}>Adjust</button>
                           )}
@@ -468,6 +577,7 @@ export default function Inventory() {
       {can.reconcileStock(user.role) && <Reconciliation />}
 
       {modal?.type === 'receive' && <ReceiveModal onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
+      {modal?.type === 'edit' && <EditLotModal lot={modal.lot} onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
       {modal?.type === 'adjust' && <AdjustModal lot={modal.lot} onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
       {modal?.type === 'ledger' && <LedgerModal lot={modal.lot} onClose={() => setModal(null)} />}
     </div>

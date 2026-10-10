@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { newIdempotencyKey } from '../api/client.js';
 import { rollsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { SignatureLine } from '../components/signing/SignatureLine.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
 import { CachedNotice } from '../offline/CachedNotice.jsx';
 import { PendingActions } from '../offline/PendingActions.jsx';
@@ -27,7 +28,7 @@ function Fact({ label, children }) {
   );
 }
 
-/** The roll's full trace: order, run, machine, yarn lots, and every QC attempt with the signed pass. */
+/** The roll's full trace: order, run, machine, yarn lots, and every QC attempt with its signature. */
 export default function RollDetail() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -121,6 +122,7 @@ export default function RollDetail() {
                     <div className="status-history-meta">{formatDateTime(i.inspectedAt)} · {i.inspectorName}</div>
                     {i.defects.length > 0 && <div className="status-history-reason">{i.defects.map((d) => `${DEFECT_LABELS[d.type] ?? d.type} (${d.severity.toLowerCase()})${d.notes ? `: ${d.notes}` : ''}`).join('; ')}</div>}
                     {i.notes && <div className="status-history-reason">{i.notes}</div>}
+                    <SignatureLine signature={i.signature} />
                   </div>
                 </li>
               ))}
@@ -128,11 +130,11 @@ export default function RollDetail() {
           )}
           {qcSignature && (
             <div className="signature-record">
-              <div className="detail-label">Signed pass</div>
+              <div className="detail-label">Latest signed decision</div>
               <p className="confirm-message">“{qcSignature.statement}”</p>
-              {qcSignature.signatureImage && <img src={qcSignature.signatureImage} alt={`Signature of ${qcSignature.signerName}`} className="signature-image" />}
+              {qcSignature.signatureImage && <img src={qcSignature.signatureImage} alt={`Handwritten acknowledgment of ${qcSignature.signerName}`} className="signature-image" />}
               <div className="cell-sub">{qcSignature.signerName} · {formatDateTime(qcSignature.signedAt)}</div>
-              <div className="cell-sub mono">SHA-256 {qcSignature.contentHash.slice(0, 16)}…</div>
+              <div className="cell-sub mono">{qcSignature.cryptographic ? `${qcSignature.algorithm} · key ${qcSignature.keyId} · payload SHA-256 ${qcSignature.payloadHash.slice(0, 16)}…` : `Content SHA-256 ${qcSignature.contentHash.slice(0, 16)}… (no cryptographic signature)`}</div>
             </div>
           )}
         </div>
