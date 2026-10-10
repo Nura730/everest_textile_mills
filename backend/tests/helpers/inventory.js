@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditLog } from '../../src/models/AuditLog.js';
 import { IdempotencyRecord } from '../../src/models/IdempotencyRecord.js';
 import { InventoryTransaction } from '../../src/models/InventoryTransaction.js';
+import { Dispatch, FinishedGood, Invoice } from '../../src/models/Fulfilment.js';
 import { Machine } from '../../src/models/Machine.js';
 import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
@@ -40,6 +41,9 @@ export async function ensureInventoryCollections() {
     Roll.init(),
     QcInspection.init(),
     Signature.init(),
+    FinishedGood.init(),
+    Dispatch.init(),
+    Invoice.init(),
   ]);
 }
 
@@ -58,6 +62,9 @@ export async function clearInventory() {
     Roll.deleteMany({}),
     QcInspection.collection.deleteMany({}),
     Signature.collection.deleteMany({}),
+    FinishedGood.deleteMany({}),
+    Dispatch.deleteMany({}),
+    Invoice.deleteMany({}),
   ]);
 }
 

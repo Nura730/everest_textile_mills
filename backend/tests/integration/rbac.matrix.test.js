@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
@@ -9,6 +10,7 @@ import { MaterialReservation } from '../../src/models/MaterialReservation.js';
 import { Order } from '../../src/models/Order.js';
 import { ProductionRun } from '../../src/models/ProductionRun.js';
 import { Roll } from '../../src/models/Roll.js';
+import { Dispatch, FinishedGood, Invoice } from '../../src/models/Fulfilment.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -108,6 +110,30 @@ async function rollIn(status = 'QC_PENDING') {
 }
 const QC = [ROLES.QC_INSPECTOR, ROLES.ADMIN];
 const QC_VIEWERS = [ROLES.QC_INSPECTOR, ROLES.FLOOR_MANAGER, ROLES.ADMIN];
+
+/** A READY_FOR_DISPATCH order of the matrix buyer with one finished good in stock. */
+async function readyGood() {
+  const order = await newOrder();
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'READY_FOR_DISPATCH' } });
+  seq += 1;
+  const fg = await FinishedGood.create({
+    rollId: new mongoose.Types.ObjectId(), rollNumber: `ROLL-FG-${seq}`, orderId: order._id, orderNumber: order.orderNumber, buyerId: matrixBuyer._id,
+    buyerName: matrixBuyer.name, productName: 'Fabric', material: 'COTTON', colour: 'Navy', lengthCm: 10_000,
+  });
+  return { order, fg };
+}
+async function dispatchIn(status) {
+  const { order, fg } = await readyGood();
+  seq += 1;
+  const dispatch = await Dispatch.create({
+    dispatchNumber: `DSP-MTX-${seq}`, orderId: order._id, orderNumber: order.orderNumber, buyerId: matrixBuyer._id, buyerName: matrixBuyer.name,
+    lines: [{ finishedGoodId: fg._id, rollNumber: fg.rollNumber, lengthCm: 10_000 }], totalLengthCm: 10_000, status, preparedBy: MATRIX_ACTOR,
+  });
+  await FinishedGood.updateOne({ _id: fg._id }, { $set: { status: status === 'CONFIRMED' ? 'DISPATCHED' : 'RESERVED_FOR_DISPATCH', dispatchId: dispatch._id } });
+  return dispatch;
+}
+const STORE = [ROLES.STORE_KEEPER, ROLES.ADMIN];
+const ALL_STAFF = [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN];
 
 const MATRIX = [
   {
@@ -437,6 +463,59 @@ const MATRIX = [
   },
   { name: 'GET /api/qc/inspections', method: 'get', allowed: QC_VIEWERS, build: async () => ({ path: '/api/qc/inspections' }) },
   { name: 'GET /api/qc/summary', method: 'get', allowed: QC_VIEWERS, build: async () => ({ path: '/api/qc/summary' }) },
+  // ── Phases 11-12: finished goods, dispatch, invoices ──
+  { name: 'GET /api/finished-goods', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/finished-goods' }) },
+  {
+    name: 'PATCH /api/finished-goods/:id/location',
+    method: 'patch',
+    allowed: STORE,
+    build: async () => ({ path: `/api/finished-goods/${(await readyGood()).fg._id}/location`, body: { location: 'Rack A' }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  { name: 'GET /api/dispatches', method: 'get', allowed: [...ALL_STAFF, ROLES.BUYER], build: async () => ({ path: '/api/dispatches' }) },
+  {
+    name: 'POST /api/dispatches',
+    method: 'post',
+    allowed: STORE,
+    build: async () => {
+      const { order, fg } = await readyGood();
+      return { path: '/api/dispatches', body: { orderId: String(order._id), finishedGoodIds: [String(fg._id)] }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
+  { name: 'GET /api/dispatches/:id', method: 'get', allowed: [...ALL_STAFF, ROLES.BUYER], build: async () => ({ path: `/api/dispatches/${(await dispatchIn('PREPARED'))._id}` }) },
+  {
+    name: 'POST /api/dispatches/:id/confirm',
+    method: 'post',
+    allowed: STORE,
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('PREPARED'))._id}/confirm`, body: { signature: SIGNED }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/dispatches/:id/cancel',
+    method: 'post',
+    allowed: STORE,
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('PREPARED'))._id}/cancel`, body: { reason: 'Matrix cancel' }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/dispatches/:id/invoice',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('CONFIRMED'))._id}/invoice`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  { name: 'GET /api/invoices', method: 'get', allowed: [ROLES.ADMIN, ROLES.BUYER], build: async () => ({ path: '/api/invoices' }) },
+  {
+    name: 'GET /api/invoices/:id',
+    method: 'get',
+    allowed: [ROLES.ADMIN, ROLES.BUYER],
+    build: async () => {
+      const dispatch = await dispatchIn('CONFIRMED');
+      seq += 1;
+      const invoice = await Invoice.create({
+        invoiceNumber: `INV-MTX-${seq}`, orderId: dispatch.orderId, orderNumber: dispatch.orderNumber, dispatchId: dispatch._id, dispatchNumber: dispatch.dispatchNumber,
+        buyerId: matrixBuyer._id, buyer: { code: matrixBuyer.code, name: matrixBuyer.name }, lines: [], subtotalPaise: 0, taxRateBasisPoints: 500, taxPaise: 0, totalPaise: 0, issuedBy: MATRIX_ACTOR,
+      });
+      return { path: `/api/invoices/${invoice._id}` };
+    },
+  },
+  { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',

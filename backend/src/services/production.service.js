@@ -25,6 +25,7 @@ import {
 import { AppError } from '../utils/AppError.js';
 import { todayInIndia } from '../utils/dates.js';
 import { cmToMetres, kgToGrams, metresToCm } from '../utils/units.js';
+import { refreshDispatchReadiness } from './fulfilment.service.js';
 import { executeIdempotent } from './idempotency.service.js';
 
 /*
@@ -310,6 +311,8 @@ export const completeRun = (id, { note }, context) =>
         { from: order.status, to: ORDER_STATUS.PRODUCTION_COMPLETED, at: new Date(), by: context.actor.id, byRole: context.actor.role, reason: `${cmToMetres(producedCm)} m produced` },
         session,
       );
+      // Rolls may already have passed QC while the run was producing.
+      orderAfter = (await refreshDispatchReadiness(order._id, context, session)) ?? orderAfter;
     }
     await audit(
       'RUN_COMPLETED',

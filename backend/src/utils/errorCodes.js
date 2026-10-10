@@ -37,6 +37,8 @@ export const ERROR_CODES = Object.freeze({
   QUANTITY_EXCEEDS_ORDER: 409,
   // Quality: a PASS without the inspector's signature (the request is incomplete).
   SIGNATURE_REQUIRED: 400,
+  // Dispatch: a chosen finished good is not in stock for the order.
+  FINISHED_GOODS_UNAVAILABLE: 409,
   PROBLEM_ALREADY_RESOLVED: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,

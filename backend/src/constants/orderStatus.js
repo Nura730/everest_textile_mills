@@ -47,6 +47,11 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   [ORDER_STATUS.MATERIAL_RESERVED]: Object.freeze([ORDER_STATUS.IN_PRODUCTION, ORDER_STATUS.CANCELLED]),
   // Phase 8: the first run start; production is done when no run is open and output covers the order.
   [ORDER_STATUS.IN_PRODUCTION]: Object.freeze([ORDER_STATUS.PRODUCTION_COMPLETED]),
+  // Phases 11-12: every roll inspected and stock exists → ready; all stock dispatched → dispatched;
+  // every confirmed dispatch invoiced → invoiced (terminal).
+  [ORDER_STATUS.PRODUCTION_COMPLETED]: Object.freeze([ORDER_STATUS.READY_FOR_DISPATCH]),
+  [ORDER_STATUS.READY_FOR_DISPATCH]: Object.freeze([ORDER_STATUS.DISPATCHED]),
+  [ORDER_STATUS.DISPATCHED]: Object.freeze([ORDER_STATUS.INVOICED]),
 });
 
 export function allowedNextStatuses(from) {

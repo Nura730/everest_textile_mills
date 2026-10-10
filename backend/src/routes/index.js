@@ -7,6 +7,7 @@ import inventoryRoutes from './inventory.routes.js';
 import machineRoutes from './machine.routes.js';
 import productionRoutes from './production.routes.js';
 import { qcRoutes, rollRoutes } from './quality.routes.js';
+import { dispatchRoutes, finishedGoodRoutes, invoiceRoutes, summaryRoutes } from './fulfilment.routes.js';
 import orderRoutes from './order.routes.js';
 import productRoutes from './product.routes.js';
 import userRoutes from './user.routes.js';
@@ -36,5 +37,9 @@ router.use('/machines', machineRoutes);
 router.use('/production-runs', productionRoutes);
 router.use('/rolls', rollRoutes);
 router.use('/qc', qcRoutes);
+router.use('/finished-goods', finishedGoodRoutes);
+router.use('/dispatches', dispatchRoutes);
+router.use('/invoices', invoiceRoutes);
+router.use('/summary', summaryRoutes);
 
 export default router;

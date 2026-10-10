@@ -214,7 +214,7 @@ describe('POST /api/orders/:id/reject', () => {
   });
 
   it('returns 409 for an order in a later status that has no transition yet', async () => {
-    const later = await createTestOrder({ buyer: surat, product, createdBy: admin._id, status: 'PRODUCTION_COMPLETED' });
+    const later = await createTestOrder({ buyer: surat, product, createdBy: admin._id, status: 'INVOICED' });
     const res = await act(admin, later._id, 'reject');
     expect(res.status).toBe(409);
     expect(res.body.error.details.allowed).toEqual([]);

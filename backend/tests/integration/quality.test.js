@@ -113,7 +113,9 @@ describe('QC inspection', () => {
 
     const res = await inspect(roll, { result: 'PASS', notes: 'Clean roll', signature: signed });
     expect(res.status).toBe(201);
-    expect(res.body.data.roll.status).toBe('QC_PASSED');
+    // A pass turns the roll into a finished good straight away (Phase 11).
+    expect(res.body.data.roll.status).toBe('FINISHED');
+    expect(res.body.data.finishedGood).toMatchObject({ rollNumber: roll.rollNumber, lengthMetres: 420, status: 'IN_STOCK' });
     expect(res.body.data.inspection).toMatchObject({ attempt: 1, result: 'PASS', inspectorName: 'Meena Iyer', signatureId: expect.any(String) });
     const sig = await Signature.findOne({ entityId: roll._id }).lean();
     expect(sig).toMatchObject({ entityType: 'QC_INSPECTION', signerName: 'Meena Iyer', signerRole: 'QC_INSPECTOR', statement: `I confirm that roll ${roll.rollNumber} has passed inspection.` });
