@@ -4,6 +4,7 @@ import { Ban, CheckCircle2, Info, MinusCircle, PackageCheck, Pencil, ShieldCheck
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { ordersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLES, can } from '../auth/roles.js';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { ReservationPanel, ReserveModal } from '../components/orders/Reservation.jsx';
@@ -207,6 +208,7 @@ export default function OrderDetail() {
   const { user } = useAuth();
   const toast = useToast();
   const order = useApiQuery(() => ordersApi.get(id), [id]);
+  useLive(liveMatch.order(id), order.reload);
   // Live feasibility only while the order awaits a decision, and only for planning roles (it shows
   // stock levels). Once confirmed, the snapshot stored on the order is shown instead.
   const checkLive = order.data?.order.status === 'ORDER_CREATED' && can.viewFeasibility(user.role);

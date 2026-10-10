@@ -4,6 +4,7 @@ import { Plus, RefreshCw } from 'lucide-react';
 import { fieldErrorsOf } from '../api/client.js';
 import { machinesApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { MachineStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { MACHINE_STATUS_LABELS, MACHINE_TYPE_LABELS } from '../utils/machineStatus.js';
@@ -105,6 +106,7 @@ export default function MachineList() {
   const { filters, set, clear, query, active } = useFilters(NO_FILTERS);
   const { retired, ...rest } = query;
   const machines = useApiQuery(() => machinesApi.list({ ...rest, isActive: !retired, limit: 100 }), [query]);
+  useLive(liveMatch.actions('MACHINE_', 'RUN_'), machines.reload);
   const list = machines.data?.machines ?? [];
   const counts = list.reduce((acc, machine) => ({ ...acc, [machine.status]: (acc[machine.status] ?? 0) + 1 }), {});
 

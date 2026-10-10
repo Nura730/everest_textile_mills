@@ -13,6 +13,12 @@ export default defineConfig({
         target: process.env.VITE_DEV_API_TARGET ?? 'http://localhost:4000',
         changeOrigin: true,
       },
+      // Live updates (Phase 16): Socket.IO, including the WebSocket upgrade.
+      '/socket.io': {
+        target: process.env.VITE_DEV_API_TARGET ?? 'http://localhost:4000',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 })

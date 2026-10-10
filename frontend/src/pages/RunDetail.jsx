@@ -4,6 +4,8 @@ import { CheckCircle2, Pause, Play, PlusCircle, XOctagon } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { productionApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { runOrQueue } from '../offline/syncManager.js';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLE_LABELS, can } from '../auth/roles.js';
 import { RunStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
@@ -20,6 +22,7 @@ const ROLL_STATUS_LABELS = { QC_PENDING: 'Awaiting QC', QC_PASSED: 'QC passed', 
 /** Record one produced roll. Weight is optional (a roll may be weighed later). */
 function RecordRollModal({ run, onClose, onDone }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [form, setForm] = useState({ lengthMetres: '', weightKg: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -43,8 +46,13 @@ function RecordRollModal({ run, onClose, onDone }) {
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      const { data } = await productionApi.recordRoll(run.id, { lengthMetres: Number(length), ...(weight ? { weightKg: Number(weight) } : {}) }, key);
-      toast.success(`Roll ${data.roll.rollNumber} recorded (${formatNumber(data.roll.lengthMetres, 'm')}). It now waits for QC.`);
+      const body = { lengthMetres: Number(length), ...(weight ? { weightKg: Number(weight) } : {}) };
+      const sent = await runOrQueue(
+        { key, type: 'ROLL_RECORD', payload: { runId: run.id, ...body }, label: `Roll of ${formatNumber(body.lengthMetres, 'm')} on ${run.runNumber}`, userId: user.id },
+        (k) => productionApi.recordRoll(run.id, body, k),
+      );
+      if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
+      else toast.success(`Roll ${sent.result.data.roll.rollNumber} recorded (${formatNumber(sent.result.data.roll.lengthMetres, 'm')}). It now waits for QC.`);
       onDone();
     } catch (error) {
       const fields = fieldErrorsOf(error);
@@ -98,6 +106,7 @@ export default function RunDetail() {
   const detail = useApiQuery(() => productionApi.get(id), [id]);
   const [action, setAction] = useState(null); // { name, reason, key, busy, error }
   const [recording, setRecording] = useState(false);
+  useLive(liveMatch.entity(id), detail.reload);
 
   if (detail.error) {
     return (
@@ -119,8 +128,14 @@ export default function RunDetail() {
     if (config.reason && reason.length < 5) return setAction({ ...action, error: 'Give a reason of at least 5 characters.' });
     setAction({ ...action, busy: true, error: null });
     try {
-      await productionApi.act(run.id, action.name, config.reason ? { reason } : {}, action.key);
-      toast.success(config.success);
+      const body = config.reason ? { reason } : {};
+      const offlineType = { pause: 'RUN_PAUSE', resume: 'RUN_RESUME' }[action.name];
+      const call = (k) => productionApi.act(run.id, action.name, body, k);
+      const sent = offlineType
+        ? await runOrQueue({ key: action.key, type: offlineType, payload: { runId: run.id, ...body }, label: `${config.label} ${run.runNumber}`, userId: user.id }, call)
+        : { queued: false, result: await call(action.key) };
+      if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
+      else toast.success(config.success);
     } catch (error) {
       toast.error(error, { title: `${config.label} failed` });
     }

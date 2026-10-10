@@ -4,6 +4,8 @@ import { AlertTriangle, CheckCircle2, Pencil, Wrench } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { machinesApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { runOrQueue } from '../offline/syncManager.js';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLE_LABELS, can } from '../auth/roles.js';
 import { MachineStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { MACHINE_STATUS_LABELS, MACHINE_TYPE_LABELS, SEVERITY_TONES } from '../utils/machineStatus.js';
@@ -37,6 +39,7 @@ function minutesText(minutes) {
 /** Report a problem. A CRITICAL problem takes the machine DOWN; the form says so before saving. */
 function ReportProblemModal({ machine, onClose, onDone }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [form, setForm] = useState({ category: 'MECHANICAL', severity: 'MEDIUM', description: '', estimatedDowntimeMinutes: '', pauseProduction: false });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -60,17 +63,23 @@ function ReportProblemModal({ machine, onClose, onDone }) {
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      const { data } = await machinesApi.reportProblem(
-        machine.id,
-        {
-          category: form.category,
-          severity: form.severity,
-          description: form.description.trim(),
-          ...(minutes ? { estimatedDowntimeMinutes: Number(minutes) } : {}),
-          ...(form.pauseProduction && form.severity !== 'CRITICAL' ? { pauseProduction: true } : {}),
-        },
-        key,
+      const body = {
+        category: form.category,
+        severity: form.severity,
+        description: form.description.trim(),
+        ...(minutes ? { estimatedDowntimeMinutes: Number(minutes) } : {}),
+        ...(form.pauseProduction && form.severity !== 'CRITICAL' ? { pauseProduction: true } : {}),
+      };
+      const sent = await runOrQueue(
+        { key, type: 'MACHINE_PROBLEM_REPORT', payload: { machineId: machine.id, ...body }, label: `${form.severity.toLowerCase()} problem on ${machine.code}`, userId: user.id },
+        (k) => machinesApi.reportProblem(machine.id, body, k),
       );
+      if (sent.queued) {
+        toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
+        onDone();
+        return;
+      }
+      const { data } = sent.result;
       toast.success(
         data.machine.status === 'DOWN' && machine.status !== 'DOWN'
           ? `Critical problem recorded. ${machine.code} is now down.`
@@ -268,6 +277,7 @@ export default function MachineDetail() {
   const { user } = useAuth();
   const toast = useToast();
   const detail = useApiQuery(() => machinesApi.get(id), [id]);
+  useLive(liveMatch.machine(id), detail.reload);
   const [modal, setModal] = useState(null); // 'problem' | 'edit' | { resolve: event, text, key, busy, error } | { maintenance: 'start'|'end', key, busy } | { retire, busy }
   const [refreshKey, setRefreshKey] = useState(0);
   const reload = () => {

@@ -4,6 +4,8 @@ import { RefreshCw } from 'lucide-react';
 import { newIdempotencyKey } from '../api/client.js';
 import { qcApi, rollsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { runOrQueue } from '../offline/syncManager.js';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { QcResultBadge } from '../components/machines/MachineStatus.jsx';
 import { InspectRollModal } from '../components/quality/InspectRollModal.jsx';
@@ -52,6 +54,7 @@ export default function QcQueue() {
     summary.reload();
     recent.reload();
   };
+  useLive(liveMatch.actions('ROLL_', 'QC_', 'RUN_'), reload);
   const s = summary.data;
   const count = (status) => s?.rolls[status]?.rolls ?? 0;
   const inspected = s ? Object.values(s.inspections).reduce((a, b) => a + b, 0) : 0;
@@ -60,8 +63,12 @@ export default function QcQueue() {
   async function confirmRework() {
     setReworking({ ...reworking, busy: true });
     try {
-      await rollsApi.reworkDone(reworking.roll.id, null, reworking.key);
-      toast.success(`Roll ${reworking.roll.rollNumber} is back in the QC queue.`);
+      const sent = await runOrQueue(
+        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: reworking.roll.id }, label: `Rework finished on ${reworking.roll.rollNumber}`, userId: user.id },
+        (k) => rollsApi.reworkDone(reworking.roll.id, null, k),
+      );
+      if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
+      else toast.success(`Roll ${reworking.roll.rollNumber} is back in the QC queue.`);
     } catch (error) {
       toast.error(error, { title: 'Not returned to QC' });
     }

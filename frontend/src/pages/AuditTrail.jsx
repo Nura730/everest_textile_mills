@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { auditApi, usersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLES, ROLE_LABELS } from '../auth/roles.js';
 import { FilterBar, FilterDate, FilterSelect } from '../components/ui/Filters.jsx';
 import { ConfirmDialog } from '../components/ui/Modal.jsx';
@@ -40,6 +41,7 @@ export default function AuditTrail() {
   const admin = user.role === ROLES.ADMIN;
   const { filters, set, clear, query, active, page, setPage } = useFilters(NO_FILTERS);
   const entries = useApiQuery(() => auditApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page]);
+  useLive(liveMatch.any, entries.reload, 800);
   const actions = useApiQuery(() => (admin ? auditApi.actions() : Promise.resolve({ data: { actions: [] } })), [admin]);
   const users = useApiQuery(() => (admin ? usersApi.list({ limit: 100 }) : Promise.resolve({ data: { users: [] } })), [admin]);
   const [correcting, setCorrecting] = useState(null); // { entry, note, busy, error }

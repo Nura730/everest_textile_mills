@@ -4,6 +4,7 @@ import { CheckCircle2, PackagePlus, RefreshCw, Scale, ShieldAlert } from 'lucide
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { inventoryApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { FilterBar, FilterCheckbox, FilterDate, FilterSelect } from '../components/ui/Filters.jsx';
 import { Field, Modal } from '../components/ui/Modal.jsx';
@@ -301,6 +302,7 @@ export default function Inventory() {
     [query.material, query.includeDepleted],
   );
   const lots = useApiQuery(() => inventoryApi.lots({ ...query, limit: 100 }), [query]);
+  useLive(liveMatch.actions('MATERIAL_', 'STOCK_'), () => { lots.reload(); summary.reload(); });
   // Colour choices: the colours actually stocked for the chosen material.
   const colours = [...new Set((summary.data?.summary ?? []).map((row) => row.colour))].sort();
   const lotList = lots.data?.lots ?? [];
