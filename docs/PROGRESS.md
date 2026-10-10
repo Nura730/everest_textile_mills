@@ -19,10 +19,10 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 | 5 | Buyers, catalog, orders (+ ownership) — built before 4 (D5) | ✅ Done, merged to `main` | `feature/backend` | via `feature/backend` | 621 |
 | 6 | Feasibility (material + deadline) and confirmation — built before 4 | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 671 |
 | — | Audit fixes; list filters and edit actions | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 783 |
-| 4 | Material reservation (reserve, issue, return, release) | 🟡 Implemented, **uncommitted** | `feature/backend` | — | 845 |
-| 7 | Machines (registry, maintenance, problems, downtime; D4 confirmed) | 🟡 Implemented, **uncommitted** | `feature/backend` | — | 941 |
-| 8 | Production runs | ⏳ Next | | | |
-| 9 | Roll traceability | Not started | | | |
+| 4 | Material reservation (reserve, issue, return, release) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 845 |
+| 7 | Machines (registry, maintenance, problems, downtime; D4 confirmed) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 941 |
+| 8 | Production runs and roll output (D3 single stage) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1019 |
+| 9 | Roll traceability (rolls are recorded since Phase 8; traceability views, labels) | ⏳ Next | | | |
 | 10 | QC | Not started | | | |
 | 11 | Finished goods | Not started | | | |
 | 12 | Dispatch | Not started | | | |
@@ -69,7 +69,7 @@ Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE
 - Frontend: feasibility card and Confirm button on order detail.
 - Docs: `docs/features/phase-06-feasibility.md`, `docs/learning/phase-06-feasibility.md`, README contract, DATABASE.md.
 
-## Phase 4 — what is done (uncommitted)
+## Phase 4 — what is done
 
 - `materialReservations` (per order, per lot): reserved / issued / returned / released counters, guarded.
 - `POST /orders/:id/reserve` (FIFO or store keeper's chosen lots; whole requirement or nothing;
@@ -79,7 +79,7 @@ Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE
 - Frontend: Reserve yarn modal, yarn panel with issue/return, store and floor dashboard queues.
 - Docs: `docs/features/phase-04-reservation.md`, README contract, DATABASE.md.
 
-## Phase 7 — what is done (uncommitted)
+## Phase 7 — what is done
 
 - `machines` (registry; code/type locked; retire, never delete) and append-only `machineEvents`.
 - States per D4 (no IDLE). Maintenance start/end; problems by category and severity; CRITICAL takes a
@@ -90,16 +90,26 @@ Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE
   the sample Factory Floor Map moved to `/floor-map` (still labelled preview); floor dashboard KPI.
 - Docs: `docs/features/phase-07-machines.md`, README contract, DATABASE.md (D4 confirmed).
 
+## Phase 8 — what is done
+
+- `productionRuns` and `rolls`: plan (machine of the fabric's type, never more than the order), start
+  (machine assigned, not down/maintenance, yarn on the floor; order → IN_PRODUCTION), pause/resume with the
+  machine, record rolls with traceability, complete (order → PRODUCTION_COMPLETED when fully produced),
+  cancel planned runs; machine problems pause the running run; order cancel cancels planned runs.
+- Order + machine locks; the concurrent-completion test fails without them.
+- Frontend: live Production list and run detail, Plan run, order production panel; the sample production
+  board moved to `/production-board` (labelled preview).
+- Docs: `docs/features/phase-08-production.md`, README contract, DATABASE.md.
+
 ## Next
 
-1. Owner reviews and commits Phases 4 and 7.
-2. Phase 8 — production runs: assign an order to a machine (`ASSIGNED`), start/pause/resume/complete
-   (`MATERIAL_RESERVED → IN_PRODUCTION`), output recording, issuing yarn against runs, and the
-   machine-capacity part of feasibility (needs runs for workload).
+1. Phase 9 — roll traceability: roll list/detail, roll → lots → order → machine views, labels.
+2. Phase 10 — QC on rolls (pass / rework / reject, with signatures), then finished goods (11) and dispatch (12).
+3. Machine-capacity check in feasibility needs a decision: working hours per day per machine.
 
 ## Open decisions / process issues
 
-- **D3, D6, D7, D8** (`docs/DATABASE.md` §7) still need confirmation (D7 is already built as proposed). D4 confirmed.
+- **D6, D7, D8** (`docs/DATABASE.md` §7) still need confirmation (D7 is already built as proposed). D4 confirmed; D3 applied as proposed in Phase 8.
 - **Integration:** the team merges `feature/backend` into `main` through PRs (as with PRs #3–#24).
   `develop` is not used in practice and is still at Phase 1.
 - **PRs must be opened by hand**: `gh` is not installed.

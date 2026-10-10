@@ -172,7 +172,7 @@ machine apply one after the other. `ASSIGNED`, `RUNNING` and `PAUSED` are entere
 `severity: LOW|MEDIUM|CRITICAL`, `description`, `estimatedDowntimeMinutes`), `resolvesEventId?`,
 `actorId`, `occurredAt`, `source`. Downtime = `PROBLEM_REPORTED.occurredAt → PROBLEM_RESOLVED.occurredAt`.
 
-### productionRuns *(Phase 8)*
+### productionRuns *(Phase 8, built)*
 `runNumber`, `orderId`, `machineId`, `targetCm`, `producedCm` (Σ roll lengths), `status`,
 `plannedStartAt`, `startedAt`, `completedAt`, `supervisorId`, `version`, timestamps.
 ```
@@ -181,8 +181,16 @@ PLANNED ──start──▶ RUNNING ⇄ PAUSED ──complete──▶ COMPLETE
 ```
 Start requires: machine `ASSIGNED` to this run (not `DOWN`/`MAINTENANCE`), yarn issued for the
 order, order in `MATERIAL_RESERVED` or `IN_PRODUCTION`.
+Built in Phase 8 (D3 single stage applied): plan requires an `AVAILABLE` machine of the product's
+`machineType` and never plans more than the order (open runs count their target, completed runs their
+output); "yarn issued" = yarn of the order on the floor (issued − returned > 0); the first start moves the
+order to `IN_PRODUCTION`; complete needs ≥ 1 roll, frees the machine, and moves the order to
+`PRODUCTION_COMPLETED` when no run is open and completed output ≥ ordered quantity. A critical machine
+problem (or "pause production") pauses the machine's running run. Snapshots `orderNumber`,
+`machineCode`; `rollCount`; `statusHistory`; `note`. Uses `updatedAt` rather than `version`. Every action
+locks `order:<id>` and `machine:<id>`.
 
-### rolls *(Phase 9)*
+### rolls *(recorded from Phase 8; traceability views Phase 9)*
 `rollNumber` (**unique**), `orderId`, `runId`, `machineId`, `yarnLotIds[]` (lots issued to the run),
 `lengthCm`, `weightGrams?`, `producedAt`, `producedBy`, `status`, `reworkCount`.
 ```

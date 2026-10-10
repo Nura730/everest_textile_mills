@@ -178,6 +178,8 @@ Notes:
 | `GET /api/machines`, `GET /api/machines/:id`, `GET /api/machines/:id/events` | | ✓ | ✓ | | ✓ |
 | `POST /api/machines`, `PATCH /api/machines/:id`, `PATCH /api/machines/:id/active` | | | | | ✓ |
 | `POST /api/machines/:id/maintenance/start`, `/maintenance/end`, `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
+| `GET /api/production-runs`, `GET /api/production-runs/:id` | ✓ | ✓ | ✓ | | ✓ |
+| `POST /api/production-runs`, `/:id/start`, `/pause`, `/resume`, `/complete`, `/cancel`, `/rolls` | | ✓ | | | ✓ |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -741,11 +743,13 @@ ORDER_CREATED ──cancel (owning BUYER or ADMIN)──────────
 ORDER_CREATED ──reject (ADMIN)──────────────────────────▶ REJECTED
 CONFIRMED     ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
 CONFIRMED     ──reserve yarn (STORE_KEEPER or ADMIN)────▶ MATERIAL_RESERVED
-MATERIAL_RESERVED ──cancel (owning BUYER or ADMIN; releases unissued yarn)──▶ CANCELLED
+MATERIAL_RESERVED ──cancel (owning BUYER or ADMIN; releases unissued yarn, cancels planned runs)──▶ CANCELLED
+MATERIAL_RESERVED ──first production run starts──▶ IN_PRODUCTION
+IN_PRODUCTION ──last run completes and output covers the order──▶ PRODUCTION_COMPLETED
 ```
 
-Only these transitions exist today. The later statuses (`IN_PRODUCTION`, `PRODUCTION_COMPLETED`,
-`READY_FOR_DISPATCH`, `DISPATCHED`, `INVOICED`) arrive with their phases. Any other change returns
+Only these transitions exist today. An order `IN_PRODUCTION` can no longer be cancelled. The later statuses
+(`READY_FOR_DISPATCH`, `DISPATCHED`, `INVOICED`) arrive with their phases. Any other change returns
 `409 INVALID_STATE_TRANSITION`.
 
 ### `POST /api/orders` — place an order (BUYER, ADMIN; Idempotency-Key)
@@ -925,6 +929,36 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
 
+## Production runs (Phase 8)
+
+One order on one machine of the fabric's type (D3: single stage). An order can be split across runs.
+
+```
+PLANNED ──start──▶ RUNNING ⇄ PAUSED ──complete──▶ COMPLETED
+   └──cancel──▶ CANCELLED
+```
+
+| Endpoint (FLOOR_MANAGER, ADMIN; Idempotency-Key) | Rules |
+|---|---|
+| `POST /api/production-runs` `{ orderId, machineId, targetMetres, plannedStartAt?, note? }` | Order `MATERIAL_RESERVED` or `IN_PRODUCTION` (else 409 `CONFLICT`); machine active, `AVAILABLE` (409 `INVALID_STATE_TRANSITION`) and of the product's `machineType` (400); target ≤ what is left of the order (409 `QUANTITY_EXCEEDS_ORDER`, `details.remainingMetres`). Run `PLANNED`, machine `ASSIGNED`. `201` |
+| `POST /:id/start` `{}` | Run `PLANNED`; machine `ASSIGNED` to this run (a `DOWN`/`MAINTENANCE` machine: 409); yarn of the order on the floor (409 `YARN_NOT_ISSUED`). Run and machine `RUNNING`; first start moves the order to `IN_PRODUCTION` |
+| `POST /:id/pause` `{ reason }` / `POST /:id/resume` `{}` | Run and machine together; resume needs the machine `PAUSED` (not `DOWN`) |
+| `POST /:id/rolls` `{ lengthMetres (≤ 2 dec, ≤ 10,000), weightKg? }` | Run `RUNNING`/`PAUSED`. Creates a roll `QC_PENDING` with `rollNumber` (`ROLL-<year>-00001`) and its order, run, machine and issued yarn lots; adds to `producedMetres`. `201` with `roll` |
+| `POST /:id/complete` `{ note? }` | Run `RUNNING`/`PAUSED` with ≥ 1 roll (409 `NO_OUTPUT_RECORDED`). Machine freed. Order → `PRODUCTION_COMPLETED` when no run is open and completed output ≥ ordered quantity |
+| `POST /:id/cancel` `{ reason }` | Only `PLANNED`; machine freed |
+
+Reads (STORE_KEEPER, FLOOR_MANAGER, QC_INSPECTOR, ADMIN): `GET /api/production-runs?orderId=&machineId=&status=&page=&limit=`
+and `GET /api/production-runs/:id` → `{ run, rolls }`.
+
+**Run object:** `{ id, runNumber, orderId, orderNumber, machineId, machineCode, targetMetres, producedMetres,
+rollCount, status, statusHistory, plannedStartAt, startedAt, completedAt, supervisorId, note, createdAt, updatedAt }`.
+**Roll object:** `{ id, rollNumber, orderId, orderNumber, runId, runNumber, machineId, machineCode, yarnLots:
+[{ yarnLotId, lotNumber }], lengthMetres, weightKg, status, producedAt, producedBy, reworkCount }`.
+
+A critical machine problem (or a problem with `pauseProduction`) pauses the machine's running run; after
+repair the run is resumed by a person. Cancelling a reserved order cancels its planned runs. Audit:
+`RUN_PLANNED`, `RUN_STARTED`, `RUN_PAUSED`, `RUN_RESUMED`, `RUN_COMPLETED`, `RUN_CANCELLED`, `ROLL_RECORDED`.
+
 ## Machines (Phase 7)
 
 States (decision D4: no `IDLE`): `AVAILABLE`, `ASSIGNED` (a run is booked, Phase 8), `RUNNING`, `PAUSED`,
@@ -1050,6 +1084,9 @@ the current factory state. No `422` is used anywhere.
 | `QUANTITY_EXCEEDS_ISSUED` | 409 | Return of more yarn than the order has on the floor; `details.onFloorKg` | Show the limit, refresh the reservations |
 | `MACHINE_INACTIVE` | 409 | Action on a retired machine | Reactivate it first, or pick another machine |
 | `PROBLEM_ALREADY_RESOLVED` | 409 | The problem was resolved already (e.g. by someone else) | Refresh the machine |
+| `YARN_NOT_ISSUED` | 409 | Starting a run before any of the order's yarn is on the floor | Ask the store to issue yarn |
+| `NO_OUTPUT_RECORDED` | 409 | Completing a run without a roll | Record rolls first |
+| `QUANTITY_EXCEEDS_ORDER` | 409 | Planning more than is left of the order; `details.remainingMetres` | Lower the target |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
