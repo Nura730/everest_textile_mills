@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { INVENTORY_TRANSACTION_TYPES } from '../models/InventoryTransaction.js';
 import { YARN_MATERIALS } from '../models/YarnLot.js';
 import { normalizeCode, toTitleCase } from '../utils/normalize.js';
 import { hasAtMostDecimals } from '../utils/units.js';
-import { objectIdSchema } from './common.validators.js';
+import { dateFilterSchema, objectIdSchema, refineDateRange } from './common.validators.js';
 
 export const MAX_RECEIPT_KG = 100_000;
 // Allows a receipt timestamp from a device whose clock runs a little ahead.
@@ -54,7 +55,15 @@ export const listLotsQuerySchema = z.object({
 
 export const lotIdParamsSchema = z.object({ id: objectIdSchema });
 
-export const ledgerQuerySchema = z.object(pagination);
+export const ledgerQuerySchema = z
+  .object({
+    type: z.enum(INVENTORY_TRANSACTION_TYPES).optional(),
+    // Movement date range (Indian calendar days, inclusive).
+    from: dateFilterSchema,
+    to: dateFilterSchema,
+    ...pagination,
+  })
+  .superRefine(refineDateRange('from', 'to'));
 
 export const yarnSummaryQuerySchema = z.object({
   material: z.enum(YARN_MATERIALS).optional(),

@@ -53,3 +53,12 @@ export async function confirmOrder(req, res) {
   );
   return sendIdempotent(res, result);
 }
+
+export async function updateOrder(req, res) {
+  const result = await orderService.updateOrder(
+    req.validated.params.id,
+    req.validated.body,
+    requestContext(req),
+  );
+  return sendIdempotent(res, result);
+}

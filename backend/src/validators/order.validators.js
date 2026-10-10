@@ -2,7 +2,13 @@ import { z } from "zod";
 import { ALL_ORDER_STATUSES } from "../constants/orderStatus.js";
 import { addYears, todayInIndia } from "../utils/dates.js";
 import { hasAtMostDecimals } from "../utils/units.js";
-import { objectIdSchema } from "./common.validators.js";
+import {
+  dateFilterSchema,
+  expectedUpdatedAtSchema,
+  objectIdSchema,
+  refineDateRange,
+  searchQuerySchema,
+} from "./common.validators.js";
 
 export const MAX_ORDER_METRES = 1_000_000;
 export const MAX_DEADLINE_YEARS = 2;
@@ -43,16 +49,43 @@ export const adminCreateOrderBodySchema = z.strictObject({
   buyerId: objectIdSchema,
 });
 
-export const listOrdersQuerySchema = z.object({
-  status: z.enum(ALL_ORDER_STATUSES).optional(),
-  productId: objectIdSchema.optional(),
-  // Ignored for BUYER: a buyer always sees only their own company's orders.
-  buyerId: objectIdSchema.optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-});
+export const listOrdersQuerySchema = z
+  .object({
+    status: z.enum(ALL_ORDER_STATUSES).optional(),
+    productId: objectIdSchema.optional(),
+    // Ignored for BUYER: a buyer always sees only their own company's orders.
+    buyerId: objectIdSchema.optional(),
+    // Required-by date range (calendar dates, inclusive).
+    requiredFrom: dateFilterSchema,
+    requiredTo: dateFilterSchema,
+    // Deadline before today (India) while a delivery is still pending.
+    overdue: z.stringbool().optional(),
+    // Order number, buyer code/name or product code/name.
+    q: searchQuerySchema,
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .superRefine(refineDateRange("requiredFrom", "requiredTo"));
 
 export const orderIdParamsSchema = z.object({ id: objectIdSchema });
+
+/*
+ * Editing an order (only while ORDER_CREATED; the service checks the status). Only the buyer's own
+ * inputs: quantity, deadline and notes. Product, buyer, price, totals, yarn, status and number are
+ * not accepted (400); totals and yarn are recalculated on the server. Notes can be cleared with null.
+ */
+export const updateOrderBodySchema = z
+  .strictObject({
+    expectedUpdatedAt: expectedUpdatedAtSchema,
+    quantityMetres: quantityMetresSchema.optional(),
+    requiredBy: requiredBySchema.optional(),
+    buyerNotes: z.string().trim().min(1).max(500).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (["quantityMetres", "requiredBy", "buyerNotes"].every((key) => value[key] === undefined)) {
+      ctx.addIssue({ code: "custom", path: [], message: "must include at least one of: quantityMetres, requiredBy, buyerNotes" });
+    }
+  });
 
 export const statusChangeBodySchema = z.strictObject({
   reason: z.string().trim().min(5).max(500),

@@ -8,6 +8,7 @@ import {
   adminCreateOrderBodySchema,
   buyerCreateOrderBodySchema,
   confirmOrderBodySchema,
+  updateOrderBodySchema,
   listOrdersQuerySchema,
   orderIdParamsSchema,
   statusChangeBodySchema,
@@ -46,6 +47,13 @@ router.get(
   authorize(...ALL_ROLES),
   validate({ params: orderIdParamsSchema }),
   orderController.getOrder,
+);
+router.patch(
+  "/:id",
+  authorize(ROLES.BUYER, ROLES.ADMIN),
+  requireIdempotencyKey,
+  validate({ params: orderIdParamsSchema, body: updateOrderBodySchema }),
+  orderController.updateOrder,
 );
 router.get(
   "/:id/feasibility",

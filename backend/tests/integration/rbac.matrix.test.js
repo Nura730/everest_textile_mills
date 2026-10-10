@@ -201,6 +201,50 @@ const MATRIX = [
     allowed: ALL_ROLES,
     build: async () => ({ path: `/api/orders/${(await newOrder())._id}` }),
   },
+  // ── Edits: buyers, products, orders ──
+  {
+    name: 'PATCH /api/buyers/:id',
+    method: 'patch',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const buyer = await createTestBuyer();
+      return { path: `/api/buyers/${buyer._id}`, body: { expectedUpdatedAt: buyer.updatedAt.toISOString(), name: 'Matrix Renamed Co' } };
+    },
+  },
+  {
+    name: 'PATCH /api/buyers/:id/status',
+    method: 'patch',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/buyers/${(await createTestBuyer())._id}/status`, body: { isActive: false } }),
+  },
+  {
+    name: 'PATCH /api/products/:id',
+    method: 'patch',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const product = await createTestProduct();
+      return { path: `/api/products/${product._id}`, body: { expectedUpdatedAt: product.updatedAt.toISOString(), pricePerMetrePaise: 19000 } };
+    },
+  },
+  {
+    name: 'PATCH /api/products/:id/status',
+    method: 'patch',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/products/${(await createTestProduct())._id}/status`, body: { isActive: false } }),
+  },
+  {
+    name: 'PATCH /api/orders/:id',
+    method: 'patch',
+    allowed: [ROLES.BUYER, ROLES.ADMIN],
+    build: async () => {
+      const order = await newOrder();
+      return {
+        path: `/api/orders/${order._id}`,
+        body: { expectedUpdatedAt: order.updatedAt.toISOString(), buyerNotes: 'Matrix edit' },
+        headers: { 'Idempotency-Key': newKey() },
+      };
+    },
+  },
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',

@@ -18,8 +18,10 @@ import {
   insertOrder,
   nextSequence,
   transitionStatusGuarded,
+  updateOrderIfUnchanged,
 } from "../repositories/order.repository.js";
 import { AppError } from "../utils/AppError.js";
+import { diffFields, isStale, staleEditConflict } from "../utils/edits.js";
 import { dateStringToDate, todayInIndia } from "../utils/dates.js";
 import { metresToCm } from "../utils/units.js";
 import { assessOrderFeasibility } from "./feasibility.service.js";
@@ -203,7 +205,7 @@ export function createOrder(input, context) {
 }
 
 export async function listOrders(
-  { status, productId, buyerId, page, limit },
+  { status, productId, buyerId, requiredFrom, requiredTo, overdue, q, page, limit },
   actor,
 ) {
   let scopedBuyerId = buyerId;
@@ -213,7 +215,16 @@ export async function listOrders(
     scopedBuyerId = actor.buyerId;
   }
   const { orders, total } = await findOrdersPage(
-    { buyerId: scopedBuyerId, status, productId },
+    {
+      buyerId: scopedBuyerId,
+      status,
+      productId,
+      requiredFrom,
+      requiredTo,
+      overdue,
+      q,
+      today: todayInIndia(),
+    },
     { page, limit },
   );
   return {
@@ -389,6 +400,69 @@ export function confirmOrder(orderId, context) {
         statusCode: 200,
         body: { order: toPublicOrder(updated, actor) },
       };
+    },
+  );
+}
+
+/**
+ * Edit an order's own inputs (owning BUYER or ADMIN; roles on the route, ownership here).
+ *  - Only while ORDER_CREATED: once confirmed, the feasibility decision was made on these figures,
+ *    so a change means cancelling and placing a new order (409 ORDER_NOT_EDITABLE).
+ *  - Quantity changes recalculate yarn and value on the server from the order's own product and
+ *    price snapshot (a later catalog price change never leaks into an existing order). A retired
+ *    product or inactive buyer company cannot take a quantity change.
+ *  - The client's updatedAt guards against overwriting someone else's edit (409 CONFLICT).
+ *  - Idempotent, audited as ORDER_UPDATED with before/after. Status history is unchanged: the
+ *    status did not change.
+ */
+export function updateOrder(orderId, { expectedUpdatedAt, quantityMetres, requiredBy, buyerNotes }, context) {
+  const { actor } = context;
+
+  return executeIdempotent(
+    { context, operation: "ORDER_UPDATE", request: { orderId, expectedUpdatedAt, quantityMetres, requiredBy, buyerNotes } },
+    async (session) => {
+      const order = await findOrderById(orderId, { session });
+      if (!order || !isOwnedBy(order, actor)) throw notFound();
+      if (order.status !== ORDER_STATUS.ORDER_CREATED) {
+        throw new AppError(
+          "ORDER_NOT_EDITABLE",
+          `An order in status ${order.status} can no longer be edited. Cancel it and place a new order instead.`,
+          { details: { status: order.status } },
+        );
+      }
+
+      const changes = {};
+      if (quantityMetres !== undefined) {
+        changes.quantityCm = metresToCm(quantityMetres);
+        Object.assign(changes, calculateOrderFigures(changes.quantityCm, order.product));
+      }
+      if (requiredBy !== undefined) changes.requiredBy = dateStringToDate(requiredBy);
+      if (buyerNotes !== undefined) changes.buyerNotes = buyerNotes;
+
+      const diff = diffFields(order, changes);
+      if (!diff) return { statusCode: 200, body: { order: toPublicOrder(order, actor) } };
+      if (isStale(order, expectedUpdatedAt)) throw staleEditConflict("order");
+
+      if (diff.after.quantityCm !== undefined) {
+        const [product, buyer] = [await findProductById(order.productId, { session }), await findBuyerById(order.buyerId, { session })];
+        if (!product?.isActive) throw new AppError("PRODUCT_INACTIVE", "This product is no longer available, so the quantity cannot be changed");
+        if (!buyer?.isActive) throw new AppError("BUYER_INACTIVE", "This buyer company is inactive, so the quantity cannot be changed");
+      }
+
+      const updated = await updateOrderIfUnchanged(
+        order._id,
+        { status: ORDER_STATUS.ORDER_CREATED, updatedAt: order.updatedAt },
+        diff.after,
+        session,
+      );
+      if (!updated) throw staleEditConflict("order");
+
+      await recordAudit(
+        { action: "ORDER_UPDATED", entityType: "Order", entityId: order._id, orderId: order._id, ...diff },
+        context,
+        session,
+      );
+      return { statusCode: 200, body: { order: toPublicOrder(updated, actor) } };
     },
   );
 }
