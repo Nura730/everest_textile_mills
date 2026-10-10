@@ -18,6 +18,10 @@ export function requestLogger(logger) {
       res.setHeader(REQUEST_ID_HEADER, id);
       return id;
     },
+    // Evaluated when the response finishes, after authenticate has set req.user.
+    customProps(req) {
+      return req.user ? { userId: req.user.id } : {};
+    },
     customLogLevel(req, res, err) {
       if (err || res.statusCode >= 500) return 'error';
       if (res.statusCode >= 400) return 'warn';

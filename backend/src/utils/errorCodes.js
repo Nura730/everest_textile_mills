@@ -6,11 +6,23 @@ export const ERROR_CODES = Object.freeze({
   VALIDATION_ERROR: 400,
   INVALID_JSON: 400,
   UNAUTHENTICATED: 401,
+  // Only for a genuinely signed token past its exp; forged tokens get UNAUTHENTICATED.
+  TOKEN_EXPIRED: 401,
+  // Login only. One code for unknown email, wrong password and deactivated account.
+  INVALID_CREDENTIALS: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
   DUPLICATE_RESOURCE: 409,
+  // Same Idempotency-Key sent with a different request.
+  IDEMPOTENCY_KEY_REUSED: 409,
+  // Inventory
+  INSUFFICIENT_STOCK: 409,
+  // Users
+  CANNOT_DEACTIVATE_SELF: 409,
+  LAST_ACTIVE_ADMIN: 409,
   PAYLOAD_TOO_LARGE: 413,
+  TOO_MANY_REQUESTS: 429,
   INTERNAL_ERROR: 500,
   SERVICE_UNAVAILABLE: 503,
 });
