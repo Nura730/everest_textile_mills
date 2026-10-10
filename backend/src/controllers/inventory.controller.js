@@ -26,3 +26,8 @@ export async function getYarnSummary(req, res) {
   const summary = await inventoryService.getYarnSummary(req.validated.query);
   return sendSuccess(res, { summary });
 }
+
+export async function adjustLot(req, res) {
+  const result = await inventoryService.adjustLot(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendIdempotent(res, result);
+}

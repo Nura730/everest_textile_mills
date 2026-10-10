@@ -5,6 +5,7 @@ import { authorize } from '../middleware/authorize.js';
 import { requireIdempotencyKey } from '../middleware/idempotencyKey.js';
 import { validate } from '../middleware/validate.js';
 import {
+  adjustLotBodySchema,
   ledgerQuerySchema,
   listLotsQuerySchema,
   lotIdParamsSchema,
@@ -31,6 +32,14 @@ router.get(
   canViewStock,
   validate({ params: lotIdParamsSchema, query: ledgerQuerySchema }),
   inventoryController.getLotTransactions,
+);
+// Write-offs and count corrections need owner authority (docs/DATABASE.md D7).
+router.post(
+  '/:id/adjustments',
+  authorize(ROLES.ADMIN),
+  requireIdempotencyKey,
+  validate({ params: lotIdParamsSchema, body: adjustLotBodySchema }),
+  inventoryController.adjustLot,
 );
 
 export default router;

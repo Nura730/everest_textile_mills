@@ -6,6 +6,7 @@ import { appendTransaction, findTransactionsPageForLot } from '../repositories/i
 import {
   findLotById,
   findLotsPage,
+  incrementTotalGuarded,
   insertLot,
   summarizeByMaterialAndColour,
 } from '../repositories/yarnLot.repository.js';
@@ -110,4 +111,66 @@ export async function getYarnSummary({ material, includeDepleted }) {
     availableKg: gramsToKg(group.totalGrams - group.reservedGrams),
     oldestReceivedAt: group.oldestReceivedAt,
   }));
+}
+
+/**
+ * Stock adjustment: a physical count differs from the system, or yarn was damaged.
+ * Rules: ADMIN only (enforced on the route), a reason is mandatory, and a lot can never end up
+ * holding less than is already reserved for orders (nor below zero). The guard is part of the
+ * atomic update, so two concurrent write-offs cannot both slip through.
+ */
+export function adjustLot(lotId, { deltaKg, reason }, context) {
+  return executeIdempotent(
+    { context, operation: 'YARN_LOT_ADJUST', request: { lotId, deltaKg, reason } },
+    async (session) => {
+      const deltaGrams = kgToGrams(deltaKg);
+      const before = await findLotById(lotId, { session });
+      if (!before) throw new AppError('NOT_FOUND', 'Yarn lot not found');
+
+      const after = await incrementTotalGuarded(lotId, deltaGrams, session);
+      if (!after) {
+        throw new AppError('INSUFFICIENT_STOCK', 'Adjustment would leave less stock than is reserved for orders', {
+          details: {
+            totalKg: gramsToKg(before.totalGrams),
+            reservedKg: gramsToKg(before.reservedGrams),
+            maxReductionKg: gramsToKg(before.totalGrams - before.reservedGrams),
+            requestedDeltaKg: deltaKg,
+          },
+        });
+      }
+
+      const entry = await appendTransaction(
+        {
+          type: 'ADJUSTMENT',
+          yarnLotId: after._id,
+          deltaTotalGrams: deltaGrams,
+          deltaReservedGrams: 0,
+          reason,
+          actorId: context.actor.id,
+          idempotencyKey: context.idempotencyKey,
+        },
+        session,
+      );
+
+      await recordAudit(
+        {
+          action: 'STOCK_ADJUSTED',
+          entityType: 'YarnLot',
+          entityId: after._id,
+          before: { totalGrams: before.totalGrams, reservedGrams: before.reservedGrams },
+          after: { totalGrams: after.totalGrams, reservedGrams: after.reservedGrams, deltaGrams, reason },
+        },
+        context,
+        session,
+      );
+
+      return {
+        statusCode: 201,
+        body: {
+          lot: toPublicLot(after, { includeCost: canSeeCost(context.actor) }),
+          transaction: toPublicTransaction(entry),
+        },
+      };
+    },
+  );
 }
