@@ -7,6 +7,10 @@ import { bootstrapAdmin, BootstrapRefusedError } from '../../src/scripts/bootstr
 import { Buyer } from '../../src/models/Buyer.js';
 import { Product } from '../../src/models/Product.js';
 import { DEV_BUYER, DEV_PRODUCTS, seedDevCatalog } from '../../src/scripts/seedDevCatalog.js';
+import { seedDevDemo } from '../../src/scripts/seedDevDemo.js';
+import { Order } from '../../src/models/Order.js';
+import { YarnLot } from '../../src/models/YarnLot.js';
+import { clearInventory, ensureInventoryCollections } from '../helpers/inventory.js';
 import { DEV_USERS, seedDevUsers } from '../../src/scripts/seedDevUsers.js';
 import { verifyPassword } from '../../src/services/password.service.js';
 import { createTestUser } from '../helpers/auth.js';
@@ -19,11 +23,13 @@ beforeAll(async () => {
   await connectDatabase(process.env.MONGODB_URI);
   await User.init();
   await ensureCatalogCollections();
+  await ensureInventoryCollections();
 });
 
 afterEach(async () => {
   await User.deleteMany({});
   await clearCatalog();
+  await clearInventory();
 });
 
 afterAll(async () => {
@@ -128,7 +134,7 @@ describe('CLI wrappers', () => {
     expect(code).toBe(0);
     expect(output).toContain('admin@everest.local');
     expect(output).not.toContain(SEED_PASSWORD);
-    expect(await User.countDocuments()).toBe(DEV_USERS.length);
+    expect(await User.countDocuments()).toBe(DEV_USERS.length + 1); // + buyer2@ from the demo seed
   });
 
   it('bootstrap:admin creates an admin and refuses a second run', async () => {
@@ -182,5 +188,40 @@ describe('seedDevCatalog', () => {
     for (const product of DEV_PRODUCTS) {
       expect(product.yarnGramsPerMetre).toBeGreaterThanOrEqual(Math.floor((product.gsm * product.widthCm) / 100));
     }
+  });
+});
+
+describe('seedDevDemo', () => {
+  async function seedAll() {
+    await seedDevUsers({ nodeEnv: 'development', password: SEED_PASSWORD });
+    await seedDevCatalog({ nodeEnv: 'development' });
+    return seedDevDemo({ nodeEnv: 'development', password: SEED_PASSWORD });
+  }
+
+  it('creates a second buyer, stock and orders through the real services', async () => {
+    const report = await seedAll();
+
+    expect(report.every((row) => row.status === 'created')).toBe(true);
+    expect(await YarnLot.countDocuments()).toBe(4);
+    expect(await Order.countDocuments()).toBe(5);
+    expect(await Order.countDocuments({ status: 'CANCELLED' })).toBe(1);
+    expect(await Order.countDocuments({ status: 'REJECTED' })).toBe(1);
+    // Written by the services, so the ledger and audit trail exist too.
+    const buyer2 = await User.findOne({ email: 'buyer2@everest.local' }).lean();
+    expect(buyer2.buyerId).not.toBeNull();
+    await expect(verifyPassword(SEED_PASSWORD, (await User.findById(buyer2._id).select('+passwordHash').lean()).passwordHash)).resolves.toBe(true);
+  });
+
+  it('is idempotent: a second run creates nothing new', async () => {
+    await seedAll();
+    const second = await seedDevDemo({ nodeEnv: 'development', password: SEED_PASSWORD });
+
+    expect(second.every((row) => row.status === 'exists')).toBe(true);
+    expect(await Order.countDocuments()).toBe(5);
+    expect(await YarnLot.countDocuments()).toBe(4);
+  });
+
+  it('refuses to run in production', async () => {
+    await expect(seedDevDemo({ nodeEnv: 'production', password: SEED_PASSWORD })).rejects.toThrow(/refuses/);
   });
 });

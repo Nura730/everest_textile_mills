@@ -3,6 +3,7 @@
 import { connectDatabase, disconnectDatabase } from '../src/config/db.js';
 import { getConfig } from '../src/config/env.js';
 import { seedDevCatalog } from '../src/scripts/seedDevCatalog.js';
+import { seedDevDemo } from '../src/scripts/seedDevDemo.js';
 import { seedDevUsers, seedEnvSchema } from '../src/scripts/seedDevUsers.js';
 
 async function main() {
@@ -27,6 +28,9 @@ async function main() {
     const catalog = await seedDevCatalog({ nodeEnv: config.nodeEnv });
     console.log('Dev buyer company and products:');
     console.table(catalog);
+    const demo = await seedDevDemo({ nodeEnv: config.nodeEnv, password: parsed.data.SEED_PASSWORD });
+    console.log('Demo workflow records (created through the real services):');
+    console.table(demo);
     return 0;
   } finally {
     await disconnectDatabase();
