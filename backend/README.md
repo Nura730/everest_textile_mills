@@ -194,6 +194,7 @@ Notes:
 | `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
 | `GET /api/costing/*`, `POST /api/costing/rates` | | | | | ✓ |
 | `POST /api/sync/events` | | ✓ | ✓ | | ✓ |
+| `GET /api/intelligence/overview`, `GET /api/intelligence/orders/:id` | ✓ | ✓ | | | ✓ |
 | `GET /api/sync/events` | ✓ own | ✓ own | ✓ own | ✓ own | ✓ all |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
@@ -943,6 +944,27 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
+
+## Intelligence (Phase 17)
+
+Rules, not a model: every verdict lists its factors and the numbers behind them.
+
+- Remaining = ordered − produced + rejected (rejected rolls are made again).
+- Production days = remaining ÷ rated speed of the machines on the order's open runs (machines DOWN or
+  in MAINTENANCE count as zero) ÷ `workingHoursPerDay` (rate card, default 16), rounded up; with no run
+  yet, the fastest AVAILABLE machine of the fabric's type is assumed.
+- Days needed = production days + 1 (QC and dispatch; 0 once READY_FOR_DISPATCH).
+- `LATE` if days needed > days left (or overdue); `AT_RISK` if slack ≤ 1 day, no estimate, or a HIGH
+  factor (machine stopped, material short, no machine, overdue); otherwise `ON_TRACK`. `score` 0-100.
+- Factors: `PRODUCTION_TIME`, `REMAKE`, `MACHINE_STOPPED`, `MATERIAL_SHORT`, `QUALITY` (>10% of ≥3 rolls
+  rejected), `NO_MACHINE`, `OVERDUE`. Recommendations: `FIX_MACHINE`, `RESUME_RUN`, `BUY_YARN` /
+  `RESERVE_YARN`, `PLAN_RUN`, `ADD_MACHINE` (with days saved), `CHECK_QUALITY`, `INSPECT`, `DISPATCH`,
+  `TALK_TO_BUYER`.
+
+`GET /api/intelligence/overview` → `{ orders: [{ order, risk }] (riskiest first), counts, machines:
+[machines with ≥3 problems in 30 days + maintenance advice], assumptions }`. `GET
+/api/intelligence/orders/:id` → `{ order, risk }` (`risk: null` for closed orders). Buyers get only
+`expectedDelivery.status` and a plain message on their order timeline.
 
 ## Offline sync (Phase 15)
 
