@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
+import ToastContainer from './ToastContainer';
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
@@ -20,6 +21,9 @@ export default function AppLayout() {
           </div>
         </main>
       </div>
+
+      {/* Global Toast Notification System */}
+      <ToastContainer />
     </div>
   );
 }

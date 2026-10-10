@@ -61,7 +61,7 @@ export default function Dashboard() {
     return checkFeasibility(formData.fabric, formData.quantity, formData.deadline);
   }, [formData, showNewMOModal, checkFeasibility]);
 
-  // Update clock
+  // Update clock & listen for Escape key
   useEffect(() => {
     const updateTime = () => {
       const d = new Date();
@@ -69,7 +69,19 @@ export default function Dashboard() {
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowNewMOModal(false);
+        setSelectedOrder(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const activeOrders = orders.filter((o) => o.status === 'In Production');
@@ -138,7 +150,12 @@ export default function Dashboard() {
 
         <div className="live-metrics-grid">
           {/* Metric 1: Overall Efficiency */}
-          <div className="live-metric-card">
+          <div
+            className="live-metric-card"
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/analytics')}
+            title="Click to view Operations Analytics & OEE breakdowns"
+          >
             <div className="live-metric-header">
               <span className="live-metric-label">Overall Efficiency</span>
               <Minus size={16} className="text-secondary" />
@@ -149,7 +166,12 @@ export default function Dashboard() {
           </div>
 
           {/* Metric 2: Hourly Throughput (with -5.3% RED badge) */}
-          <div className="live-metric-card">
+          <div
+            className="live-metric-card"
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/production')}
+            title="Click to view Live Work Orders & Throughput"
+          >
             <div className="live-metric-header">
               <span className="live-metric-label">Hourly Throughput</span>
               <TrendingDown size={16} style={{ color: 'var(--color-error)' }} />
@@ -165,7 +187,12 @@ export default function Dashboard() {
           </div>
 
           {/* Metric 3: Quality Score */}
-          <div className="live-metric-card">
+          <div
+            className="live-metric-card"
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/quality')}
+            title="Click to view Quality Control & Roll Inspections"
+          >
             <div className="live-metric-header">
               <span className="live-metric-label">Quality Score</span>
               <TrendingUp size={16} className="text-secondary" />
@@ -180,7 +207,12 @@ export default function Dashboard() {
           </div>
 
           {/* Metric 4: Equipment Utilization */}
-          <div className="live-metric-card">
+          <div
+            className="live-metric-card"
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/machines')}
+            title="Click to view Factory Floor Map & Machine Uptime"
+          >
             <div className="live-metric-header">
               <span className="live-metric-label">Equipment Utilization</span>
               <TrendingUp size={16} className="text-secondary" />
@@ -199,7 +231,7 @@ export default function Dashboard() {
       {/* 3. Row 2: Tall Rounded Metric Cards — EXACT layout from reference screenshot */}
       <div className="erp-tall-kpi-grid">
         {/* Manufacturing Orders */}
-        <div className="erp-tall-kpi-card" onClick={() => navigate('/orders')}>
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/orders')} title="Click to view Manufacturing Orders">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Manufacturing Orders</span>
             <FileText size={16} className="tall-kpi-icon" />
@@ -211,7 +243,7 @@ export default function Dashboard() {
         </div>
 
         {/* Work Orders */}
-        <div className="erp-tall-kpi-card" onClick={() => navigate('/production')}>
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/production')} title="Click to view Work Orders & Fleet Run Status">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Work Orders</span>
             <ClipboardList size={16} className="tall-kpi-icon" />
@@ -221,7 +253,7 @@ export default function Dashboard() {
         </div>
 
         {/* Efficiency */}
-        <div className="erp-tall-kpi-card">
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/analytics')} title="Click to view Efficiency Analytics">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Efficiency</span>
             <Target size={16} className="tall-kpi-icon" />
@@ -231,7 +263,7 @@ export default function Dashboard() {
         </div>
 
         {/* On-Time Delivery */}
-        <div className="erp-tall-kpi-card">
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/orders')} title="Click to view Order Delivery Deadlines">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">On-Time Delivery</span>
             <Clock size={16} className="tall-kpi-icon" />
@@ -241,7 +273,7 @@ export default function Dashboard() {
         </div>
 
         {/* Revenue */}
-        <div className="erp-tall-kpi-card" onClick={() => navigate('/reports')}>
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/reports')} title="Click to view Executive Financial Reports">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Revenue</span>
             <IndianRupee size={16} className="tall-kpi-icon" />
@@ -251,7 +283,7 @@ export default function Dashboard() {
         </div>
 
         {/* Quality Score */}
-        <div className="erp-tall-kpi-card" onClick={() => navigate('/quality')}>
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/quality')} title="Click to view Quality Certifications">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Quality Score</span>
             <Zap size={16} className="tall-kpi-icon" />
@@ -464,8 +496,15 @@ export default function Dashboard() {
 
       {/* MODAL: New Manufacturing Order with Live Feasibility Calculation (Section 5) */}
       {showNewMOModal && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box large">
+        <div
+          className="erp-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowNewMOModal(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="erp-modal-box large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h3 className="modal-title">Create Manufacturing Order & Feasibility Check</h3>
@@ -659,8 +698,15 @@ export default function Dashboard() {
 
       {/* DRAWER / MODAL: Order Detail & State Machine Lifecycle (Section 4 & 19) */}
       {selectedOrder && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box large">
+        <div
+          className="erp-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedOrder(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="erp-modal-box large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

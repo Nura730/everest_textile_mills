@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   CheckSquare,
   XSquare,
@@ -12,11 +12,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { exportToCSV } from '../utils/csvExport';
 
 const resultFilters = ['All', 'PASS', 'REWORK', 'REJECT'];
 
 export default function QualityControl() {
-  const { qcInspections, submitQCInspection, orders, machines } = useApp();
+  const { qcInspections, submitQCInspection, orders, machines, toast } = useApp();
   const [activeFilter, setActiveFilter] = useState('All');
   const [showInspectionModal, setShowInspectionModal] = useState(false);
 
@@ -31,6 +32,14 @@ export default function QualityControl() {
     notes: 'Uniform density and clean selvedge verified.',
     signature: 'Mohan Verma',
   });
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setShowInspectionModal(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const filtered = qcInspections.filter((qc) => {
     if (activeFilter === 'All') return true;
@@ -49,6 +58,23 @@ export default function QualityControl() {
     setShowInspectionModal(false);
   };
 
+  const handleExportCSV = () => {
+    exportToCSV('Everest_Textile_QC_Audits.csv', filtered, [
+      { key: 'id', label: 'Inspection ID' },
+      { key: 'rollId', label: 'Roll ID' },
+      { key: 'orderId', label: 'Order ID' },
+      { key: 'machineId', label: 'Loom / Machine' },
+      { key: 'fabric', label: 'Fabric' },
+      { key: 'meters', label: 'Meters' },
+      { key: 'result', label: 'QC Result' },
+      { key: 'defectsPerHundred', label: 'Defects / 100m' },
+      { key: 'defectType', label: 'Defect Type' },
+      { key: 'inspector', label: 'Certified Inspector' },
+      { key: 'timestamp', label: 'Timestamp' },
+    ]);
+    toast.info(`Exported ${filtered.length} QC inspections to CSV.`, 'CSV Exported');
+  };
+
   return (
     <div className="erp-page-container">
       <div className="erp-page-header">
@@ -59,6 +85,10 @@ export default function QualityControl() {
           </p>
         </div>
         <div className="erp-page-actions">
+          <button className="erp-btn-outline" onClick={handleExportCSV} title="Export QC inspection log as CSV">
+            <Download size={16} />
+            <span>Export Audits</span>
+          </button>
           <button className="erp-btn-primary" onClick={() => setShowInspectionModal(true)}>
             <FileText size={16} />
             <span>New Inspection Signoff</span>
@@ -190,8 +220,15 @@ export default function QualityControl() {
 
       {/* MODAL: New Inspection & Digital Signature Approval (Section 10 & 11) */}
       {showInspectionModal && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box">
+        <div
+          className="erp-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowInspectionModal(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="erp-modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h3 className="modal-title">Record QC Inspection & Digital Signature</h3>
