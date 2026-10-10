@@ -13,6 +13,13 @@ export function addYears(dateString, years) {
   return `${year + years}${rest}`;
 }
 
+/** "2026-10-10" + 3 days → "2026-10-13" (calendar arithmetic on UTC midnight; no time zone involved). */
+export function addDaysToDateString(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 /** A calendar date is stored as UTC midnight of that date, and returned as "YYYY-MM-DD". */
 export function dateStringToDate(dateString) {
   return new Date(`${dateString}T00:00:00.000Z`);

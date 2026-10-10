@@ -518,6 +518,9 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  // ── Phase 17: intelligence ──
+  { name: 'GET /api/intelligence/overview', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: '/api/intelligence/overview' }) },
+  { name: 'GET /api/intelligence/orders/:id', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: `/api/intelligence/orders/${(await newOrder())._id}` }) },
   // ── Phase 15: offline sync ──
   {
     name: 'POST /api/sync/events',
