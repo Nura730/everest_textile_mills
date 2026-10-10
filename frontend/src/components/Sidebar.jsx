@@ -17,11 +17,14 @@ import {
 import { useApp } from '../context/AppContext';
 
 export default function Sidebar({ collapsed, onToggle }) {
-  const { machines, inventory, orders } = useApp();
+  const { machines, inventory, orders, currentRole } = useApp();
 
   const errorMachinesCount = machines.filter((m) => m.error).length;
   const shortageCount = inventory.filter((i) => i.shortage).length;
   const qcFailedOrders = orders.filter((o) => o.status === 'Failed QC').length;
+
+  const isFloorMapAuthorized =
+    currentRole && (currentRole.id === 'ADMIN_OWNER' || currentRole.id === 'FLOOR_MANAGER');
 
   const menuItems = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -33,13 +36,17 @@ export default function Sidebar({ collapsed, onToggle }) {
       isErrorBadge: qcFailedOrders > 0,
     },
     { to: '/production', label: 'Work Orders', icon: ClipboardList },
-    {
-      to: '/machines',
-      label: 'Work Centers',
-      icon: Sliders,
-      badge: errorMachinesCount > 0 ? `${errorMachinesCount}` : undefined,
-      isErrorBadge: errorMachinesCount > 0,
-    },
+    ...(isFloorMapAuthorized
+      ? [
+          {
+            to: '/machines',
+            label: 'Factory Floor Map',
+            icon: Sliders,
+            badge: errorMachinesCount > 0 ? `${errorMachinesCount}` : undefined,
+            isErrorBadge: errorMachinesCount > 0,
+          },
+        ]
+      : []),
     {
       to: '/inventory',
       label: 'Inventory',
