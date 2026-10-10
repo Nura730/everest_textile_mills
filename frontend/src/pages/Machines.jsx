@@ -1,341 +1,490 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Cog,
-  AlertCircle,
-  Wrench,
-  Power,
-  Play,
-  RotateCcw,
-  Sparkles,
   Search,
+  RotateCcw,
+  AlertTriangle,
+  Activity,
   CheckCircle2,
-  X,
+  Play,
+  Wrench,
+  AlertOctagon,
+  Clock,
+  ShieldAlert,
+  Box,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { factorySections, factoryUnits } from '../data/factoryFloorData';
+import FactorySection from '../components/FactorySection';
+import FactoryUnitModal from '../components/FactoryUnitModal';
 
-const statusFilters = ['All', 'Running', 'Idle', 'Halted / Error'];
+const STATUS_OPTIONS = [
+  { value: 'ALL', label: 'All Statuses' },
+  { value: 'RUNNING', label: 'Running' },
+  { value: 'AVAILABLE', label: 'Available' },
+  { value: 'IDLE', label: 'Idle' },
+  { value: 'PAUSED', label: 'Paused' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'DOWN', label: 'Down (Critical)' },
+];
 
 export default function Machines() {
-  const { machines, reportMachineProblem, resolveMachineProblem } = useApp();
-  const [activeFilter, setActiveFilter] = useState('All');
+  const navigate = useNavigate();
+  const { currentRole } = useApp();
+
+  // Role-Based Access Control: Only ADMIN_OWNER and FLOOR_MANAGER are authorized
+  const isAuthorized =
+    currentRole && (currentRole.id === 'ADMIN_OWNER' || currentRole.id === 'FLOOR_MANAGER');
+
+  // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
-  const [reportingMachine, setReportingMachine] = useState(null);
+  const [selectedSection, setSelectedSection] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState('ALL');
 
-  const [problemForm, setProblemForm] = useState({
-    type: 'Mechanical / Yarn Tension',
-    severity: 'Critical',
-    description: '',
-    pauseProduction: true,
-  });
+  // Selected Unit for Detail Modal
+  const [selectedUnit, setSelectedUnit] = useState(null);
 
-  const filtered = machines.filter((m) => {
-    const matchesSearch =
-      m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.type.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter =
-      activeFilter === 'All' ||
-      (activeFilter === 'Running' && m.status === 'Running') ||
-      (activeFilter === 'Idle' && m.status === 'Idle') ||
-      (activeFilter === 'Halted / Error' && m.error);
-    return matchesSearch && matchesFilter;
-  });
+  // Local demo problem reports list
+  const [reportedProblems, setReportedProblems] = useState([
+    {
+      id: 'REP-9012',
+      unitId: 'WV-16',
+      unitName: 'Dobby Loom C-05',
+      section: 'Weaving Section',
+      category: 'Mechanical',
+      severity: 'Critical',
+      description: 'CRITICAL BREAKDOWN: Warp yarn tension break across harness shaft #4. Line halted.',
+      timestamp: '09:15 AM',
+      date: '2026-10-10',
+      isDemoState: true,
+    },
+    {
+      id: 'REP-9013',
+      unitId: 'SP-10',
+      unitName: 'Ring Spinning Frame RS-03',
+      section: 'Spinning Section',
+      category: 'Electrical',
+      severity: 'Critical',
+      description: 'Main spindle drive flat belt snapped on Section 4. Maintenance crew installing spare.',
+      timestamp: '08:45 AM',
+      date: '2026-10-10',
+      isDemoState: true,
+    },
+    {
+      id: 'REP-9014',
+      unitId: 'RM-06',
+      unitName: 'Bamboo Viscose Staging B2',
+      section: 'Raw Material Store',
+      category: 'Mechanical',
+      severity: 'Critical',
+      description: 'Overhead pallet crane hoist cable jam. Automatic retrieval halted; repair crew dispatched.',
+      timestamp: '07:30 AM',
+      date: '2026-10-10',
+      isDemoState: true,
+    },
+  ]);
 
-  const runningCount = machines.filter((m) => m.status === 'Running').length;
-  const idleCount = machines.filter((m) => m.status === 'Idle').length;
-  const errorCount = machines.filter((m) => m.error).length;
-
-  const handleProblemSubmit = (e) => {
-    e.preventDefault();
-    if (reportingMachine) {
-      reportMachineProblem(reportingMachine.id, problemForm);
-      setReportingMachine(null);
-      setProblemForm({
-        type: 'Mechanical / Yarn Tension',
-        severity: 'Critical',
-        description: '',
-        pauseProduction: true,
-      });
-    }
+  const handleReportProblem = (newReport) => {
+    setReportedProblems((prev) => [newReport, ...prev]);
   };
 
+  // Dynamic KPI counts derived from actual dataset
+  const kpis = useMemo(() => {
+    const total = factoryUnits.length;
+    const running = factoryUnits.filter((u) => u.status === 'RUNNING').length;
+    const available = factoryUnits.filter((u) => u.status === 'AVAILABLE').length;
+    const idle = factoryUnits.filter((u) => u.status === 'IDLE').length;
+    const paused = factoryUnits.filter((u) => u.status === 'PAUSED').length;
+    const maintenance = factoryUnits.filter((u) => u.status === 'MAINTENANCE').length;
+    const down = factoryUnits.filter((u) => u.status === 'DOWN').length;
+
+    return { total, running, available, idle, paused, maintenance, down };
+  }, []);
+
+  // Filtered dataset
+  const filteredUnits = useMemo(() => {
+    return factoryUnits.filter((unit) => {
+      // Search term: ID, Name, Order, Type, Section
+      const matchesSearch =
+        searchTerm.trim() === '' ||
+        unit.id.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        unit.name.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        (unit.currentOrder && unit.currentOrder.toLowerCase().includes(searchTerm.toLowerCase().trim())) ||
+        (unit.type && unit.type.toLowerCase().includes(searchTerm.toLowerCase().trim())) ||
+        unit.section.toLowerCase().includes(searchTerm.toLowerCase().trim());
+
+      // Section filter
+      const matchesSection = selectedSection === 'ALL' || unit.sectionId === selectedSection;
+
+      // Status filter
+      const matchesStatus = selectedStatus === 'ALL' || unit.status === selectedStatus;
+
+      return matchesSearch && matchesSection && matchesStatus;
+    });
+  }, [searchTerm, selectedSection, selectedStatus]);
+
+  // Dynamic Summary Table counts by section
+  const summaryTableData = useMemo(() => {
+    return factorySections.map((sec) => {
+      const unitsInSec = factoryUnits.filter((u) => u.sectionId === sec.id);
+      return {
+        sectionId: sec.id,
+        sectionName: sec.name,
+        prefix: sec.prefix,
+        count: unitsInSec.length,
+        running: unitsInSec.filter((u) => u.status === 'RUNNING').length,
+        available: unitsInSec.filter((u) => u.status === 'AVAILABLE').length,
+        idle: unitsInSec.filter((u) => u.status === 'IDLE').length,
+        paused: unitsInSec.filter((u) => u.status === 'PAUSED').length,
+        maintenance: unitsInSec.filter((u) => u.status === 'MAINTENANCE').length,
+        down: unitsInSec.filter((u) => u.status === 'DOWN').length,
+      };
+    });
+  }, []);
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setSelectedSection('ALL');
+    setSelectedStatus('ALL');
+  };
+
+  const hasActiveFilters =
+    searchTerm.trim() !== '' || selectedSection !== 'ALL' || selectedStatus !== 'ALL';
+
+  // ========================================================
+  // UNAUTHORIZED ACCESS STATE (RBAC Enforcement)
+  // ========================================================
+  if (!isAuthorized) {
+    return (
+      <div className="erp-page-container">
+        <div className="factory-access-restricted-card">
+          <div className="restricted-icon-box">
+            <ShieldAlert size={36} className="text-muted" />
+          </div>
+          <h2 className="restricted-title">Access Restricted — Factory Floor Map</h2>
+          <p className="restricted-desc">
+            The interactive Factory Floor Map and equipment telemetry feed are restricted to{' '}
+            <strong>Admin</strong> and <strong>Floor Manager</strong> roles.
+          </p>
+          <div className="restricted-role-info">
+            <span className="text-xs text-muted">CURRENT LOGGED-IN IDENTITY:</span>
+            <div className="restricted-role-pill">
+              <strong>{currentRole?.name || 'Unknown User'}</strong>
+              <span className="restricted-role-id">({currentRole?.id || 'NO_ROLE'})</span>
+            </div>
+            <p className="text-xs text-secondary" style={{ marginTop: 8 }}>
+              To inspect this feature, use the role switcher located at the top-right of the header
+              bar and select <strong>Admin</strong> or <strong>Floor Manager</strong>.
+            </p>
+          </div>
+          <div className="restricted-actions">
+            <button
+              type="button"
+              className="erp-btn-secondary"
+              onClick={() => navigate('/dashboard')}
+            >
+              Return to Executive Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ========================================================
+  // AUTHORIZED ACCESS: FACTORY FLOOR MAP VIEW
+  // ========================================================
   return (
-    <div className="erp-page-container">
-      <div className="erp-page-header">
-        <div className="erp-page-header-text">
-          <h1 className="erp-page-title">Work Centers — Loom Shed & Preparation Fleet</h1>
-          <p className="erp-page-subtitle">
-            Section 8: Machine telemetry, status state transitions, and Floor Manager problem escalation
+    <div className="erp-page-container factory-page-wrapper">
+      {/* 4. Page Header */}
+      <div className="factory-page-header">
+        <div className="factory-header-left">
+          <div className="factory-title-row">
+            <h1 className="factory-main-title">Factory Floor Map</h1>
+            <span className="factory-demo-badge">DEMO DATA</span>
+            <span className="factory-live-pulse-badge">
+              <span className="pulse-dot" />
+              <span>Telemetry Active</span>
+            </span>
+          </div>
+          <p className="factory-main-subtitle">
+            Live view of factory sections, machines, and storage locations.
           </p>
         </div>
-      </div>
 
-      {/* Critical Alert Banner if error machines exist */}
-      {errorCount > 0 && (
-        <div className="erp-alert-box">
-          <div className="erp-alert-icon">
-            <AlertCircle size={20} />
-          </div>
-          <div className="erp-alert-content">
-            <div className="erp-alert-title">
-              Critical Work Center Alert: {errorCount} Loom{errorCount !== 1 ? 's' : ''} Halted
-            </div>
-            <div className="erp-alert-desc">
-              Unscheduled stoppage detected on production floor. Action needed to mitigate order delay risks.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Summary KPI Cards */}
-      <div className="erp-tall-kpi-grid" style={{ marginBottom: 20 }}>
-        <div className="erp-tall-kpi-card">
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Total Fleet Units</span>
-            <Cog size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value">{machines.length}</div>
-          <div className="tall-kpi-subtext">Rapier, Air Jet & Dobby Sheds</div>
-        </div>
-
-        <div className="erp-tall-kpi-card">
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Actively Weaving</span>
-            <Power size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value">{runningCount}</div>
-          <div className="tall-kpi-subtext">{((runningCount / machines.length) * 100).toFixed(0)}% Fleet In-Service</div>
-        </div>
-
-        <div className="erp-tall-kpi-card">
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Idle / Standby</span>
-            <Play size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value">{idleCount}</div>
-          <div className="tall-kpi-subtext">Available for immediate order allocation</div>
-        </div>
-
-        <div className={`erp-tall-kpi-card ${errorCount > 0 ? 'error' : ''}`}>
-          <div className="tall-kpi-header">
-            <span className="tall-kpi-label">Halted / Maintenance</span>
-            <AlertCircle size={16} className="tall-kpi-icon" />
-          </div>
-          <div className="tall-kpi-value" style={errorCount > 0 ? { color: 'var(--color-error)' } : {}}>
-            {errorCount}
-          </div>
-          <div className="tall-kpi-subtext" style={errorCount > 0 ? { color: 'var(--color-error)' } : {}}>
-            {errorCount > 0 ? 'Immediate repair dispatch required' : 'All lines functional'}
+        <div className="factory-header-right">
+          <div className="factory-last-updated-box">
+            <Clock size={14} className="text-muted" />
+            <span>Updated: Just now (Simulated Feed)</span>
           </div>
         </div>
       </div>
 
-      {/* Filters and Search */}
-      <div className="erp-filter-bar">
-        <div className="filter-chips-row">
-          {statusFilters.map((filter) => (
-            <button
-              key={filter}
-              className={`erp-filter-chip ${activeFilter === filter ? 'active' : ''}`}
-              onClick={() => setActiveFilter(filter)}
-            >
-              {filter}
-            </button>
-          ))}
+      {/* 5. Summary KPI Cards (Monochrome + Red for DOWN) */}
+      <div className="factory-kpi-grid">
+        <div className="factory-kpi-card" title="Total factory floor units across all 8 conceptual sections">
+          <div className="factory-kpi-card-header">
+            <span className="factory-kpi-label">Total Units</span>
+            <Box size={16} className="text-muted" />
+          </div>
+          <div className="factory-kpi-value">{kpis.total}</div>
+          <div className="factory-kpi-meta">74 Tracked Bays & Machines</div>
         </div>
-        <div className="erp-search-box">
-          <Search size={16} />
+
+        <div className="factory-kpi-card" title="Actively spinning, weaving, or processing orders">
+          <div className="factory-kpi-card-header">
+            <span className="factory-kpi-label">Running</span>
+            <Activity size={16} className="text-muted" />
+          </div>
+          <div className="factory-kpi-value">{kpis.running}</div>
+          <div className="factory-kpi-meta">{((kpis.running / kpis.total) * 100).toFixed(0)}% Fleet In-Service</div>
+        </div>
+
+        <div className="factory-kpi-card" title="Ready for immediate batch assignment or staging">
+          <div className="factory-kpi-card-header">
+            <span className="factory-kpi-label">Available</span>
+            <CheckCircle2 size={16} className="text-muted" />
+          </div>
+          <div className="factory-kpi-value">{kpis.available}</div>
+          <div className="factory-kpi-meta">Clean & Ready for Work Orders</div>
+        </div>
+
+        <div className="factory-kpi-card" title="Standby between production shifts">
+          <div className="factory-kpi-card-header">
+            <span className="factory-kpi-label">Idle</span>
+            <Play size={16} className="text-muted" />
+          </div>
+          <div className="factory-kpi-value">{kpis.idle}</div>
+          <div className="factory-kpi-meta">Awaiting Material or Beam</div>
+        </div>
+
+        <div className="factory-kpi-card" title="Under scheduled preventive servicing">
+          <div className="factory-kpi-card-header">
+            <span className="factory-kpi-label">Maintenance</span>
+            <Wrench size={16} className="text-muted" />
+          </div>
+          <div className="factory-kpi-value">{kpis.maintenance}</div>
+          <div className="factory-kpi-meta">Planned Lubrication & Overhaul</div>
+        </div>
+
+        <div className="factory-kpi-card kpi-card-down" title="Unscheduled stoppages & breakdown outages">
+          <div className="factory-kpi-card-header">
+            <span className="factory-kpi-label text-red">Down</span>
+            <AlertOctagon size={16} className="text-red" />
+          </div>
+          <div className="factory-kpi-value text-red">{kpis.down}</div>
+          <div className="factory-kpi-meta text-red">Critical Halt • Ticket Dispatched</div>
+        </div>
+      </div>
+
+      {/* 6. Search and Filter Bar */}
+      <div className="factory-filter-bar">
+        <div className="factory-search-wrap">
+          <Search size={16} className="factory-search-icon" />
           <input
             type="text"
-            placeholder="Search loom or machine ID..."
+            className="factory-search-input"
+            placeholder="Search by unit ID (e.g. WV-03), name, order (ORD-...), or section..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-        </div>
-      </div>
-
-      {/* Machines Cards Grid */}
-      <div className="erp-machines-grid">
-        {filtered.map((machine) => {
-          const isError = machine.error;
-          const isRunning = machine.status === 'Running';
-
-          return (
-            <div
-              key={machine.id}
-              className={`erp-card machine-card ${isError ? 'error-card' : ''}`}
+          {searchTerm && (
+            <button
+              type="button"
+              className="factory-search-clear-btn"
+              onClick={() => setSearchTerm('')}
+              title="Clear search input"
             >
-              <div className="machine-card-header">
-                <div>
-                  <span className="machine-id-badge">{machine.id}</span>
-                  <h3 className="machine-title">{machine.name}</h3>
-                </div>
-                <span
-                  className={`erp-status-badge ${
-                    isError ? 'error' : isRunning ? 'active' : 'outline'
-                  }`}
-                >
-                  {isError && <AlertCircle size={12} style={{ marginRight: 3 }} />}
-                  {machine.status}
-                </span>
-              </div>
+              ×
+            </button>
+          )}
+        </div>
 
-              {/* Machine Telemetry Grid */}
-              <div className="machine-telemetry-grid">
-                <div className="telemetry-item">
-                  <span className="telemetry-label">Process Category</span>
-                  <strong className="telemetry-val">{machine.type}</strong>
-                </div>
-                <div className="telemetry-item">
-                  <span className="telemetry-label">Speed / Throughput</span>
-                  <strong className="telemetry-val">{machine.speed}</strong>
-                </div>
-                <div className="telemetry-item">
-                  <span className="telemetry-label">Motor RPM</span>
-                  <strong className="telemetry-val">{machine.rpm} RPM</strong>
-                </div>
-                <div className="telemetry-item">
-                  <span className="telemetry-label">Uptime Rating</span>
-                  <strong className="telemetry-val">{machine.uptime}</strong>
-                </div>
-                <div className="telemetry-item" style={{ gridColumn: 'span 2' }}>
-                  <span className="telemetry-label">Current Job</span>
-                  <strong className="telemetry-val">
-                    {machine.currentOrder !== '—' ? machine.currentOrder : 'No active run assigned'}
-                  </strong>
-                </div>
-              </div>
+        <div className="factory-filter-controls">
+          <div className="factory-select-wrap">
+            <label htmlFor="filter-section-select" className="factory-filter-label">
+              Section:
+            </label>
+            <select
+              id="filter-section-select"
+              className="factory-filter-select"
+              value={selectedSection}
+              onChange={(e) => setSelectedSection(e.target.value)}
+            >
+              <option value="ALL">All Sections (8)</option>
+              {factorySections.map((sec) => (
+                <option key={sec.id} value={sec.id}>
+                  {sec.name} ({sec.prefix})
+                </option>
+              ))}
+            </select>
+          </div>
 
-              {/* Problem details banner if halted */}
-              {machine.problem && (
-                <div className="machine-problem-banner">
-                  <div className="problem-banner-title">
-                    <AlertCircle size={14} style={{ color: 'var(--color-error)' }} />
-                    <strong>{machine.problem.severity} Issue: {machine.problem.type}</strong>
-                  </div>
-                  <p className="problem-banner-desc">{machine.problem.description}</p>
-                  <span className="text-xs text-secondary">
-                    Reported by: {machine.problem.reportedBy} ({machine.problem.reportedAt})
-                  </span>
-                </div>
-              )}
+          <div className="factory-select-wrap">
+            <label htmlFor="filter-status-select" className="factory-filter-label">
+              Status:
+            </label>
+            <select
+              id="filter-status-select"
+              className="factory-filter-select"
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              {/* Actions Footer */}
-              <div className="machine-card-footer">
-                {isError ? (
-                  <button
-                    className="erp-btn-sm erp-btn-dark"
-                    onClick={() => resolveMachineProblem(machine.id)}
-                  >
-                    <RotateCcw size={14} />
-                    <span>Complete Maintenance & Resume</span>
-                  </button>
-                ) : (
-                  <button
-                    className="erp-btn-sm erp-btn-outline"
-                    onClick={() => setReportingMachine(machine)}
-                  >
-                    <Wrench size={14} />
-                    <span>Report Problem</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="factory-clear-filters-btn"
+              onClick={clearFilters}
+              title="Reset all search and status filters"
+            >
+              <RotateCcw size={13} />
+              <span>Clear Filters</span>
+            </button>
+          )}
 
-      {/* MODAL: Report Machine Problem (Floor Manager Section 8) */}
-      {reportingMachine && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box">
-            <div className="modal-header">
-              <div>
-                <h3 className="modal-title">Report Work Center Issue</h3>
-                <p className="modal-subtitle">
-                  {reportingMachine.name} ({reportingMachine.id}) • Current Order: {reportingMachine.currentOrder}
-                </p>
-              </div>
-              <button className="modal-close-btn" onClick={() => setReportingMachine(null)}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleProblemSubmit}>
-              <div className="modal-body">
-                <div className="erp-form-grid">
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="erp-label">Problem Category</label>
-                    <select
-                      className="erp-select"
-                      value={problemForm.type}
-                      onChange={(e) => setProblemForm({ ...problemForm, type: e.target.value })}
-                    >
-                      <option>Mechanical / Yarn Tension</option>
-                      <option>Electrical / Motor Fault</option>
-                      <option>Weft Insertion Error</option>
-                      <option>Warp Beam Jam / Snapping</option>
-                      <option>Dobby / Jacquard Pattern Misalignment</option>
-                      <option>Lubrication / Overheating</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="erp-label">Severity Level</label>
-                    <select
-                      className="erp-select"
-                      value={problemForm.severity}
-                      onChange={(e) => setProblemForm({ ...problemForm, severity: e.target.value })}
-                    >
-                      <option>Low — Cosmetic or slight vibration</option>
-                      <option>Medium — Requires shift maintenance inspection</option>
-                      <option>Critical — Recurrent breakage, shutdown mandated</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="erp-label">Incident Description & Observations</label>
-                    <textarea
-                      className="erp-input"
-                      rows={3}
-                      placeholder="Describe symptoms, broken components, or warp line defects..."
-                      value={problemForm.description}
-                      onChange={(e) => setProblemForm({ ...problemForm, description: e.target.value })}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={problemForm.pauseProduction}
-                        onChange={(e) =>
-                          setProblemForm({ ...problemForm, pauseProduction: e.target.checked })
-                        }
-                      />
-                      <span>Immediately Halt Loom Shed Production Run</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="erp-btn-outline"
-                  onClick={() => setReportingMachine(null)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="erp-btn-primary">
-                  Submit Incident & Notify Floor
-                </button>
-              </div>
-            </form>
+          <div className="factory-filtered-count-badge">
+            <span>
+              Showing <strong>{filteredUnits.length}</strong> of {factoryUnits.length} Units
+            </span>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* 7. Factory Floor Map Section Grid */}
+      <main className="factory-map-main-area">
+        {filteredUnits.length === 0 ? (
+          <div className="factory-global-empty-state">
+            <AlertTriangle size={32} className="text-muted" style={{ marginBottom: 12 }} />
+            <h3>No Factory Units Match Your Criteria</h3>
+            <p className="text-muted text-sm">
+              No equipment or bays found matching &ldquo;{searchTerm}&rdquo; with the selected filters.
+            </p>
+            <button
+              type="button"
+              className="factory-btn-primary"
+              style={{ marginTop: 14 }}
+              onClick={clearFilters}
+            >
+              Reset Filters & Show All 74 Units
+            </button>
+          </div>
+        ) : (
+          <div className="factory-sections-grid">
+            {factorySections.map((section) => {
+              // Units in this section matching search/filters
+              const sectionFilteredUnits = filteredUnits.filter((u) => u.sectionId === section.id);
+              // All units in this section (for totals/availability ratio)
+              const sectionAllUnits = factoryUnits.filter((u) => u.sectionId === section.id);
+
+              // If a section filter is active and this is not the selected section, skip
+              if (selectedSection !== 'ALL' && selectedSection !== section.id) {
+                return null;
+              }
+
+              return (
+                <FactorySection
+                  key={section.id}
+                  section={section}
+                  units={sectionFilteredUnits}
+                  allSectionUnits={sectionAllUnits}
+                  selectedUnit={selectedUnit}
+                  onSelectUnit={setSelectedUnit}
+                />
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      {/* 12. Demo Data Summary Table */}
+      <section className="factory-summary-table-section" aria-labelledby="summary-table-title">
+        <div className="summary-table-header">
+          <div>
+            <h2 id="summary-table-title" className="summary-table-title">
+              Factory Unit Distribution & Status Summary
+            </h2>
+            <p className="summary-table-subtitle">
+              Mathematical cross-tabulation across all 8 conceptual textile plant departments.
+            </p>
+          </div>
+          <span className="summary-demo-flag">DEMO AUDIT DATA</span>
+        </div>
+
+        <div className="factory-table-container">
+          <table className="factory-erp-table">
+            <thead>
+              <tr>
+                <th scope="col" style={{ width: '22%' }}>Section</th>
+                <th scope="col" style={{ width: '10%' }}>Prefix</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right">Total</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right">Running</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right">Available</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right">Idle</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right">Paused</th>
+                <th scope="col" style={{ width: '12%' }} className="text-right">Maintenance</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right text-red">Down</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summaryTableData.map((row) => (
+                <tr key={row.sectionId}>
+                  <td className="font-semibold">{row.sectionName}</td>
+                  <td>
+                    <span className="table-prefix-pill">{row.prefix}</span>
+                  </td>
+                  <td className="text-right font-mono">{row.count}</td>
+                  <td className="text-right font-mono">{row.running}</td>
+                  <td className="text-right font-mono">{row.available}</td>
+                  <td className="text-right font-mono">{row.idle}</td>
+                  <td className="text-right font-mono">{row.paused}</td>
+                  <td className="text-right font-mono">{row.maintenance}</td>
+                  <td className={`text-right font-mono ${row.down > 0 ? 'text-red font-bold' : ''}`}>
+                    {row.down}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="table-total-row">
+                <td className="font-bold">Total Factory Fleet</td>
+                <td className="font-mono text-xs text-muted">All 8 Sectors</td>
+                <td className="text-right font-bold font-mono">{kpis.total}</td>
+                <td className="text-right font-bold font-mono">{kpis.running}</td>
+                <td className="text-right font-bold font-mono">{kpis.available}</td>
+                <td className="text-right font-bold font-mono">{kpis.idle}</td>
+                <td className="text-right font-bold font-mono">{kpis.paused}</td>
+                <td className="text-right font-bold font-mono">{kpis.maintenance}</td>
+                <td className={`text-right font-bold font-mono ${kpis.down > 0 ? 'text-red' : ''}`}>
+                  {kpis.down}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div className="summary-table-note">
+          <span>
+            * Note: Paused units (4) represent temporary shift handovers or yarn beam re-creeling stops, accounted for explicitly in totals (40 Running + 13 Available + 9 Idle + 4 Paused + 5 Maintenance + 3 Down = 74 Total).
+          </span>
+        </div>
+      </section>
+
+      {/* 10. Machine Details Modal (Keyboard & Backdrop Safe) */}
+      <FactoryUnitModal
+        key={selectedUnit ? selectedUnit.id : 'none'}
+        unit={selectedUnit}
+        isOpen={Boolean(selectedUnit)}
+        onClose={() => setSelectedUnit(null)}
+        onReportProblem={handleReportProblem}
+        reportedProblems={reportedProblems}
+      />
     </div>
   );
 }
