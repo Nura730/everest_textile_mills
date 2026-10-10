@@ -527,6 +527,7 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  { name: 'GET /api/finished-goods/availability', method: 'get', allowed: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN], build: async () => ({ path: '/api/finished-goods/availability' }) },
   { name: 'GET /api/summary/attention', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/summary/attention' }) },
   // ── Cryptographic signatures ──
   { name: 'GET /api/signatures/keys/me', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/signatures/keys/me' }) },

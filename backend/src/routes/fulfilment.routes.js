@@ -35,6 +35,13 @@ finishedGoodRoutes.get(
     sendSuccess(res, { finishedGoods }, { meta });
   },
 );
+// What can be dispatched per order and why not (one rule for the Ready list and Prepare dispatch).
+finishedGoodRoutes.get(
+  '/availability',
+  staff,
+  validate({ query: z.object({ orderId: objectIdSchema.optional() }) }),
+  async (req, res) => sendSuccess(res, { orders: await fulfilment.dispatchAvailability(req.validated.query) }),
+);
 finishedGoodRoutes.patch(
   '/:id/location',
   store,

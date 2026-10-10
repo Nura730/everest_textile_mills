@@ -14,7 +14,7 @@ import {
   toPublicFinishedGood,
   toPublicInvoice,
 } from '../models/Fulfilment.js';
-import { toPublicOrder } from '../models/Order.js';
+import { Order, toPublicOrder } from '../models/Order.js';
 import { Roll } from '../models/Roll.js';
 import { findBuyerById } from '../repositories/catalog.repository.js';
 import { claimLock } from '../repositories/locks.repository.js';
@@ -373,6 +373,75 @@ export async function getInvoice(id, actor) {
 }
 
 /** Dispatch summary for dashboards. */
+/**
+ * What can be dispatched for each order, and if nothing, exactly why. ONE rule for the Ready-orders list
+ * and the Prepare-dispatch window (they used to disagree: an order stays READY_FOR_DISPATCH while its
+ * goods sit in a prepared, not yet confirmed dispatch, so the list offered "Prepare" with nothing left).
+ *   dispatchable = finished goods IN_STOCK (QC passed, not reserved, not dispatched)
+ *   reserved     = goods in PREPARED dispatches awaiting signed confirmation (named)
+ *   awaitingQc   = rolls QC_PENDING or IN_REWORK (never dispatchable until they pass)
+ *   rejected     = rejected rolls (never dispatchable)
+ * Without `orderId`: every READY_FOR_DISPATCH order.
+ */
+export async function dispatchAvailability({ orderId } = {}) {
+  const orders = await Order.find(orderId ? { _id: orderId } : { status: ORDER_STATUS.READY_FOR_DISPATCH }).sort({ requiredBy: 1 }).limit(200).lean();
+  if (orderId && orders.length === 0) throw notFound('Order');
+  const ids = orders.map((o) => o._id);
+  const [goods, rolls, prepared] = await Promise.all([
+    FinishedGood.aggregate([{ $match: { orderId: { $in: ids } } }, { $group: { _id: { orderId: '$orderId', status: '$status' }, rolls: { $sum: 1 }, cm: { $sum: '$lengthCm' } } }]),
+    Roll.aggregate([
+      { $match: { orderId: { $in: ids }, status: { $in: [ROLL_STATUS.QC_PENDING, ROLL_STATUS.IN_REWORK, ROLL_STATUS.REJECTED] } } },
+      { $group: { _id: { orderId: '$orderId', status: '$status' }, rolls: { $sum: 1 }, cm: { $sum: '$lengthCm' } } },
+    ]),
+    Dispatch.find({ orderId: { $in: ids }, status: DISPATCH_STATUS.PREPARED }, { dispatchNumber: 1, orderId: 1, totalLengthCm: 1 }).lean(),
+  ]);
+  const pick = (rows, id, status) => rows.find((r) => String(r._id.orderId) === String(id) && r._id.status === status) ?? { rolls: 0, cm: 0 };
+  const sum = (rows, id, statuses) => statuses.map((s) => pick(rows, id, s)).reduce((a, b) => ({ rolls: a.rolls + b.rolls, cm: a.cm + b.cm }), { rolls: 0, cm: 0 });
+  const m = (cm) => `${cmToMetres(cm).toLocaleString('en-IN')} m`;
+
+  return orders.map((order) => {
+    const inStock = pick(goods, order._id, FG_STATUS.IN_STOCK);
+    const reserved = pick(goods, order._id, FG_STATUS.RESERVED_FOR_DISPATCH);
+    const dispatched = pick(goods, order._id, FG_STATUS.DISPATCHED);
+    const awaitingQc = sum(rolls, order._id, [ROLL_STATUS.QC_PENDING, ROLL_STATUS.IN_REWORK]);
+    const rejected = pick(rolls, order._id, ROLL_STATUS.REJECTED);
+    const dispatches = prepared.filter((d) => String(d.orderId) === String(order._id)).map((d) => ({ id: String(d._id), dispatchNumber: d.dispatchNumber, metres: cmToMetres(d.totalLengthCm) }));
+    let reason = null;
+    let message = null;
+    if (inStock.cm === 0) {
+      if (order.status !== ORDER_STATUS.READY_FOR_DISPATCH && order.status !== ORDER_STATUS.DISPATCHED) {
+        reason = 'NOT_READY';
+        message = awaitingQc.rolls
+          ? `${awaitingQc.rolls} roll(s) (${m(awaitingQc.cm)}) are still awaiting quality inspection; nothing can be dispatched until they pass.`
+          : `The order is ${order.status}; it becomes dispatchable once production is complete and its rolls have passed QC.`;
+      } else if (reserved.cm > 0) {
+        reason = 'RESERVED_IN_PREPARED_DISPATCH';
+        message = `All finished goods (${m(reserved.cm)}) are already in ${dispatches.map((d) => d.dispatchNumber).join(', ')}, waiting for the signed confirmation. Confirm or cancel that dispatch in the Dispatches tab.`;
+      } else if (dispatched.cm > 0) {
+        reason = 'ALL_DISPATCHED';
+        message = `Everything produced has been dispatched (${m(dispatched.cm)}).`;
+      } else {
+        reason = 'NO_STOCK';
+        message = rejected.rolls ? `No finished goods: ${rejected.rolls} roll(s) (${m(rejected.cm)}) were rejected in QC.` : 'No finished goods have been recorded for this order.';
+      }
+    }
+    return {
+      orderId: String(order._id),
+      orderNumber: order.orderNumber,
+      status: order.status,
+      orderedMetres: cmToMetres(order.quantityCm),
+      inStock: { rolls: inStock.rolls, metres: cmToMetres(inStock.cm) },
+      reserved: { rolls: reserved.rolls, metres: cmToMetres(reserved.cm), dispatches },
+      dispatched: { rolls: dispatched.rolls, metres: cmToMetres(dispatched.cm) },
+      awaitingQc: { rolls: awaitingQc.rolls, metres: cmToMetres(awaitingQc.cm) },
+      rejected: { rolls: rejected.rolls, metres: cmToMetres(rejected.cm) },
+      dispatchableMetres: cmToMetres(inStock.cm),
+      reason,
+      message,
+    };
+  });
+}
+
 export async function fulfilmentSummary() {
   const [goods, dispatches] = await Promise.all([
     FinishedGood.aggregate([{ $group: { _id: '$status', count: { $sum: 1 }, lengthCm: { $sum: '$lengthCm' } } }]),
