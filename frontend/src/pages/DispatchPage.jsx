@@ -12,6 +12,7 @@ import { FilterBar, FilterSelect, SearchInput } from '../components/ui/Filters.j
 import { ConfirmDialog } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { StatusBadge } from '../components/ui/StatusBadge.jsx';
+import { describeAvailability } from '../utils/dispatchAvailability.js';
 import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
@@ -26,15 +27,19 @@ export default function DispatchPage() {
   const toast = useToast();
   const [tab, setTab] = useState('ready');
   const ready = useApiQuery(() => ordersApi.list({ status: 'READY_FOR_DISPATCH', limit: 100 }), []);
+  // Same rule as the Prepare window: what is actually dispatchable per ready order, and why not.
+  const availability = useApiQuery(() => fulfilmentApi.availability(), []);
+  const availabilityOf = (orderId) => describeAvailability(availability.data?.orders.find((a) => a.orderId === orderId));
   const dispatchFilters = useFilters({ status: '' });
   const dispatches = useApiQuery(() => fulfilmentApi.dispatches({ ...dispatchFilters.query, limit: 100 }), [dispatchFilters.query]);
   const stockFilters = useFilters({ q: '', status: 'IN_STOCK' });
   const stock = useApiQuery(() => fulfilmentApi.finishedGoods({ ...stockFilters.query, limit: 100 }), [stockFilters.query]);
-  useLive(liveMatch.actions('FINISHED_GOOD_', 'DISPATCH_', 'ORDER_READY', 'ORDER_DISPATCHED', 'QC_PASSED'), () => { ready.reload(); dispatches.reload(); stock.reload(); });
+  useLive(liveMatch.actions('FINISHED_GOOD_', 'DISPATCH_', 'ORDER_READY', 'ORDER_DISPATCHED', 'QC_PASSED', 'QC_REJECTED', 'RUN_COMPLETED'), () => { ready.reload(); availability.reload(); dispatches.reload(); stock.reload(); });
   const [modal, setModal] = useState(null); // { type, order | dispatch | good, key, busy, reason, text }
   const store = can.dispatchGoods(user.role);
   const reload = () => {
     ready.reload();
+    availability.reload();
     dispatches.reload();
     stock.reload();
   };
@@ -79,7 +84,7 @@ export default function DispatchPage() {
             {ready.data && ready.data.orders.length === 0 && <EmptyState title="No orders ready for dispatch">An order is ready once production is complete, every roll is inspected and stock exists.</EmptyState>}
             {ready.data?.orders.length > 0 && (
               <table className="erp-data-table">
-                <thead><tr><th scope="col">Order</th><th scope="col">Buyer</th><th scope="col">Fabric</th><th scope="col" className="num">Ordered</th><th scope="col">Required by</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th scope="col">Order</th><th scope="col">Buyer</th><th scope="col">Fabric</th><th scope="col" className="num">Ordered</th><th scope="col">Dispatchable now</th><th scope="col">Required by</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   {ready.data.orders.map((order) => (
                     <tr key={order.id}>
@@ -87,8 +92,18 @@ export default function DispatchPage() {
                       <td>{order.buyer.name}</td>
                       <td>{order.product.name}</td>
                       <td className="num">{formatNumber(order.quantityMetres, 'm')}</td>
+                      <td>
+                        <StatusBadge tone={availabilityOf(order.id).canPrepare ? 'success' : 'warning'} label={availabilityOf(order.id).label} />
+                        {availabilityOf(order.id).detail && <div className="cell-sub">{availabilityOf(order.id).detail}</div>}
+                      </td>
                       <td>{formatDate(order.requiredBy)}</td>
-                      <td className="row-actions">{store && <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'prepare', order })}>Prepare dispatch</button>}</td>
+                      <td className="row-actions">
+                        {store && (
+                          <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'prepare', order })} disabled={!availabilityOf(order.id).canPrepare} title={availabilityOf(order.id).canPrepare ? undefined : availabilityOf(order.id).detail ?? undefined}>
+                            Prepare dispatch
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

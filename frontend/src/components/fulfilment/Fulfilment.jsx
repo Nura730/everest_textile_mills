@@ -7,6 +7,7 @@ import { fulfilmentApi } from '../../api/endpoints.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
 import { formatDate, formatDateTime, formatNumber, formatPaise } from '../../utils/format.js';
 import { DISPATCH_STATUS_LABELS } from '../../utils/machineStatus.js';
+import { describeAvailability } from '../../utils/dispatchAvailability.js';
 import { Field, Modal } from '../ui/Modal.jsx';
 import { SignaturePad } from '../ui/SignaturePad.jsx';
 import { StatusBadge } from '../ui/StatusBadge.jsx';
@@ -21,6 +22,9 @@ export function DispatchStatusBadge({ status }) {
 export function PrepareDispatchModal({ order, onClose, onDone }) {
   const toast = useToast();
   const goods = useApiQuery(() => fulfilmentApi.finishedGoods({ orderId: order.id, status: 'IN_STOCK', limit: 100 }), [order.id]);
+  // The server's availability rule: why nothing (or only part) can be dispatched.
+  const avail = useApiQuery(() => fulfilmentApi.availability(order.id), [order.id]);
+  const availability = describeAvailability(avail.data?.orders[0]);
   const list = goods.data?.finishedGoods ?? [];
   const [chosen, setChosen] = useState(null); // Set of ids; null = all
   const selected = chosen ?? new Set(list.map((g) => g.id));
@@ -41,7 +45,7 @@ export function PrepareDispatchModal({ order, onClose, onDone }) {
 
   async function submit() {
     if (busy) return;
-    if (selected.size === 0) return setError('Choose at least one roll.');
+    if (selected.size === 0 || metres <= 0) return setError('Choose at least one roll.');
     if (vehicle.trim() && vehicle.trim().length < 4) return setError('Vehicle number looks too short.');
     setBusy(true);
     try {
@@ -53,6 +57,7 @@ export function PrepareDispatchModal({ order, onClose, onDone }) {
       setError(Object.values(fields)[0] ?? err.message);
       if (err.code === 'FINISHED_GOODS_UNAVAILABLE') {
         goods.reload();
+        avail.reload();
         setChosen(null);
         setKey(newIdempotencyKey());
       }
@@ -71,13 +76,16 @@ export function PrepareDispatchModal({ order, onClose, onDone }) {
       footer={
         <>
           <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className="erp-btn-primary" onClick={submit} disabled={busy || !goods.data}>{busy ? 'Preparing…' : `Prepare ${formatNumber(metres, 'm')}`}</button>
+          <button type="button" className="erp-btn-primary" onClick={submit} disabled={busy || !goods.data || metres <= 0}>{busy ? 'Preparing…' : `Prepare ${formatNumber(metres, 'm')}`}</button>
         </>
       }
     >
       {goods.error && <ErrorState error={goods.error} onRetry={goods.reload} />}
       {!goods.error && !goods.data && <LoadingState />}
-      {goods.data && list.length === 0 && <EmptyState title="No finished goods in stock for this order" />}
+      {goods.data && list.length === 0 && (
+        <EmptyState title="Nothing can be dispatched for this order right now">{availability.detail ?? 'No QC-passed finished goods are in stock for this order.'}</EmptyState>
+      )}
+      {list.length > 0 && availability.detail && <p className="cell-sub">Also: {availability.detail}</p>}
       {list.length > 0 && (
         <>
           <p className="cell-sub">Only QC-passed rolls in stock can be dispatched. {metres < order.quantityMetres && `Selected ${formatNumber(metres, 'm')} is ${formatNumber(order.quantityMetres - metres, 'm')} short of the order.`}</p>

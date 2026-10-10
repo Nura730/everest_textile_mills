@@ -141,6 +141,8 @@ export const qcApi = {
 // Phases 11-12: finished goods, dispatch and invoices.
 export const fulfilmentApi = {
   finishedGoods: (query) => apiRequest("/finished-goods", { query }),
+  // What can be dispatched per order, and why not (one rule for the Ready list and Prepare dispatch).
+  availability: (orderId) => apiRequest("/finished-goods/availability", { query: orderId ? { orderId } : {} }),
   moveGood: (id, location, idempotencyKey) =>
     apiRequest(`/finished-goods/${id}/location`, { method: "PATCH", body: { location }, idempotencyKey }),
   dispatches: (query) => apiRequest("/dispatches", { query }),
