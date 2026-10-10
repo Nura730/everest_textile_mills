@@ -45,6 +45,8 @@ export const can = {
   cancelOrder: (role) => role === ROLES.BUYER || role === ROLES.ADMIN,
   rejectOrder: (role) => role === ROLES.ADMIN,
   confirmOrder: (role) => role === ROLES.ADMIN,
+  // Ownership is checked by the server (a buyer only ever receives their own orders).
+  editOrder: (role) => role === ROLES.BUYER || role === ROLES.ADMIN,
   viewFeasibility: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   manageBuyers: (role) => role === ROLES.ADMIN,
   manageProducts: (role) => role === ROLES.ADMIN,

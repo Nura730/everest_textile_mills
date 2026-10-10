@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Ban, CheckCircle2, Info, MinusCircle, ShieldCheck, XCircle, XOctagon } from 'lucide-react';
-import { newIdempotencyKey } from '../api/client.js';
+import { Ban, CheckCircle2, Info, MinusCircle, Pencil, ShieldCheck, XCircle, XOctagon } from 'lucide-react';
+import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { ordersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES, can } from '../auth/roles.js';
-import { ConfirmDialog } from '../components/ui/Modal.jsx';
+import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
-import { formatDate, formatDateTime, formatNumber, formatPaise } from '../utils/format.js';
+import { addDays, addYears, formatDate, formatDateTime, formatNumber, formatPaise, todayInIndia } from '../utils/format.js';
 
 const ACTIONS = {
   confirm: {
@@ -89,6 +89,105 @@ function FeasibilityResult({ feasibility, caption }) {
   );
 }
 
+/**
+ * Edit the buyer's own inputs while the order is still "Order created": quantity, required-by date
+ * and notes. Fabric, company, price and number are fixed (shown, not editable). Yarn and order value
+ * are recalculated by the server from the order's own price; a confirmed order cannot be edited.
+ * One Idempotency-Key per attempt (a retry after a timeout cannot apply twice), and the order's
+ * updatedAt so a save over someone else's change is refused.
+ */
+function EditOrderModal({ order, onClose, onSaved, onReload }) {
+  const toast = useToast();
+  const initial = { quantityMetres: String(order.quantityMetres), requiredBy: order.requiredBy, buyerNotes: order.buyerNotes ?? '' };
+  const [form, setForm] = useState(initial);
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const update = (field) => (event) => {
+    setForm((current) => ({ ...current, [field]: event.target.value }));
+    setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
+    setKey(newIdempotencyKey());
+  };
+  const minDate = addDays(todayInIndia(), 1);
+  const maxDate = addYears(todayInIndia(), 2);
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (busy) return;
+    const quantity = Number(form.quantityMetres);
+    const found = {};
+    if (!(quantity > 0)) found.quantityMetres = 'Enter a quantity greater than 0.';
+    else if (!/^\d+(\.\d{1,2})?$/.test(form.quantityMetres.trim())) found.quantityMetres = 'Use at most 2 decimal places.';
+    else if (quantity > 1_000_000) found.quantityMetres = 'At most 10,00,000 m per order.';
+    if (!form.requiredBy) found.requiredBy = 'Choose the delivery date.';
+    else if (form.requiredBy < minDate) found.requiredBy = 'The date must be after today.';
+    else if (form.requiredBy > maxDate) found.requiredBy = 'The date must be within 2 years.';
+    if (form.buyerNotes.length > 500) found.buyerNotes = 'At most 500 characters.';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+
+    const changes = {};
+    if (quantity !== order.quantityMetres) changes.quantityMetres = quantity;
+    if (form.requiredBy !== order.requiredBy) changes.requiredBy = form.requiredBy;
+    const notes = form.buyerNotes.trim();
+    if (notes !== (order.buyerNotes ?? '')) changes.buyerNotes = notes === '' ? null : notes;
+    if (Object.keys(changes).length === 0) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await ordersApi.update(order.id, { ...changes, expectedUpdatedAt: order.updatedAt }, key);
+      toast.success(`Order ${data.order.orderNumber} updated.`);
+      onSaved(data.order);
+    } catch (error) {
+      if (error.code === 'CONFLICT' || error.code === 'ORDER_NOT_EDITABLE') {
+        // Someone else changed or confirmed it meanwhile: show the real order.
+        toast.error(error, { title: error.code === 'CONFLICT' ? 'Changed by someone else' : 'Order can no longer be edited' });
+        onReload();
+      } else {
+        const fields = fieldErrorsOf(error);
+        setErrors(fields);
+        if (!Object.keys(fields).length || fields.form) toast.error(error, { title: 'Order not updated' });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Edit ${order.orderNumber}`}
+      subtitle="Possible until the factory confirms the order. Yarn and value are recalculated by the server."
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="edit-order-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+        </>
+      }
+    >
+      <form id="edit-order-form" className="erp-form-grid" onSubmit={onSubmit} noValidate>
+        <div className="readonly-grid" aria-label="Fixed order details">
+          <div><span>Fabric</span>{order.product.name}</div>
+          <div><span>Buyer</span>{order.buyer.code}</div>
+          {order.pricePerMetrePaise !== undefined && <div><span>Price (fixed)</span>{formatPaise(order.pricePerMetrePaise)} / m</div>}
+        </div>
+        <Field label="Quantity (metres)" htmlFor="eo-qty" error={errors.quantityMetres} hint="Up to 10,00,000 m, at most 2 decimals." required>
+          <input id="eo-qty" className="erp-input" inputMode="decimal" value={form.quantityMetres} onChange={update('quantityMetres')} disabled={busy} />
+        </Field>
+        <Field label="Required by" htmlFor="eo-date" error={errors.requiredBy} hint="After today, within 2 years (India calendar)." required>
+          <input id="eo-date" type="date" className="erp-input" min={minDate} max={maxDate} value={form.requiredBy} onChange={update('requiredBy')} disabled={busy} />
+        </Field>
+        <Field label="Notes for the factory" htmlFor="eo-notes" error={errors.buyerNotes} hint="Leave empty to remove the notes.">
+          <textarea id="eo-notes" className="erp-input" rows={2} maxLength={500} value={form.buyerNotes} onChange={update('buyerNotes')} disabled={busy} />
+        </Field>
+      </form>
+    </Modal>
+  );
+}
+
 function Detail({ label, children }) {
   return (
     <div className="detail-item">
@@ -111,6 +210,7 @@ export default function OrderDetail() {
     [id, checkLive],
   );
   const [action, setAction] = useState(null); // { name, reason, key, busy, error }
+  const [editing, setEditing] = useState(false);
 
   if (order.error) {
     return (
@@ -128,6 +228,7 @@ export default function OrderDetail() {
   const canCancel = (isOpen || current.status === 'CONFIRMED') && can.cancelOrder(user.role);
   const canReject = isOpen && can.rejectOrder(user.role);
   const canConfirm = isOpen && can.confirmOrder(user.role);
+  const canEdit = isOpen && can.editOrder(user.role);
   const liveResult = feasibility.data?.feasibility ?? null;
   // The backend re-checks on confirm; this only avoids offering a button that would be refused.
   const confirmBlocked = liveResult?.status === 'NOT_FEASIBLE';
@@ -170,6 +271,11 @@ export default function OrderDetail() {
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: user.role === ROLES.BUYER ? 'My orders' : 'Orders', to: '/orders' }, { label: current.orderNumber }]}
         actions={
           <>
+            {canEdit && (
+              <button type="button" className="erp-btn-outline" onClick={() => setEditing(true)}>
+                <Pencil size={15} aria-hidden="true" /> Edit
+              </button>
+            )}
             {canConfirm && (
               <button
                 type="button"
@@ -274,6 +380,21 @@ export default function OrderDetail() {
         </div>
       </div>
 
+      {editing && (
+        <EditOrderModal
+          order={current}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            order.reload();
+            feasibility.reload();
+          }}
+          onReload={() => {
+            setEditing(false);
+            order.reload();
+          }}
+        />
+      )}
       {action && (
         <ConfirmDialog
           title={ACTIONS[action.name].title}

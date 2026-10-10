@@ -19,12 +19,20 @@ export const buyersApi = {
   list: (query) => apiRequest("/buyers", { query }),
   get: (id) => apiRequest(`/buyers/${id}`),
   create: (body) => apiRequest("/buyers", { method: "POST", body }),
+  update: (id, body) =>
+    apiRequest(`/buyers/${id}`, { method: "PATCH", body }),
+  setStatus: (id, isActive) =>
+    apiRequest(`/buyers/${id}/status`, { method: "PATCH", body: { isActive } }),
 };
 
 export const productsApi = {
   list: (query) => apiRequest("/products", { query }),
   get: (id) => apiRequest(`/products/${id}`),
   create: (body) => apiRequest("/products", { method: "POST", body }),
+  update: (id, body) =>
+    apiRequest(`/products/${id}`, { method: "PATCH", body }),
+  setStatus: (id, isActive) =>
+    apiRequest(`/products/${id}/status`, { method: "PATCH", body: { isActive } }),
 };
 
 export const ordersApi = {
@@ -33,6 +41,8 @@ export const ordersApi = {
   feasibility: (id) => apiRequest(`/orders/${id}/feasibility`),
   create: (body, idempotencyKey) =>
     apiRequest("/orders", { method: "POST", body, idempotencyKey }),
+  update: (id, body, idempotencyKey) =>
+    apiRequest(`/orders/${id}`, { method: "PATCH", body, idempotencyKey }),
   confirm: (id, idempotencyKey) =>
     apiRequest(`/orders/${id}/confirm`, {
       method: "POST",

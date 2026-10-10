@@ -4,13 +4,16 @@ import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { inventoryApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { can } from '../auth/roles.js';
+import { FilterBar, FilterCheckbox, FilterDate, FilterSelect } from '../components/ui/Filters.jsx';
 import { Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
+import { useFilters } from '../hooks/useFilters.js';
 import { formatDate, formatDateTime, formatNumber, formatPaise, rupeesToPaise } from '../utils/format.js';
 
+const NO_STOCK_FILTERS = { material: '', colour: '', includeDepleted: false };
 const MATERIALS = ['COTTON', 'POLYESTER', 'VISCOSE', 'NYLON', 'WOOL', 'SILK', 'LINEN', 'BLEND'];
 const TX_LABELS = {
   RECEIPT: 'Received',
@@ -182,13 +185,31 @@ function AdjustModal({ lot, onClose, onDone }) {
   );
 }
 
+const NO_LEDGER_FILTERS = { type: '', from: '', to: '' };
+
 function LedgerModal({ lot, onClose }) {
-  const ledger = useApiQuery(() => inventoryApi.lotTransactions(lot.id, { limit: 100 }), [lot.id]);
+  const { filters, set, clear, query, active } = useFilters(NO_LEDGER_FILTERS);
+  const ledger = useApiQuery(() => inventoryApi.lotTransactions(lot.id, { ...query, limit: 100 }), [lot.id, query]);
   return (
     <Modal title={`Ledger — ${lot.lotNumber}`} subtitle="Every movement of this lot, newest first. Entries are never edited." onClose={onClose} wide>
+      <FilterBar active={active} onClear={clear} label="Ledger filters">
+        <FilterSelect
+          id="ledger-type"
+          label="Movement"
+          value={filters.type}
+          onChange={(value) => set('type', value)}
+          allLabel="All movements"
+          options={Object.entries(TX_LABELS).map(([value, label]) => ({ value, label }))}
+        />
+        <FilterDate id="ledger-from" label="From" value={filters.from} max={filters.to || undefined} onChange={(value) => set('from', value)} />
+        <FilterDate id="ledger-to" label="To" value={filters.to} min={filters.from || undefined} onChange={(value) => set('to', value)} />
+      </FilterBar>
       {ledger.error && <ErrorState error={ledger.error} onRetry={ledger.reload} />}
       {!ledger.error && !ledger.data && <LoadingState />}
-      {ledger.data && (
+      {ledger.data && ledger.data.transactions.length === 0 && (
+        <EmptyState title={active ? 'No movements match these filters' : 'No movements'} />
+      )}
+      {ledger.data && ledger.data.transactions.length > 0 && (
         <table className="erp-data-table">
           <thead>
             <tr>
@@ -269,10 +290,16 @@ function Reconciliation() {
 export default function Inventory() {
   const { user } = useAuth();
   const [tab, setTab] = useState('summary');
-  const [material, setMaterial] = useState('');
+  const { filters, set, clear, query, active } = useFilters(NO_STOCK_FILTERS);
   const [modal, setModal] = useState(null); // { type: 'receive' | 'adjust' | 'ledger', lot }
-  const summary = useApiQuery(() => inventoryApi.summary({ material }), [material]);
-  const lots = useApiQuery(() => inventoryApi.lots({ material, limit: 100 }), [material]);
+  // The summary already groups by colour, so the colour filter applies to the lots list only.
+  const summary = useApiQuery(
+    () => inventoryApi.summary({ material: query.material, includeDepleted: query.includeDepleted }),
+    [query.material, query.includeDepleted],
+  );
+  const lots = useApiQuery(() => inventoryApi.lots({ ...query, limit: 100 }), [query]);
+  // Colour choices: the colours actually stocked for the chosen material.
+  const colours = [...new Set((summary.data?.summary ?? []).map((row) => row.colour))].sort();
   const lotList = lots.data?.lots ?? [];
   const showsCost = lotList.some((lot) => lot.costPerKgPaise !== undefined);
   const refresh = () => {
@@ -306,12 +333,23 @@ export default function Inventory() {
             <button type="button" role="tab" aria-selected={tab === 'summary'} className={`erp-tab-btn ${tab === 'summary' ? 'active' : ''}`} onClick={() => setTab('summary')}>Stock by colour</button>
             <button type="button" role="tab" aria-selected={tab === 'lots'} className={`erp-tab-btn ${tab === 'lots' ? 'active' : ''}`} onClick={() => setTab('lots')}>Lots ({lots.meta?.total ?? '…'})</button>
           </div>
-          <label className="erp-label" htmlFor="material-filter">Material</label>
-          <select id="material-filter" className="erp-input toolbar-select" value={material} onChange={(event) => setMaterial(event.target.value)}>
-            <option value="">All</option>
-            {MATERIALS.map((m) => <option key={m}>{m}</option>)}
-          </select>
         </div>
+        <FilterBar active={active} onClear={clear} label="Stock filters">
+          <FilterSelect
+            id="material-filter"
+            label="Material"
+            value={filters.material}
+            onChange={(value) => {
+              set('material', value);
+              set('colour', ''); // a colour from another material would match nothing
+            }}
+            options={MATERIALS.map((m) => ({ value: m, label: m }))}
+          />
+          {tab === 'lots' && (
+            <FilterSelect id="colour-filter" label="Colour" value={filters.colour} onChange={(value) => set('colour', value)} options={colours.map((c) => ({ value: c, label: c }))} />
+          )}
+          <FilterCheckbox id="depleted-filter" label="Include empty lots (0 kg)" checked={filters.includeDepleted} onChange={(value) => set('includeDepleted', value)} />
+        </FilterBar>
 
         {tab === 'summary' && (
           <>
