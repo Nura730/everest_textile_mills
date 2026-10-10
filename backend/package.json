@@ -12,7 +12,9 @@
     "dev": "node --watch src/server.js | pino-pretty",
     "start": "node src/server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
-    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --watch"
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --watch",
+    "seed:dev": "node scripts/seed-dev-users.js",
+    "bootstrap:admin": "node scripts/bootstrap-admin.js"
   },
   "dependencies": {
     "bcryptjs": "3.0.3",
