@@ -1,6 +1,8 @@
-// npm run seed:dev — one user per role for local development. Refuses in production.
+// npm run seed:dev — one user per role, a buyer company and sample products, for local
+// development. Refuses in production.
 import { connectDatabase, disconnectDatabase } from '../src/config/db.js';
 import { getConfig } from '../src/config/env.js';
+import { seedDevCatalog } from '../src/scripts/seedDevCatalog.js';
 import { seedDevUsers, seedEnvSchema } from '../src/scripts/seedDevUsers.js';
 
 async function main() {
@@ -22,6 +24,9 @@ async function main() {
     const report = await seedDevUsers({ nodeEnv: config.nodeEnv, password: parsed.data.SEED_PASSWORD });
     console.log('Dev users (password = SEED_PASSWORD from your .env):');
     console.table(report);
+    const catalog = await seedDevCatalog({ nodeEnv: config.nodeEnv });
+    console.log('Dev buyer company and products:');
+    console.table(catalog);
     return 0;
   } finally {
     await disconnectDatabase();

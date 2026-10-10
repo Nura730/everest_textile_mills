@@ -4,9 +4,13 @@ import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ROLES } from '../../src/constants/roles.js';
 import { User } from '../../src/models/User.js';
 import { bootstrapAdmin, BootstrapRefusedError } from '../../src/scripts/bootstrapAdmin.js';
+import { Buyer } from '../../src/models/Buyer.js';
+import { Product } from '../../src/models/Product.js';
+import { DEV_BUYER, DEV_PRODUCTS, seedDevCatalog } from '../../src/scripts/seedDevCatalog.js';
 import { DEV_USERS, seedDevUsers } from '../../src/scripts/seedDevUsers.js';
 import { verifyPassword } from '../../src/services/password.service.js';
 import { createTestUser } from '../helpers/auth.js';
+import { clearCatalog, createTestBuyer, ensureCatalogCollections } from '../helpers/catalog.js';
 
 const BACKEND_DIR = fileURLToPath(new URL('../..', import.meta.url));
 const SEED_PASSWORD = 'Seed-Password-2026';
@@ -14,10 +18,12 @@ const SEED_PASSWORD = 'Seed-Password-2026';
 beforeAll(async () => {
   await connectDatabase(process.env.MONGODB_URI);
   await User.init();
+  await ensureCatalogCollections();
 });
 
 afterEach(async () => {
   await User.deleteMany({});
+  await clearCatalog();
 });
 
 afterAll(async () => {
@@ -139,5 +145,42 @@ describe('CLI wrappers', () => {
     expect(second.code).toBe(1);
     expect(second.output).toMatch(/Refused: An active admin already exists/);
     expect(await User.countDocuments({ role: 'ADMIN' })).toBe(1);
+  });
+});
+
+describe('seedDevCatalog', () => {
+  it('creates the dev buyer company and products, and links the dev buyer account', async () => {
+    await seedDevUsers({ nodeEnv: 'development', password: SEED_PASSWORD });
+    const report = await seedDevCatalog({ nodeEnv: 'development' });
+
+    expect(report.map((row) => row.status)).toEqual(['created', 'created', 'created', 'created']);
+    const buyer = await Buyer.findOne({ code: DEV_BUYER.code }).lean();
+    const buyerUser = await User.findOne({ email: 'buyer@everest.local' }).lean();
+    expect(String(buyerUser.buyerId)).toBe(String(buyer._id));
+    expect(await Product.countDocuments()).toBe(DEV_PRODUCTS.length);
+  });
+
+  it('is idempotent and never re-links a buyer account that already has a company', async () => {
+    await seedDevUsers({ nodeEnv: 'development', password: SEED_PASSWORD });
+    const other = await createTestBuyer();
+    await User.updateOne({ email: 'buyer@everest.local' }, { buyerId: other._id });
+
+    await seedDevCatalog({ nodeEnv: 'development' });
+    const second = await seedDevCatalog({ nodeEnv: 'development' });
+
+    expect(second.every((row) => row.status === 'exists')).toBe(true);
+    expect(String((await User.findOne({ email: 'buyer@everest.local' }).lean()).buyerId)).toBe(String(other._id));
+    expect(await Buyer.countDocuments({ code: DEV_BUYER.code })).toBe(1);
+  });
+
+  it('refuses to run in production', async () => {
+    await expect(seedDevCatalog({ nodeEnv: 'production' })).rejects.toThrow(/refuses/);
+    expect(await Buyer.countDocuments()).toBe(0);
+  });
+
+  it('seeds products whose yarn spec passes the catalog rule (yarn >= fabric weight)', () => {
+    for (const product of DEV_PRODUCTS) {
+      expect(product.yarnGramsPerMetre).toBeGreaterThanOrEqual(Math.floor((product.gsm * product.widthCm) / 100));
+    }
   });
 });
