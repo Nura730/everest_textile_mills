@@ -31,3 +31,8 @@ export async function adjustLot(req, res) {
   const result = await inventoryService.adjustLot(req.validated.params.id, req.validated.body, requestContext(req));
   return sendIdempotent(res, result);
 }
+
+export async function getReconciliation(req, res) {
+  const report = await inventoryService.reconcileInventory();
+  return sendSuccess(res, report);
+}

@@ -2,8 +2,13 @@ import { recordAudit } from '../audit/recordAudit.js';
 import { ROLES } from '../constants/roles.js';
 import { toPublicTransaction } from '../models/InventoryTransaction.js';
 import { toPublicLot } from '../models/YarnLot.js';
-import { appendTransaction, findTransactionsPageForLot } from '../repositories/inventoryTransaction.repository.js';
 import {
+  appendTransaction,
+  findTransactionsPageForLot,
+  sumDeltasByLot,
+} from '../repositories/inventoryTransaction.repository.js';
+import {
+  findAllLotBalances,
   findLotById,
   findLotsPage,
   incrementTotalGuarded,
@@ -173,4 +178,49 @@ export function adjustLot(lotId, { deltaKg, reason }, context) {
       };
     },
   );
+}
+
+/**
+ * Proves the stock numbers: for every lot, the balances stored on the lot must equal the sum of
+ * its ledger rows, and 0 <= reserved <= total must hold. Anything else means a balance was
+ * changed without a ledger entry (a bug, or someone editing the database directly).
+ */
+export async function reconcileInventory() {
+  const [lots, sums] = await Promise.all([findAllLotBalances(), sumDeltasByLot()]);
+  const ledgerByLot = new Map(sums.map((sum) => [String(sum._id), sum]));
+  const mismatches = [];
+
+  for (const lot of lots) {
+    const id = String(lot._id);
+    const ledger = ledgerByLot.get(id) ?? { totalGrams: 0, reservedGrams: 0, entries: 0 };
+    ledgerByLot.delete(id);
+
+    const issues = [];
+    if (ledger.totalGrams !== lot.totalGrams) issues.push('TOTAL_MISMATCH');
+    if (ledger.reservedGrams !== lot.reservedGrams) issues.push('RESERVED_MISMATCH');
+    if (lot.reservedGrams < 0 || lot.reservedGrams > lot.totalGrams) issues.push('INVARIANT_VIOLATED');
+
+    if (issues.length > 0) {
+      mismatches.push({
+        lotId: id,
+        lotNumber: lot.lotNumber,
+        issues,
+        stored: { totalKg: gramsToKg(lot.totalGrams), reservedKg: gramsToKg(lot.reservedGrams) },
+        ledger: { totalKg: gramsToKg(ledger.totalGrams), reservedKg: gramsToKg(ledger.reservedGrams), entries: ledger.entries },
+      });
+    }
+  }
+
+  // Whatever is left are ledger rows pointing at a lot that does not exist.
+  for (const [id, ledger] of ledgerByLot) {
+    mismatches.push({
+      lotId: id,
+      lotNumber: null,
+      issues: ['LEDGER_WITHOUT_LOT'],
+      stored: null,
+      ledger: { totalKg: gramsToKg(ledger.totalGrams), reservedKg: gramsToKg(ledger.reservedGrams), entries: ledger.entries },
+    });
+  }
+
+  return { checkedAt: new Date(), lotsChecked: lots.length, balanced: mismatches.length === 0, mismatches };
 }

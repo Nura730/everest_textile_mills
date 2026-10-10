@@ -14,5 +14,7 @@ router.get(
   validate({ query: yarnSummaryQuerySchema }),
   inventoryController.getYarnSummary,
 );
+// Proves stored balances against the ledger. Owner-level oversight.
+router.get('/reconciliation', authorize(ROLES.ADMIN), inventoryController.getReconciliation);
 
 export default router;
