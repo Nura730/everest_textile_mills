@@ -4,6 +4,8 @@ import { Plus, RefreshCw } from 'lucide-react';
 import { buyersApi, ordersApi, productsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useLive } from '../realtime/realtimeBus.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
 import { ROLES, can } from '../auth/roles.js';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
 import { FilterBar, FilterCheckbox, FilterDate, FilterSelect, SearchInput } from '../components/ui/Filters.jsx';
@@ -28,10 +30,10 @@ export default function Orders() {
 
   // Filter choices. Buyer companies can only be listed by an ADMIN (other staff use the search box);
   // the admin also sees retired products, because older orders may be for them.
-  const products = useApiQuery(() => productsApi.list({ limit: 100, includeInactive: isAdmin }), [isAdmin]);
-  const buyers = useApiQuery(() => (isAdmin ? buyersApi.list({ limit: 100 }) : Promise.resolve({ data: { buyers: [] } })), [isAdmin]);
+  const products = useApiQuery(() => productsApi.list({ limit: 100, includeInactive: isAdmin }), [isAdmin], { cacheKey: `products:filter:${isAdmin}` });
+  const buyers = useApiQuery(() => (isAdmin ? buyersApi.list({ limit: 100 }) : Promise.resolve({ data: { buyers: [] } })), [isAdmin], { cacheKey: isAdmin ? 'buyers:all' : undefined });
 
-  const orders = useApiQuery(() => ordersApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page]);
+  const orders = useApiQuery(() => ordersApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page], { cacheKey: `orders:${JSON.stringify(query)}:${page}` });
   useLive((entry) => Boolean(entry.orderId) || entry.entityType === 'Order', orders.reload);
   const list = orders.data?.orders ?? [];
   const total = orders.meta?.total ?? 0;
@@ -61,6 +63,8 @@ export default function Orders() {
           </>
         }
       />
+      <CachedNotice cachedAt={orders.cachedAt} />
+      <PendingActions title="Orders saved on this device" match={(item) => item.type === 'ORDER_CREATE'} onApplied={() => orders.reload()} />
 
       <div className="erp-card">
         <FilterBar active={active} onClear={clear} label="Order filters">

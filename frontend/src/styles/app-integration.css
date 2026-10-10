@@ -228,6 +228,12 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .risk-detail { margin: 8px 0; }
 .risk-heading { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-gray-500); margin-top: 8px; }
 
+.cached-notice { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; margin-bottom: 12px; border: 1px dashed var(--color-gray-400, #9ca3af); border-radius: 6px; background: var(--color-gray-50); font-size: 0.8125rem; }
+.pending-actions { border-style: dashed; }
+.sync-item-actions { display: flex; flex-direction: column; gap: 4px; }
+.sync-item.failed { background: var(--color-error-light); }
+.pending-row td { font-style: italic; background: var(--color-gray-50); }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */

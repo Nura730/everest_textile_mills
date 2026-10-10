@@ -5,6 +5,8 @@ import { newIdempotencyKey } from '../api/client.js';
 import { qcApi, rollsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { QcResultBadge } from '../components/machines/MachineStatus.jsx';
@@ -42,8 +44,8 @@ function RollTable({ rolls, action }) {
 export default function QcQueue() {
   const { user } = useAuth();
   const toast = useToast();
-  const pending = useApiQuery(() => rollsApi.list({ status: 'QC_PENDING', limit: 100 }), []);
-  const rework = useApiQuery(() => rollsApi.list({ status: 'IN_REWORK', limit: 100 }), []);
+  const pending = useApiQuery(() => rollsApi.list({ status: 'QC_PENDING', limit: 100 }), [], { cacheKey: 'rolls:QC_PENDING' });
+  const rework = useApiQuery(() => rollsApi.list({ status: 'IN_REWORK', limit: 100 }), [], { cacheKey: 'rolls:IN_REWORK' });
   const summary = useApiQuery(() => qcApi.summary(), []);
   const recent = useApiQuery(() => qcApi.inspections({ limit: 15 }), []);
   const [inspecting, setInspecting] = useState(null);
@@ -64,7 +66,7 @@ export default function QcQueue() {
     setReworking({ ...reworking, busy: true });
     try {
       const sent = await runOrQueue(
-        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: reworking.roll.id }, label: `Rework finished on ${reworking.roll.rollNumber}`, userId: user.id },
+        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: reworking.roll.id }, label: `Rework finished on ${reworking.roll.rollNumber}`, ref: { rollId: reworking.roll.id }, userId: user.id },
         (k) => rollsApi.reworkDone(reworking.roll.id, null, k),
       );
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
@@ -84,6 +86,8 @@ export default function QcQueue() {
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Quality control' }]}
         actions={<button type="button" className="erp-btn-outline" onClick={reload} aria-label="Refresh"><RefreshCw size={15} aria-hidden="true" /> Refresh</button>}
       />
+      <CachedNotice cachedAt={pending.cachedAt} />
+      <PendingActions title="QC work saved on this device" match={(item) => item.type === 'QC_INSPECT' || item.type === 'REWORK_DONE'} onApplied={reload} />
       <div className="erp-tall-kpi-grid">
         <div className="erp-card"><div className="detail-label">Awaiting QC</div><div className="detail-value">{count('QC_PENDING')}</div></div>
         <div className="erp-card"><div className="detail-label">In rework</div><div className="detail-value">{count('IN_REWORK')}</div></div>

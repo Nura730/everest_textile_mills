@@ -4,6 +4,7 @@ import { buyersApi, ordersApi, productsApi } from '../../api/endpoints.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { ROLES } from '../../auth/roles.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
+import { runOrQueue } from '../../offline/syncManager.js';
 import { addDays, addYears, formatPaise, todayInIndia } from '../../utils/format.js';
 import { Field, Modal } from '../ui/Modal.jsx';
 import { ErrorState, LoadingState } from '../ui/States.jsx';
@@ -22,8 +23,9 @@ export function CreateOrderModal({ onClose, onCreated }) {
   const toast = useToast();
   const isAdmin = user.role === ROLES.ADMIN;
 
-  const products = useApiQuery(() => productsApi.list({ limit: 100 }), []);
-  const buyers = useApiQuery(() => (isAdmin ? buyersApi.list({ isActive: true, limit: 100 }) : Promise.resolve({ data: { buyers: [] } })), [isAdmin]);
+  // Cached so an order can be placed offline from the last known catalog; the server re-checks it.
+  const products = useApiQuery(() => productsApi.list({ limit: 100 }), [], { cacheKey: 'products:orderable' });
+  const buyers = useApiQuery(() => (isAdmin ? buyersApi.list({ isActive: true, limit: 100 }) : Promise.resolve({ data: { buyers: [] } })), [isAdmin], { cacheKey: isAdmin ? 'buyers:active' : undefined });
 
   const [form, setForm] = useState({ productId: '', buyerId: '', quantityMetres: '', requiredBy: addDays(todayInIndia(), 30), buyerNotes: '' });
   const [errors, setErrors] = useState({});
@@ -76,7 +78,18 @@ export function CreateOrderModal({ onClose, onCreated }) {
 
     setBusy(true);
     try {
-      const { data, replayed } = await ordersApi.create(body, idempotencyKey);
+      const fabric = products.data.products.find((p) => p.id === form.productId);
+      const sent = await runOrQueue(
+        { key: idempotencyKey, type: 'ORDER_CREATE', payload: body, label: `New order: ${quantity.toLocaleString('en-IN')} m ${fabric?.name ?? ''}`.trim(), ref: { newOrder: true }, userId: user.id },
+        (k) => ordersApi.create(body, k),
+      );
+      if (sent.queued) {
+        // Stored on this device only: no order number yet, nothing created on the server.
+        toast.info('Saved offline — waiting to sync. The order gets its number when it reaches the server.', { title: 'Saved on this device' });
+        onClose();
+        return;
+      }
+      const { data, replayed } = sent.result;
       toast.success(
         replayed
           ? `Order ${data.order.orderNumber} was already created — showing the existing order.`

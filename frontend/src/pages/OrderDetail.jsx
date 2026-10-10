@@ -13,6 +13,10 @@ import { OrderFulfilmentPanel } from '../components/fulfilment/Fulfilment.jsx';
 import { BuyerTimeline } from '../components/orders/BuyerTimeline.jsx';
 import { OrderCostPanel } from '../components/costing/CostSheet.jsx';
 import { OrderRiskPanel } from '../components/insights/RiskPanel.jsx';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
+import { runOrQueue } from '../offline/syncManager.js';
+import { useOnline, useQueue } from '../offline/useQueue.js';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -105,6 +109,7 @@ function FeasibilityResult({ feasibility, caption }) {
  */
 function EditOrderModal({ order, onClose, onSaved, onReload }) {
   const toast = useToast();
+  const { user } = useAuth();
   const initial = { quantityMetres: String(order.quantityMetres), requiredBy: order.requiredBy, buyerNotes: order.buyerNotes ?? '' };
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
@@ -144,9 +149,20 @@ function EditOrderModal({ order, onClose, onSaved, onReload }) {
     }
     setBusy(true);
     try {
-      const { data } = await ordersApi.update(order.id, { ...changes, expectedUpdatedAt: order.updatedAt }, key);
-      toast.success(`Order ${data.order.orderNumber} updated.`);
-      onSaved(data.order);
+      // Offline: queued with the version it was based on, so a change made meanwhile on the server
+      // turns it into a conflict instead of being overwritten.
+      const body = { ...changes, expectedUpdatedAt: order.updatedAt };
+      const sent = await runOrQueue(
+        { key, type: 'ORDER_UPDATE', payload: { orderId: order.id, ...body }, label: `Changes to ${order.orderNumber}`, ref: { orderId: order.id }, userId: user.id },
+        (k) => ordersApi.update(order.id, body, k),
+      );
+      if (sent.queued) {
+        toast.info('Saved offline — waiting to sync. It is sent when the connection returns.', { title: 'Saved on this device' });
+        onClose();
+        return;
+      }
+      toast.success(`Order ${sent.result.data.order.orderNumber} updated on the server.`);
+      onSaved(sent.result.data.order);
     } catch (error) {
       if (error.code === 'CONFLICT' || error.code === 'ORDER_NOT_EDITABLE') {
         // Someone else changed or confirmed it meanwhile: show the real order.
@@ -208,7 +224,9 @@ export default function OrderDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
-  const order = useApiQuery(() => ordersApi.get(id), [id]);
+  const order = useApiQuery(() => ordersApi.get(id), [id], { cacheKey: `order:${id}` });
+  const online = useOnline();
+  const pendingEdits = useQueue((item) => item.type === 'ORDER_UPDATE' && item.ref?.orderId === id);
   useLive(liveMatch.order(id), order.reload);
   // Live feasibility only while the order awaits a decision, and only for planning roles (it shows
   // stock levels). Once confirmed, the snapshot stored on the order is shown instead.
@@ -241,6 +259,9 @@ export default function OrderDetail() {
   const canReject = isOpen && can.rejectOrder(user.role);
   const canConfirm = isOpen && can.confirmOrder(user.role);
   const canEdit = isOpen && can.editOrder(user.role);
+  // One offline change at a time: a second one would be based on the same old version and conflict.
+  const editWaiting = pendingEdits.some((item) => item.status === 'PENDING');
+  const needsConnection = online ? undefined : 'Needs a connection: the server must check the current state.';
   const liveResult = feasibility.data?.feasibility ?? null;
   // The backend re-checks on confirm; this only avoids offering a button that would be refused.
   const confirmBlocked = liveResult?.status === 'NOT_FEASIBLE';
@@ -284,12 +305,12 @@ export default function OrderDetail() {
         actions={
           <>
             {canReserve && (
-              <button type="button" className="erp-btn-primary" onClick={() => setReserving(true)}>
+              <button type="button" className="erp-btn-primary" onClick={() => setReserving(true)} disabled={!online} title={needsConnection}>
                 <PackageCheck size={15} aria-hidden="true" /> Reserve yarn
               </button>
             )}
             {canEdit && (
-              <button type="button" className="erp-btn-outline" onClick={() => setEditing(true)}>
+              <button type="button" className="erp-btn-outline" onClick={() => setEditing(true)} disabled={editWaiting || Boolean(order.cachedAt)} title={editWaiting ? 'An earlier change to this order is waiting to sync.' : order.cachedAt ? 'Editing needs the latest version of the order; it opens when the connection returns.' : undefined}>
                 <Pencil size={15} aria-hidden="true" /> Edit
               </button>
             )}
@@ -297,26 +318,28 @@ export default function OrderDetail() {
               <button
                 type="button"
                 className="erp-btn-primary"
-                disabled={confirmBlocked || feasibility.loading}
-                title={confirmBlocked ? 'The feasibility check fails: see the reasons below.' : undefined}
+                disabled={confirmBlocked || feasibility.loading || !online}
+                title={!online ? 'Needs a connection: confirmation checks live stock.' : confirmBlocked ? 'The feasibility check fails: see the reasons below.' : undefined}
                 onClick={() => setAction({ name: 'confirm', reason: '', key: newIdempotencyKey() })}
               >
                 <ShieldCheck size={15} aria-hidden="true" /> Confirm
               </button>
             )}
             {canReject && (
-              <button type="button" className="erp-btn-outline" onClick={() => setAction({ name: 'reject', reason: '', key: newIdempotencyKey() })}>
+              <button type="button" className="erp-btn-outline" onClick={() => setAction({ name: 'reject', reason: '', key: newIdempotencyKey() })} disabled={!online} title={needsConnection}>
                 <XOctagon size={15} aria-hidden="true" /> Reject
               </button>
             )}
             {canCancel && (
-              <button type="button" className="erp-btn-danger" onClick={() => setAction({ name: 'cancel', reason: '', key: newIdempotencyKey() })}>
+              <button type="button" className="erp-btn-danger" onClick={() => setAction({ name: 'cancel', reason: '', key: newIdempotencyKey() })} disabled={!online} title={needsConnection}>
                 <Ban size={15} aria-hidden="true" /> Cancel order
               </button>
             )}
           </>
         }
       />
+      <CachedNotice cachedAt={order.cachedAt} />
+      <PendingActions match={(item) => item.ref?.orderId === current.id} onApplied={() => order.reload()} />
 
       <div className="erp-card section-gap">
         <div className="card-header">

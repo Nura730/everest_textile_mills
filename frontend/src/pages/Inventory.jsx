@@ -4,6 +4,10 @@ import { CheckCircle2, PackagePlus, RefreshCw, Scale, ShieldAlert } from 'lucide
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { inventoryApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
+import { runOrQueue } from '../offline/syncManager.js';
+import { useOnline } from '../offline/useQueue.js';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { FilterBar, FilterCheckbox, FilterDate, FilterSelect } from '../components/ui/Filters.jsx';
@@ -37,6 +41,7 @@ function StockBar({ total, reserved }) {
 
 function ReceiveModal({ onClose, onDone }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [form, setForm] = useState({ lotNumber: '', material: 'COTTON', colour: '', yarnCount: '', supplierName: '', quantityKg: '', costRupees: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -53,7 +58,12 @@ function ReceiveModal({ onClose, onDone }) {
     const qty = Number(form.quantityKg);
     const costPerKgPaise = rupeesToPaise(form.costRupees);
     const found = {};
+    // Same limits as the server, so a receipt saved offline is not refused later for a typo.
+    if (!/^[A-Za-z0-9][A-Za-z0-9/-]{2,39}$/.test(form.lotNumber.trim())) found.lotNumber = '3-40 characters: letters, digits, "/" or "-".';
+    if (!/^[\p{L}][\p{L} -]{1,49}$/u.test(form.colour.trim())) found.colour = 'Letters, spaces and hyphens (2-50).';
+    if (form.supplierName.trim().length < 2) found.supplierName = 'Enter the supplier (at least 2 characters).';
     if (!(qty > 0)) found.quantityKg = 'Enter the received quantity in kg.';
+    else if (!/^\d+(\.\d{1,3})?$/.test(form.quantityKg.trim())) found.quantityKg = 'At most 3 decimal places.';
     if (costPerKgPaise === null) found.costPerKgPaise = 'Enter the cost per kg in rupees, at most 2 decimals (e.g. 320.50).';
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -69,7 +79,17 @@ function ReceiveModal({ onClose, onDone }) {
     };
     setBusy(true);
     try {
-      const { data, replayed } = await inventoryApi.receive(body, key);
+      const sent = await runOrQueue(
+        { key, type: 'MATERIAL_RECEIVE', payload: body, label: `Receipt ${body.lotNumber}: ${formatNumber(qty, 'kg')} ${body.material.toLowerCase()} ${body.colour}`, ref: { receipt: true }, userId: user.id },
+        (k) => inventoryApi.receive(body, k),
+      );
+      if (sent.queued) {
+        // Not in stock yet: stock only changes when the server records the lot.
+        toast.info('Saved offline — waiting to sync. Stock is updated when the receipt reaches the server.', { title: 'Saved on this device' });
+        onClose();
+        return;
+      }
+      const { data, replayed } = sent.result;
       toast.success(replayed ? `Lot ${data.lot.lotNumber} was already received.` : `Stock updated: lot ${data.lot.lotNumber} received (${formatNumber(data.lot.totalKg, 'kg')}).`);
       onDone();
     } catch (error) {
@@ -300,8 +320,10 @@ export default function Inventory() {
   const summary = useApiQuery(
     () => inventoryApi.summary({ material: query.material, includeDepleted: query.includeDepleted }),
     [query.material, query.includeDepleted],
+    { cacheKey: `stock-summary:${query.material ?? ''}:${query.includeDepleted ?? ''}` },
   );
-  const lots = useApiQuery(() => inventoryApi.lots({ ...query, limit: 100 }), [query]);
+  const online = useOnline();
+  const lots = useApiQuery(() => inventoryApi.lots({ ...query, limit: 100 }), [query], { cacheKey: `lots:${JSON.stringify(query)}` });
   useLive(liveMatch.actions('MATERIAL_', 'STOCK_'), () => { lots.reload(); summary.reload(); });
   // Colour choices: the colours actually stocked for the chosen material.
   const colours = [...new Set((summary.data?.summary ?? []).map((row) => row.colour))].sort();
@@ -331,6 +353,8 @@ export default function Inventory() {
           </>
         }
       />
+      <CachedNotice cachedAt={lots.cachedAt ?? summary.cachedAt} />
+      <PendingActions title="Receipts saved on this device" match={(item) => item.type === 'MATERIAL_RECEIVE'} onApplied={() => { lots.reload(); summary.reload(); }} />
 
       <div className="erp-card">
         <div className="toolbar">
@@ -427,7 +451,7 @@ export default function Inventory() {
                         <td className="row-actions">
                           <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'ledger', lot })}>Ledger</button>
                           {can.adjustStock(user.role) && (
-                            <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'adjust', lot })}>Adjust</button>
+                            <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'adjust', lot })} disabled={!online} title={online ? undefined : 'Needs a connection: an adjustment depends on the current balance.'}>Adjust</button>
                           )}
                         </td>
                       </tr>

@@ -4,6 +4,8 @@ import { newIdempotencyKey } from '../api/client.js';
 import { rollsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { QcResultBadge, RollStatusBadge } from '../components/machines/MachineStatus.jsx';
@@ -30,7 +32,7 @@ export default function RollDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
-  const trace = useApiQuery(() => rollsApi.trace(id), [id]);
+  const trace = useApiQuery(() => rollsApi.trace(id), [id], { cacheKey: `roll:${id}` });
   useLive(liveMatch.entity(id), trace.reload);
   const [inspecting, setInspecting] = useState(false);
   const [reworking, setReworking] = useState(null);
@@ -51,7 +53,7 @@ export default function RollDetail() {
     setReworking({ ...reworking, busy: true });
     try {
       const sent = await runOrQueue(
-        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: roll.id }, label: `Rework finished on ${roll.rollNumber}`, userId: user.id },
+        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: roll.id }, label: `Rework finished on ${roll.rollNumber}`, ref: { rollId: roll.id }, userId: user.id },
         (k) => rollsApi.reworkDone(roll.id, null, k),
       );
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
@@ -76,6 +78,8 @@ export default function RollDetail() {
           </>
         }
       />
+      <CachedNotice cachedAt={trace.cachedAt} />
+      <PendingActions match={(item) => item.ref?.rollId === id} onApplied={() => trace.reload()} />
 
       <div className="detail-columns">
         <div className="erp-card">

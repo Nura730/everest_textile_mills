@@ -52,7 +52,7 @@ export function InspectRollModal({ roll, onClose, onDone }) {
     setBusy(true);
     try {
       const sent = await runOrQueue(
-        { key, type: 'QC_INSPECT', payload: { rollId: roll.id, ...body }, label: `QC ${result.toLowerCase()} for ${roll.rollNumber}`, userId: user.id },
+        { key, type: 'QC_INSPECT', payload: { rollId: roll.id, ...body }, label: `QC ${result.toLowerCase()} for ${roll.rollNumber}`, ref: { rollId: roll.id }, userId: user.id },
         (k) => rollsApi.inspect(roll.id, body, k),
       );
       if (sent.queued) {

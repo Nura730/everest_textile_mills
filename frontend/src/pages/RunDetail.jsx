@@ -5,6 +5,9 @@ import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { productionApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
+import { useOnline } from '../offline/useQueue.js';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLE_LABELS, can } from '../auth/roles.js';
 import { RunStatusBadge } from '../components/machines/MachineStatus.jsx';
@@ -48,7 +51,7 @@ function RecordRollModal({ run, onClose, onDone }) {
     try {
       const body = { lengthMetres: Number(length), ...(weight ? { weightKg: Number(weight) } : {}) };
       const sent = await runOrQueue(
-        { key, type: 'ROLL_RECORD', payload: { runId: run.id, ...body }, label: `Roll of ${formatNumber(body.lengthMetres, 'm')} on ${run.runNumber}`, userId: user.id },
+        { key, type: 'ROLL_RECORD', payload: { runId: run.id, ...body }, label: `Roll of ${formatNumber(body.lengthMetres, 'm')} on ${run.runNumber}`, ref: { runId: run.id, orderId: run.orderId }, userId: user.id },
         (k) => productionApi.recordRoll(run.id, body, k),
       );
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
@@ -103,7 +106,8 @@ export default function RunDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
-  const detail = useApiQuery(() => productionApi.get(id), [id]);
+  const detail = useApiQuery(() => productionApi.get(id), [id], { cacheKey: `run:${id}` });
+  const online = useOnline();
   const [action, setAction] = useState(null); // { name, reason, key, busy, error }
   const [recording, setRecording] = useState(false);
   useLive(liveMatch.entity(id), detail.reload);
@@ -129,10 +133,10 @@ export default function RunDetail() {
     setAction({ ...action, busy: true, error: null });
     try {
       const body = config.reason ? { reason } : {};
-      const offlineType = { pause: 'RUN_PAUSE', resume: 'RUN_RESUME' }[action.name];
+      const offlineType = { pause: 'RUN_PAUSE', resume: 'RUN_RESUME', complete: 'RUN_COMPLETE' }[action.name];
       const call = (k) => productionApi.act(run.id, action.name, body, k);
       const sent = offlineType
-        ? await runOrQueue({ key: action.key, type: offlineType, payload: { runId: run.id, ...body }, label: `${config.label} ${run.runNumber}`, userId: user.id }, call)
+        ? await runOrQueue({ key: action.key, type: offlineType, payload: { runId: run.id, ...body }, label: `${config.label} ${run.runNumber}`, ref: { runId: run.id, orderId: run.orderId }, userId: user.id }, call)
         : { queued: false, result: await call(action.key) };
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
       else toast.success(config.success);
@@ -153,7 +157,7 @@ export default function RunDetail() {
         actions={
           operate && (
             <>
-              {run.status === 'PLANNED' && <button type="button" className="erp-btn-primary" onClick={() => open('start')}><Play size={15} aria-hidden="true" /> Start</button>}
+              {run.status === 'PLANNED' && <button type="button" className="erp-btn-primary" onClick={() => open('start')} disabled={!online} title={online ? undefined : 'Needs a connection: starting checks the machine and the yarn on the server.'}><Play size={15} aria-hidden="true" /> Start</button>}
               {run.status === 'RUNNING' && <button type="button" className="erp-btn-outline" onClick={() => open('pause')}><Pause size={15} aria-hidden="true" /> Pause</button>}
               {run.status === 'PAUSED' && <button type="button" className="erp-btn-primary" onClick={() => open('resume')}><Play size={15} aria-hidden="true" /> Resume</button>}
               {producing && <button type="button" className="erp-btn-primary" onClick={() => setRecording(true)}><PlusCircle size={15} aria-hidden="true" /> Record roll</button>}
@@ -162,11 +166,13 @@ export default function RunDetail() {
                   <CheckCircle2 size={15} aria-hidden="true" /> Complete
                 </button>
               )}
-              {run.status === 'PLANNED' && <button type="button" className="erp-btn-danger" onClick={() => open('cancel')}><XOctagon size={15} aria-hidden="true" /> Cancel run</button>}
+              {run.status === 'PLANNED' && <button type="button" className="erp-btn-danger" onClick={() => open('cancel')} disabled={!online} title={online ? undefined : 'Needs a connection.'}><XOctagon size={15} aria-hidden="true" /> Cancel run</button>}
             </>
           )
         }
       />
+      <CachedNotice cachedAt={detail.cachedAt} />
+      <PendingActions match={(item) => item.ref?.runId === run.id} onApplied={() => detail.reload()} />
 
       <div className="erp-tall-kpi-grid">
         <div className="erp-card"><div className="detail-label">Status</div><div className="detail-value"><RunStatusBadge status={run.status} /></div></div>

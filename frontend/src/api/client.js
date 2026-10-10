@@ -68,7 +68,7 @@ export async function apiRequest(path, { method = 'GET', body, query, idempotenc
     throw new ApiError({
       status: 0,
       code: 'NETWORK_ERROR',
-      message: 'Cannot reach the server. Check that the backend is running and your connection is up.',
+      message: 'Cannot reach the server. This action needs a connection: try again when you are back online.',
     });
   }
 

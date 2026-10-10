@@ -5,6 +5,8 @@ import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { machinesApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLE_LABELS, can } from '../auth/roles.js';
 import { MachineStatusBadge } from '../components/machines/MachineStatus.jsx';
@@ -71,7 +73,7 @@ function ReportProblemModal({ machine, onClose, onDone }) {
         ...(form.pauseProduction && form.severity !== 'CRITICAL' ? { pauseProduction: true } : {}),
       };
       const sent = await runOrQueue(
-        { key, type: 'MACHINE_PROBLEM_REPORT', payload: { machineId: machine.id, ...body }, label: `${form.severity.toLowerCase()} problem on ${machine.code}`, userId: user.id },
+        { key, type: 'MACHINE_PROBLEM_REPORT', payload: { machineId: machine.id, ...body }, label: `${form.severity.toLowerCase()} problem on ${machine.code}`, ref: { machineId: machine.id }, userId: user.id },
         (k) => machinesApi.reportProblem(machine.id, body, k),
       );
       if (sent.queued) {
@@ -276,7 +278,7 @@ export default function MachineDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
-  const detail = useApiQuery(() => machinesApi.get(id), [id]);
+  const detail = useApiQuery(() => machinesApi.get(id), [id], { cacheKey: `machine:${id}` });
   useLive(liveMatch.machine(id), detail.reload);
   const [modal, setModal] = useState(null); // 'problem' | 'edit' | { resolve: event, text, key, busy, error } | { maintenance: 'start'|'end', key, busy } | { retire, busy }
   const [refreshKey, setRefreshKey] = useState(0);
@@ -353,6 +355,8 @@ export default function MachineDetail() {
           </>
         }
       />
+      <CachedNotice cachedAt={detail.cachedAt} />
+      <PendingActions match={(item) => item.ref?.machineId === id} onApplied={() => detail.reload()} />
 
       <div className="erp-tall-kpi-grid">
         <div className="erp-card"><div className="detail-label">Status</div><div className="detail-value"><MachineStatusBadge status={machine.status} /></div><div className="cell-sub">since {formatDateTime(machine.statusChangedAt)}</div></div>
