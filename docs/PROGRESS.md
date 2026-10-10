@@ -2,14 +2,20 @@
 
 Last updated: 2026-10-10
 
+## Branch policy
+
+**All backend work lives on `feature/backend`** (owner's decision, 2026-10-10). No new branches are
+created. Phases 2 and 3 were developed on `feature/backend-auth` and `feature/backend-inventory` and
+merged into `feature/backend`; those two branches are kept (not deleted) but are no longer used.
+
 ## Phase status
 
 | # | Phase | Status | Branch | PR | Tests |
 |---|---|---|---|---|---|
 | 1 | Foundation | ✅ Done | `feature/backend` | #3 (merged to `main`) | 75 |
-| 2 | Auth & RBAC | 🔍 In review | `feature/backend-auth` | open by hand (no `gh`) | 270 |
-| — | Domain model (`docs/DATABASE.md`) | ✅ Done (D1–D8 await confirmation) | `feature/backend-inventory` | with Phase 3 | — |
-| 3 | Yarn inventory | 🔍 In review | `feature/backend-inventory` (stacked on auth) | open by hand | 439 |
+| 2 | Auth & RBAC | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 270 |
+| — | Domain model (`docs/DATABASE.md`) | ✅ Done (D1–D8 await confirmation) | `feature/backend` | via `feature/backend` | — |
+| 3 | Yarn inventory | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 439 |
 | 4 | Material reservation | ⏸ Waiting on decision D5 (phase order) | | | |
 | 5 | Orders (+ ownership checks) | Not started | | | |
 | 6 | Feasibility | Not started | | | |
@@ -43,12 +49,9 @@ Blocked on the owner's answers to D1–D8 in `docs/DATABASE.md` §7, especially 
 ## Open decisions / process issues
 
 - **D1–D8** (`docs/DATABASE.md` §7) need confirmation before Phase 4/5.
-- **Stacked branches:** `feature/backend-inventory` is built on `feature/backend-auth`. Merge the
-  auth PR first; the inventory PR then shows only Phase 3 commits.
-- **`develop` is stale.** Teammates merge into `main` (PRs #4–#16), so `develop` is still at Phase 1.
-  Someone with permission should fast-forward `develop` to `main`, or the team should agree on one
-  integration branch. All `main` changes so far are under `frontend/`.
-- **PRs must be opened by hand**: `gh` is not installed. Descriptions are prepared.
+- **Integration:** the team merges `feature/backend` into `main` through PRs (as with PRs #3–#24).
+  `develop` is not used in practice and is still at Phase 1.
+- **PRs must be opened by hand**: `gh` is not installed.
 - `instruction.md` has an uncommitted local edit by the owner; never included in backend commits.
 
 ## Known issues / limitations
