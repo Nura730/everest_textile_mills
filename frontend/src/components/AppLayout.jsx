@@ -1,34 +1,25 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import Sidebar from './Sidebar';
 import Header from './Header';
+import Sidebar from './Sidebar';
 
 export default function AppLayout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="app-layout">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
+    <div className="erp-app-container">
+      {/* Top Header spans 100% width across the top */}
+      <Header />
 
-      {mobileOpen && (
-        <div
-          className="mobile-overlay visible"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      <main className={`app-main ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-        <Header onMenuClick={() => setMobileOpen(true)} />
-        <div className="app-content">
-          <Outlet />
-        </div>
-      </main>
+      {/* Main Body below header: Sidebar on Left, Content on Right */}
+      <div className="erp-body-layout">
+        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+        <main className={`erp-main-content ${collapsed ? 'sidebar-collapsed' : ''}`}>
+          <div className="erp-page-wrapper">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

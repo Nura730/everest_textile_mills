@@ -1,437 +1,792 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  ShoppingCart,
-  Factory,
-  Gauge,
-  Truck,
-  AlertTriangle,
-  CheckSquare,
-  Ruler,
-  DollarSign,
-  ArrowRight,
-  Package,
-  Cog,
+  Zap,
+  BarChart2,
+  Plus,
   TrendingDown,
+  TrendingUp,
+  Minus,
   Clock,
-  AlertCircle,
+  Target,
+  FileText,
+  ClipboardList,
+  IndianRupee,
+  ArrowRight,
+  ShieldAlert,
+  CheckCircle2,
+  XCircle,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
 } from 'recharts';
-import {
-  dashboardKPIs,
-  weeklyOutputData,
-  machineUtilizationData,
-  recentActivity,
-  orders,
-  machines,
-  inventoryItems,
-  costBreakdown,
-} from '../data/mockData';
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{
-        background: '#171717',
-        color: '#fff',
-        padding: '8px 12px',
-        borderRadius: '6px',
-        fontSize: '12px',
-        lineHeight: '1.4',
-        border: 'none',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-      }}>
-        <div style={{ fontWeight: 600 }}>{label}</div>
-        <div style={{ color: '#a3a3a3' }}>{payload[0].value.toLocaleString()} m</div>
-      </div>
-    );
-  }
-  return null;
-};
-
-const UtilTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{
-        background: '#171717',
-        color: '#fff',
-        padding: '8px 12px',
-        borderRadius: '6px',
-        fontSize: '12px',
-        border: 'none',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-      }}>
-        <div style={{ fontWeight: 600 }}>{label}</div>
-        <div style={{ color: '#a3a3a3' }}>{payload[0].value}% uptime</div>
-      </div>
-    );
-  }
-  return null;
-};
+import { useApp } from '../context/AppContext';
+import { weeklyOutputData, machineUtilizationData, boms } from '../data/mockData';
 
 export default function Dashboard() {
-  const shortages = inventoryItems.filter(i => i.shortage);
-  const errorMachines = machines.filter(m => m.error);
-  const urgentOrders = orders.filter(o => o.status === 'Failed QC');
+  const navigate = useNavigate();
+  const {
+    orders,
+    machines,
+    inventory,
+    alerts,
+    checkFeasibility,
+    createOrder,
+  } = useApp();
+
+  const [currentTime, setCurrentTime] = useState('09:34:22');
+  const [showNewMOModal, setShowNewMOModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+
+  // Form state for New MO
+  const [formData, setFormData] = useState({
+    customer: 'Raymond Ltd.',
+    fabric: 'Cotton Twill 2/1',
+    quantity: 5000,
+    deadline: '2026-10-24',
+    machine: 'Rapier Loom A-12',
+  });
+
+  // Compute live feasibility whenever form changes
+  const feasibilityResult = useMemo(() => {
+    if (!showNewMOModal) return null;
+    return checkFeasibility(formData.fabric, formData.quantity, formData.deadline);
+  }, [formData, showNewMOModal, checkFeasibility]);
+
+  // Update clock
+  useEffect(() => {
+    const updateTime = () => {
+      const d = new Date();
+      setCurrentTime(d.toTimeString().split(' ')[0]);
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const activeOrders = orders.filter((o) => o.status === 'In Production');
+  const completedOrders = orders.filter((o) => o.status === 'Dispatched');
+  const errorMachines = machines.filter((m) => m.error);
+  const shortages = inventory.filter((i) => i.shortage);
+
+  const handleCreateMOSubmit = (e) => {
+    e.preventDefault();
+    createOrder(formData);
+    setShowNewMOModal(false);
+  };
 
   return (
-    <div>
-      {/* Page Header */}
-      <div className="page-header">
-        <div className="page-header-info">
-          <h1>Dashboard</h1>
-          <p>Everest Textile Mills — Production overview for {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+    <div className="erp-dashboard-container">
+      {/* 1. Page Header matching Reference Screenshot */}
+      <div className="erp-page-header">
+        <div className="erp-page-header-text">
+          <h1 className="erp-page-title">Manufacturing Dashboard</h1>
+          <p className="erp-page-subtitle">Real-time insights into your manufacturing operations</p>
         </div>
-        <div className="page-header-actions">
-          <button className="btn btn-secondary">
-            <Clock size={16} />
-            Last 7 days
+        <div className="erp-page-actions">
+          <button className="erp-btn-outline" onClick={() => navigate('/reports')}>
+            <BarChart2 size={16} />
+            <span>View Reports</span>
           </button>
-          <button className="btn btn-primary">
-            <Factory size={16} />
-            New Production Run
+          <button className="erp-btn-outline" onClick={() => setShowNewMOModal(true)}>
+            <Plus size={16} />
+            <span>New MO</span>
           </button>
         </div>
       </div>
 
-      {/* Critical Alerts - only shown when errors exist */}
-      {(errorMachines.length > 0 || urgentOrders.length > 0) && (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          {errorMachines.map(m => (
-            <div key={m.id} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-3)',
-              padding: 'var(--space-3) var(--space-4)',
-              background: 'var(--color-error-light)',
-              border: '1px solid var(--color-error-border)',
-              borderRadius: 'var(--radius-md)',
-              marginBottom: 'var(--space-2)',
-              fontSize: 'var(--font-size-base)',
-            }}>
-              <AlertCircle size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
-              <span style={{ color: 'var(--color-error-dark)' }}>
-                <strong>{m.name}</strong> — {m.status}. Maintenance required.
-              </span>
-              <button className="btn btn-sm btn-secondary" style={{ marginLeft: 'auto' }}>View Machine</button>
+      {/* Critical Alert Banner if error machines or QC failures exist */}
+      {(errorMachines.length > 0 || shortages.length > 0) && (
+        <div className="erp-alert-box">
+          <div className="erp-alert-icon">
+            <ShieldAlert size={20} />
+          </div>
+          <div className="erp-alert-content">
+            <div className="erp-alert-title">
+              Operational Attention Required: {errorMachines.length} Machine Alert, {shortages.length} Material Deficits
             </div>
-          ))}
-          {urgentOrders.map(o => (
-            <div key={o.id} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-3)',
-              padding: 'var(--space-3) var(--space-4)',
-              background: 'var(--color-error-light)',
-              border: '1px solid var(--color-error-border)',
-              borderRadius: 'var(--radius-md)',
-              marginBottom: 'var(--space-2)',
-              fontSize: 'var(--font-size-base)',
-            }}>
-              <AlertCircle size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
-              <span style={{ color: 'var(--color-error-dark)' }}>
-                Order <strong>{o.id}</strong> ({o.customer}) — QC Failure. Requires rework or review.
-              </span>
-              <button className="btn btn-sm btn-secondary" style={{ marginLeft: 'auto' }}>View Order</button>
+            <div className="erp-alert-desc">
+              {errorMachines.length > 0 && `• ${errorMachines[0].name}: ${errorMachines[0].status}. `}
+              {shortages.length > 0 && `• Raw material ${shortages[0].name} has fallen below safe inventory buffer.`}
             </div>
-          ))}
+          </div>
+          <button className="erp-alert-action-btn" onClick={() => navigate('/machines')}>
+            Resolve in Work Centers
+          </button>
         </div>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid-dashboard" style={{ marginBottom: 'var(--space-4)' }}>
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <ShoppingCart size={16} />
-            Total Orders
+      {/* 2. Live Metrics Card Container — EXACT layout from reference screenshot */}
+      <div className="erp-card live-metrics-container">
+        <div className="live-metrics-header">
+          <div className="live-metrics-title-row">
+            <Zap size={18} className="live-metrics-zap-icon" />
+            <span className="live-metrics-title">Live Metrics</span>
           </div>
-          <div className="metric-card-value">{dashboardKPIs.totalOrders}</div>
-          <div className="metric-card-change">This month</div>
+          <span className="live-metrics-subtitle">
+            Real-time performance indicators • Last updated: {currentTime}
+          </span>
         </div>
 
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <Factory size={16} />
-            Active Production
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.activeProduction}</div>
-          <div className="metric-card-change">Running across all lines</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <Gauge size={16} />
-            Machine Utilization
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.machineUtilization}</div>
-          <div className="metric-card-change">Average across fleet</div>
-        </div>
-
-        <div className={`metric-card ${shortages.length > 0 ? 'error' : ''}`}>
-          <div className="metric-card-label">
-            <AlertTriangle size={16} />
-            Material Shortages
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.materialShortages}</div>
-          <div className="metric-card-change" style={shortages.length > 0 ? { color: 'var(--color-error)' } : {}}>
-            {shortages.length > 0 ? 'Immediate restocking required' : 'All stocks adequate'}
-          </div>
-        </div>
-      </div>
-
-      {/* Second Row: Output + Utilization + Pending */}
-      <div className="grid-dashboard" style={{ marginBottom: 'var(--space-4)' }}>
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <Ruler size={16} />
-            Daily Output
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.dailyOutput}</div>
-          <div className="metric-card-change">Meters produced today</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <CheckSquare size={16} />
-            Quality Pass Rate
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.qualityPassRate}</div>
-          <div className="metric-card-change">Last 30 days average</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <Truck size={16} />
-            Pending Dispatch
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.pendingDispatch}</div>
-          <div className="metric-card-change">Awaiting shipment</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <DollarSign size={16} />
-            Cost Per Meter
-          </div>
-          <div className="metric-card-value">{dashboardKPIs.costPerMeter}</div>
-          <div className="metric-card-change">Current production average</div>
-        </div>
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid-2" style={{ marginBottom: 'var(--space-4)' }}>
-        {/* Weekly Output Chart */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Weekly Production Output</div>
-              <div className="card-subtitle">Meters produced per day</div>
+        <div className="live-metrics-grid">
+          {/* Metric 1: Overall Efficiency */}
+          <div className="live-metric-card">
+            <div className="live-metric-header">
+              <span className="live-metric-label">Overall Efficiency</span>
+              <Minus size={16} className="text-secondary" />
+            </div>
+            <div className="live-metric-value-row">
+              <span className="live-metric-value">87.5%</span>
             </div>
           </div>
-          <div className="chart-container">
+
+          {/* Metric 2: Hourly Throughput (with -5.3% RED badge) */}
+          <div className="live-metric-card">
+            <div className="live-metric-header">
+              <span className="live-metric-label">Hourly Throughput</span>
+              <TrendingDown size={16} style={{ color: 'var(--color-error)' }} />
+            </div>
+            <div className="live-metric-value-row">
+              <span className="live-metric-value">42.6</span>
+              <span className="live-metric-unit">units</span>
+              <span className="live-metric-badge error">
+                <TrendingDown size={11} style={{ marginRight: 2 }} />
+                -5.3%
+              </span>
+            </div>
+          </div>
+
+          {/* Metric 3: Quality Score */}
+          <div className="live-metric-card">
+            <div className="live-metric-header">
+              <span className="live-metric-label">Quality Score</span>
+              <TrendingUp size={16} className="text-secondary" />
+            </div>
+            <div className="live-metric-value-row">
+              <span className="live-metric-value">97.9%</span>
+              <span className="live-metric-badge neutral">
+                <TrendingUp size={11} style={{ marginRight: 2 }} />
+                +1.4%
+              </span>
+            </div>
+          </div>
+
+          {/* Metric 4: Equipment Utilization */}
+          <div className="live-metric-card">
+            <div className="live-metric-header">
+              <span className="live-metric-label">Equipment Utilization</span>
+              <TrendingUp size={16} className="text-secondary" />
+            </div>
+            <div className="live-metric-value-row">
+              <span className="live-metric-value">79.6%</span>
+              <span className="live-metric-badge neutral">
+                <TrendingUp size={11} style={{ marginRight: 2 }} />
+                +2%
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Row 2: Tall Rounded Metric Cards — EXACT layout from reference screenshot */}
+      <div className="erp-tall-kpi-grid">
+        {/* Manufacturing Orders */}
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/orders')}>
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Manufacturing Orders</span>
+            <FileText size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">{orders.length}</div>
+          <div className="tall-kpi-subtext">
+            {activeOrders.length} active, {completedOrders.length} completed
+          </div>
+        </div>
+
+        {/* Work Orders */}
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/production')}>
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Work Orders</span>
+            <ClipboardList size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">14</div>
+          <div className="tall-kpi-subtext">9 active, 5 completed</div>
+        </div>
+
+        {/* Efficiency */}
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Efficiency</span>
+            <Target size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">87.5%</div>
+          <div className="tall-kpi-change">+2.1% from last month</div>
+        </div>
+
+        {/* On-Time Delivery */}
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">On-Time Delivery</span>
+            <Clock size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">94.2%</div>
+          <div className="tall-kpi-change">+1.5% from last month</div>
+        </div>
+
+        {/* Revenue */}
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/reports')}>
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Revenue</span>
+            <IndianRupee size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">₹1.84M</div>
+          <div className="tall-kpi-change">+8.2% from last month</div>
+        </div>
+
+        {/* Quality Score */}
+        <div className="erp-tall-kpi-card" onClick={() => navigate('/quality')}>
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Quality Score</span>
+            <Zap size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">97.9%</div>
+          <div className="tall-kpi-change">+0.8% from last month</div>
+        </div>
+      </div>
+
+      {/* 4. Intelligence Layer & Risk Recommendation Panel (Section 9 of Requirements) */}
+      {alerts.length > 0 && (
+        <div className="erp-intelligence-panel">
+          <div className="intelligence-panel-header">
+            <div className="intelligence-panel-badge">
+              <Sparkles size={14} />
+              <span>Manufacturing Intelligence Engine</span>
+            </div>
+            <span className="text-xs text-secondary">
+              Predictive risk assessment active
+            </span>
+          </div>
+          <div className="intelligence-alerts-grid">
+            {alerts.map((al) => (
+              <div key={al.id} className="intelligence-card">
+                <div className="intelligence-card-top">
+                  <span className="intelligence-risk-tag">{al.level}</span>
+                  <span className="text-xs text-secondary">{al.timestamp}</span>
+                </div>
+                <div className="intelligence-title">{al.title}</div>
+                <div className="intelligence-reason">
+                  <strong>Risk Root Cause:</strong> {al.reason}
+                </div>
+                <div className="intelligence-rec-box">
+                  <strong>Recommendation:</strong> {al.recommendation}
+                </div>
+                <div className="intelligence-action-row">
+                  <button
+                    className="erp-btn-sm erp-btn-dark"
+                    onClick={() => navigate('/machines')}
+                  >
+                    {al.actionRequired}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 5. Production Output & Machine Fleet Utilization Charts (Monochrome) */}
+      <div className="erp-charts-grid">
+        <div className="erp-card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Weekly Fabric Output</div>
+              <div className="card-subtitle">Meters woven across all operating loom sheds</div>
+            </div>
+            <span className="card-metric-tag">31,210 m total</span>
+          </div>
+          <div style={{ height: 240, width: '100%', marginTop: 12 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyOutputData} barCategoryGap="30%">
+              <BarChart data={weeklyOutputData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" vertical={false} />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#737373', fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#737373', fontSize: 12 }} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f5f5f5' }} />
-                <Bar dataKey="output" radius={[4, 4, 0, 0]}>
-                  {weeklyOutputData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.output === 0 ? '#d4d4d4' : '#262626'} />
-                  ))}
-                </Bar>
+                <XAxis dataKey="day" stroke="#737373" fontSize={12} tickLine={false} />
+                <YAxis stroke="#737373" fontSize={12} tickLine={false} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="erp-chart-tooltip">
+                          <div style={{ fontWeight: 600 }}>{label}</div>
+                          <div>{payload[0].value.toLocaleString()} meters woven</div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar dataKey="output" fill="#171717" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Machine Utilization Chart */}
-        <div className="card">
+        <div className="erp-card">
           <div className="card-header">
             <div>
-              <div className="card-title">Machine Utilization</div>
-              <div className="card-subtitle">Uptime percentage by machine</div>
+              <div className="card-title">Loom Shed Utilization</div>
+              <div className="card-subtitle">Active running time vs planned capacity</div>
             </div>
+            <span className="card-metric-tag">Average: 92.4%</span>
           </div>
-          <div className="chart-container">
+          <div style={{ height: 240, width: '100%', marginTop: 12 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={machineUtilizationData} layout="vertical" barCategoryGap="25%">
+              <BarChart
+                data={machineUtilizationData}
+                layout="vertical"
+                margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" horizontal={false} />
-                <XAxis type="number" domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: '#737373', fontSize: 12 }} />
-                <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#737373', fontSize: 11 }} width={90} />
-                <Tooltip content={<UtilTooltip />} cursor={{ fill: '#f5f5f5' }} />
-                <Bar dataKey="utilization" radius={[0, 4, 4, 0]}>
-                  {machineUtilizationData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.utilization < 80 ? '#dc2626' : '#404040'} />
-                  ))}
-                </Bar>
+                <XAxis type="number" domain={[0, 100]} stroke="#737373" fontSize={11} unit="%" />
+                <YAxis type="category" dataKey="name" stroke="#737373" fontSize={11} width={80} tickLine={false} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="erp-chart-tooltip">
+                          <div>{payload[0].payload.name}</div>
+                          <div style={{ fontWeight: 600 }}>{payload[0].value}% Uptime</div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar
+                  dataKey="utilization"
+                  fill="#525252"
+                  radius={[0, 4, 4, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* Bottom Row: Orders Progress + Activity + Cost */}
-      <div className="grid-3" style={{ marginBottom: 'var(--space-4)' }}>
-        {/* Active Orders */}
-        <div className="card grid-span-2">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Active Orders</div>
-              <div className="card-subtitle">Current production progress</div>
+      {/* 6. Active Manufacturing Orders Table */}
+      <div className="erp-card" style={{ marginTop: 24 }}>
+        <div className="card-header">
+          <div>
+            <div className="card-title">Active Manufacturing Orders</div>
+            <div className="card-subtitle">
+              Orders progressing through spinning, weaving, and inspection
             </div>
-            <button className="card-action">
-              View All <ArrowRight size={14} />
-            </button>
           </div>
-          <table className="data-table">
+          <button className="erp-btn-sm erp-btn-outline" onClick={() => navigate('/orders')}>
+            View All Orders
+            <ArrowRight size={13} style={{ marginLeft: 4 }} />
+          </button>
+        </div>
+
+        <div className="erp-table-wrapper">
+          <table className="erp-data-table">
             <thead>
               <tr>
-                <th>Order</th>
-                <th>Customer</th>
-                <th>Fabric</th>
+                <th>Order ID</th>
+                <th>Buyer</th>
+                <th>Fabric Specification</th>
+                <th>Quantity</th>
+                <th>Allocated Machine</th>
+                <th>Deadline</th>
                 <th>Progress</th>
-                <th>Status</th>
+                <th>State</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {orders.filter(o => o.status !== 'Dispatched').slice(0, 6).map(order => (
+              {orders.slice(0, 6).map((order) => (
                 <tr key={order.id}>
-                  <td className="table-cell-primary">{order.id}</td>
+                  <td className="table-primary-cell">{order.id}</td>
                   <td>{order.customer}</td>
                   <td>{order.fabric}</td>
+                  <td>{order.quantity.toLocaleString()} {order.unit}</td>
+                  <td>
+                    <span className="text-secondary">{order.machine}</span>
+                  </td>
+                  <td>{order.deadline}</td>
                   <td style={{ minWidth: 120 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div className="progress-bar" style={{ flex: 1 }}>
+                    <div className="table-progress-wrap">
+                      <div className="erp-progress-bar">
                         <div
-                          className={`progress-bar-fill ${order.status === 'Failed QC' ? 'error' : ''}`}
+                          className={`erp-progress-fill ${order.status === 'Failed QC' ? 'error' : ''}`}
                           style={{ width: `${order.progress}%` }}
                         />
                       </div>
-                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-gray-500)', minWidth: 30 }}>
-                        {order.progress}%
-                      </span>
+                      <span className="table-progress-text">{order.progress}%</span>
                     </div>
                   </td>
                   <td>
-                    <span className={`badge ${order.status === 'Failed QC' ? 'badge-error' : order.status === 'In Production' ? 'badge-dark' : 'badge-neutral'}`}>
+                    <span
+                      className={`erp-status-badge ${
+                        order.status === 'Failed QC'
+                          ? 'error'
+                          : order.status === 'In Production'
+                          ? 'active'
+                          : order.status === 'Dispatched'
+                          ? 'neutral'
+                          : 'outline'
+                      }`}
+                    >
+                      {order.status === 'Failed QC' && <ShieldAlert size={12} style={{ marginRight: 3 }} />}
                       {order.status}
                     </span>
+                  </td>
+                  <td>
+                    <button
+                      className="erp-btn-icon-sm"
+                      onClick={() => setSelectedOrder(order)}
+                      title="View State Machine & Buyer Timeline"
+                    >
+                      <ArrowRight size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-
-        {/* Cost Breakdown */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Cost Breakdown</div>
-              <div className="card-subtitle">This month's production costs</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {costBreakdown.map(item => (
-              <div key={item.category}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 'var(--font-size-sm)' }}>
-                  <span style={{ color: 'var(--color-gray-700)', fontWeight: 500 }}>{item.category}</span>
-                  <span style={{ color: 'var(--color-gray-500)' }}>₹{(item.amount / 1000).toFixed(0)}K ({item.percentage}%)</span>
-                </div>
-                <div className="progress-bar">
-                  <div className="progress-bar-fill" style={{ width: `${item.percentage}%` }} />
-                </div>
-              </div>
-            ))}
-            <hr className="divider" />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-md)', fontWeight: 600 }}>
-              <span>Total</span>
-              <span>₹14.25L</span>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* Activity + Shortages Row */}
-      <div className="grid-2">
-        {/* Recent Activity */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Recent Activity</div>
-              <div className="card-subtitle">Latest updates across the mill</div>
+      {/* MODAL: New Manufacturing Order with Live Feasibility Calculation (Section 5) */}
+      {showNewMOModal && (
+        <div className="erp-modal-overlay">
+          <div className="erp-modal-box large">
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Create Manufacturing Order & Feasibility Check</h3>
+                <p className="modal-subtitle">
+                  Everest Textile Mills — Section 5 Manufacturing State Machine Validation
+                </p>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowNewMOModal(false)}>
+                <X size={18} />
+              </button>
             </div>
-          </div>
-          <div>
-            {recentActivity.slice(0, 6).map((item, index) => (
-              <div className="activity-item" key={index}>
-                <div className={`activity-icon ${item.error ? 'error' : ''}`}>
-                  {item.type === 'production' && <Factory size={14} />}
-                  {item.type === 'quality' && <CheckSquare size={14} />}
-                  {item.type === 'inventory' && <Package size={14} />}
-                  {item.type === 'dispatch' && <Truck size={14} />}
-                  {item.type === 'machine' && <Cog size={14} />}
-                  {item.type === 'order' && <ShoppingCart size={14} />}
+
+            <form onSubmit={handleCreateMOSubmit}>
+              <div className="modal-body">
+                <div className="erp-form-grid">
+                  <div className="form-group">
+                    <label className="erp-label">Buyer / Client</label>
+                    <input
+                      type="text"
+                      className="erp-input"
+                      value={formData.customer}
+                      onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="erp-label">Fabric Variety / BOM</label>
+                    <select
+                      className="erp-select"
+                      value={formData.fabric}
+                      onChange={(e) => setFormData({ ...formData, fabric: e.target.value })}
+                    >
+                      {boms.map((b) => (
+                        <option key={b.id} value={b.fabric}>
+                          {b.fabric} ({b.yarn})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="erp-label">Production Quantity (Meters)</label>
+                    <input
+                      type="number"
+                      className="erp-input"
+                      min="500"
+                      step="500"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="erp-label">Delivery Deadline</label>
+                    <input
+                      type="date"
+                      className="erp-input"
+                      value={formData.deadline}
+                      onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label className="erp-label">Target Work Center / Loom Allocation</label>
+                    <select
+                      className="erp-select"
+                      value={formData.machine}
+                      onChange={(e) => setFormData({ ...formData, machine: e.target.value })}
+                    >
+                      {machines.map((m) => (
+                        <option key={m.id} value={m.name} disabled={m.error}>
+                          {m.name} — Status: {m.status} {m.error ? '(HALTED)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="activity-content">
-                  <div className="activity-text">{item.text}</div>
-                  <div className="activity-time">{item.time}</div>
+
+                {/* Live Feasibility Engine Output */}
+                {feasibilityResult && (
+                  <div
+                    className={`feasibility-result-panel ${
+                      feasibilityResult.isFeasible ? 'feasible' : 'not-feasible'
+                    }`}
+                  >
+                    <div className="feasibility-verdict-row">
+                      <div className="feasibility-badge-wrap">
+                        {feasibilityResult.isFeasible ? (
+                          <>
+                            <CheckCircle2 size={20} className="feasibility-icon-success" />
+                            <div>
+                              <strong className="feasibility-verdict-text">
+                                ORDER FEASIBLE (Score: {feasibilityResult.score}%)
+                              </strong>
+                              <div className="text-xs text-secondary">
+                                All factory constraints satisfied for production commitment.
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle size={20} className="feasibility-icon-error" />
+                            <div>
+                              <strong className="feasibility-verdict-text error">
+                                HIGH RISK / NOT FEASIBLE (Score: {feasibilityResult.score}%)
+                              </strong>
+                              <div className="text-xs text-secondary">
+                                Critical production constraints violated. See explainable audit below.
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="feasibility-metrics-summary">
+                      <div className="feasibility-metric-box">
+                        <span className="text-xs text-secondary">Required Yarn</span>
+                        <strong>{feasibilityResult.requiredYarnKg.toLocaleString()} kg</strong>
+                        <span className="text-xs">{feasibilityResult.yarnName}</span>
+                      </div>
+                      <div className="feasibility-metric-box">
+                        <span className="text-xs text-secondary">Available Stock</span>
+                        <strong
+                          style={
+                            feasibilityResult.availableYarn < feasibilityResult.requiredYarnKg
+                              ? { color: 'var(--color-error)' }
+                              : {}
+                          }
+                        >
+                          {feasibilityResult.availableYarn.toLocaleString()} kg
+                        </strong>
+                        <span className="text-xs">unreserved in store</span>
+                      </div>
+                      <div className="feasibility-metric-box">
+                        <span className="text-xs text-secondary">Duration Required</span>
+                        <strong>{feasibilityResult.productionDaysNeeded} days</strong>
+                        <span className="text-xs">@ 800m standard/day</span>
+                      </div>
+                      <div className="feasibility-metric-box">
+                        <span className="text-xs text-secondary">Time Buffer</span>
+                        <strong
+                          style={
+                            feasibilityResult.deadlineDays < feasibilityResult.productionDaysNeeded
+                              ? { color: 'var(--color-error)' }
+                              : {}
+                          }
+                        >
+                          {feasibilityResult.deadlineDays} days
+                        </strong>
+                        <span className="text-xs">until delivery date</span>
+                      </div>
+                    </div>
+
+                    <div className="feasibility-reasons-list">
+                      {feasibilityResult.reasons.map((r, i) => (
+                        <div key={i} className="feasibility-reason-item">
+                          • {r}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="erp-btn-outline"
+                  onClick={() => setShowNewMOModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="erp-btn-primary"
+                  disabled={!feasibilityResult?.isFeasible}
+                >
+                  {feasibilityResult?.isFeasible
+                    ? 'Confirm Order & Reserve Yarn Stock'
+                    : 'Override Feasibility Warning (Admin Only)'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DRAWER / MODAL: Order Detail & State Machine Lifecycle (Section 4 & 19) */}
+      {selectedOrder && (
+        <div className="erp-modal-overlay">
+          <div className="erp-modal-box large">
+            <div className="modal-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <h3 className="modal-title">{selectedOrder.id} — Order Lifecycle</h3>
+                  <span
+                    className={`erp-status-badge ${
+                      selectedOrder.status === 'Failed QC' ? 'error' : 'active'
+                    }`}
+                  >
+                    {selectedOrder.status}
+                  </span>
+                </div>
+                <p className="modal-subtitle">
+                  {selectedOrder.customer} • {selectedOrder.quantity.toLocaleString()} {selectedOrder.unit} {selectedOrder.fabric}
+                </p>
+              </div>
+              <button className="modal-close-btn" onClick={() => setSelectedOrder(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {/* Buyer Facing Timeline (Section 19) */}
+              <div className="order-detail-section">
+                <h4 className="detail-section-title">Buyer Status Lifecycle Timeline</h4>
+                <div className="buyer-timeline">
+                  {selectedOrder.timeline.map((step, idx) => (
+                    <div
+                      key={step.step}
+                      className={`timeline-step ${
+                        step.done ? 'completed' : step.current ? 'current' : 'upcoming'
+                      } ${step.error ? 'error' : ''}`}
+                    >
+                      <div className="timeline-node">
+                        {step.done ? (
+                          '✓'
+                        ) : step.error ? (
+                          '!'
+                        ) : (
+                          idx + 1
+                        )}
+                      </div>
+                      <div className="timeline-info">
+                        <div className="timeline-label">{step.label}</div>
+                        <div className="timeline-date">{step.date}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Material Shortages */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Material Shortages</div>
-              <div className="card-subtitle">Items below minimum stock level</div>
-            </div>
-            <button className="card-action">
-              Inventory <ArrowRight size={14} />
-            </button>
-          </div>
-          {shortages.length > 0 ? (
-            <div>
-              {shortages.map(item => (
-                <div key={item.id} style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 'var(--space-3)',
-                  padding: 'var(--space-3) 0',
-                  borderBottom: 'var(--border-light)',
-                }}>
-                  <div className="activity-icon error">
-                    <AlertTriangle size={14} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: 'var(--font-size-base)', color: 'var(--color-gray-900)' }}>
-                      {item.name}
-                    </div>
-                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-error)', marginTop: 2 }}>
-                      Stock: {item.stock} {item.unit} — Minimum: {item.minStock} {item.unit}
-                    </div>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-gray-400)', marginTop: 2 }}>
-                      Last restocked: {item.lastRestocked}
-                    </div>
-                  </div>
-                  <button className="btn btn-sm btn-primary">Reorder</button>
+              {/* Manufacturing State Machine Attributes */}
+              <div className="order-detail-grid">
+                <div className="detail-box">
+                  <span className="detail-label">Allocated Loom</span>
+                  <strong className="detail-val">{selectedOrder.machine}</strong>
                 </div>
-              ))}
+                <div className="detail-box">
+                  <span className="detail-label">Required Yarn Batch</span>
+                  <strong className="detail-val">{selectedOrder.yarnRequired}</strong>
+                </div>
+                <div className="detail-box">
+                  <span className="detail-label">Delivery Deadline</span>
+                  <strong className="detail-val">{selectedOrder.deadline}</strong>
+                </div>
+                <div className="detail-box">
+                  <span className="detail-label">Production Progress</span>
+                  <strong className="detail-val">{selectedOrder.progress}% completed</strong>
+                </div>
+              </div>
+
+              {/* Cost & Profitability Analysis (Section 16) */}
+              {selectedOrder.cost && (
+                <div className="order-detail-section" style={{ marginTop: 20 }}>
+                  <h4 className="detail-section-title">Cost & Profitability Analysis (Section 16)</h4>
+                  <div className="cost-breakdown-table">
+                    <div className="cost-row">
+                      <span>Order Gross Revenue</span>
+                      <strong>₹{selectedOrder.cost.revenue.toLocaleString()}</strong>
+                    </div>
+                    <div className="cost-row sub">
+                      <span>• Raw Material (Yarn) Cost</span>
+                      <span>- ₹{selectedOrder.cost.material.toLocaleString()}</span>
+                    </div>
+                    <div className="cost-row sub">
+                      <span>• Operating Labour & Wages</span>
+                      <span>- ₹{selectedOrder.cost.labour.toLocaleString()}</span>
+                    </div>
+                    <div className="cost-row sub">
+                      <span>• Machine Energy & Loom Overheads</span>
+                      <span>- ₹{selectedOrder.cost.machine.toLocaleString()}</span>
+                    </div>
+                    {selectedOrder.cost.rework > 0 && (
+                      <div className="cost-row sub error">
+                        <span>• QC Rework & Waste Loss</span>
+                        <span>- ₹{selectedOrder.cost.rework.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="cost-row total">
+                      <span>Net Operating Margin</span>
+                      <strong style={{ color: selectedOrder.cost.margin > 20 ? 'var(--color-black)' : 'var(--color-error)' }}>
+                        ₹{selectedOrder.cost.profit.toLocaleString()} ({selectedOrder.cost.margin}% margin)
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="empty-state">
-              <Package size={32} />
-              <div className="empty-state-title">All stocks adequate</div>
-              <div className="empty-state-text">No materials are below minimum stock levels.</div>
+
+            <div className="modal-footer">
+              <button className="erp-btn-outline" onClick={() => setSelectedOrder(null)}>
+                Close
+              </button>
+              <button
+                className="erp-btn-primary"
+                onClick={() => {
+                  setSelectedOrder(null);
+                  navigate('/orders');
+                }}
+              >
+                Go to Order Management
+              </button>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
