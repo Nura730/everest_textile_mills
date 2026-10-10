@@ -7,6 +7,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES, can } from '../auth/roles.js';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { ReservationPanel, ReserveModal } from '../components/orders/Reservation.jsx';
+import { OrderRunsPanel } from '../components/production/OrderRuns.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -229,7 +230,8 @@ export default function OrderDetail() {
   const isOpen = current.status === 'ORDER_CREATED';
   const canCancel = ['ORDER_CREATED', 'CONFIRMED', 'MATERIAL_RESERVED'].includes(current.status) && can.cancelOrder(user.role);
   const canReserve = current.status === 'CONFIRMED' && can.reserveMaterial(user.role);
-  const showsYarn = can.viewReservations(user.role) && ['MATERIAL_RESERVED', 'IN_PRODUCTION', 'CANCELLED'].includes(current.status);
+  const showsYarn = can.viewReservations(user.role) && ['MATERIAL_RESERVED', 'IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'CANCELLED'].includes(current.status);
+  const showsRuns = can.viewProduction(user.role) && ['MATERIAL_RESERVED', 'IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status);
   const canReject = isOpen && can.rejectOrder(user.role);
   const canConfirm = isOpen && can.confirmOrder(user.role);
   const canEdit = isOpen && can.editOrder(user.role);
@@ -343,9 +345,27 @@ export default function OrderDetail() {
           <div className="next-step">
             <Info size={16} aria-hidden="true" />
             <div>
-              <strong>Yarn reserved.</strong> The store issues it to the floor as production needs it. Production runs
-              on machines are the next backend phase (the Production screen is a preview).
-              {canCancel && ' Cancelling releases the yarn not yet issued.'}
+              <strong>Yarn reserved.</strong> The store issues it to the floor, then the floor plans a run on a machine
+              and starts it once yarn is on the floor.
+              {canCancel && ' Cancelling releases the yarn not yet issued and cancels planned runs.'}
+            </div>
+          </div>
+        )}
+        {current.status === 'IN_PRODUCTION' && (
+          <div className="next-step">
+            <Info size={16} aria-hidden="true" />
+            <div>
+              <strong>In production.</strong> Rolls are recorded as they come off the machine. Production is complete
+              when no run is open and the rolls cover the ordered quantity. An order in production can no longer be cancelled.
+            </div>
+          </div>
+        )}
+        {current.status === 'PRODUCTION_COMPLETED' && (
+          <div className="next-step">
+            <Info size={16} aria-hidden="true" />
+            <div>
+              <strong>Production completed.</strong> Next: quality inspection of the rolls, then finished goods and dispatch
+              (later phases).
             </div>
           </div>
         )}
@@ -364,6 +384,7 @@ export default function OrderDetail() {
           )}
         </div>
       )}
+      {showsRuns && <OrderRunsPanel order={current} canPlan={can.runProduction(user.role)} onChanged={order.reload} />}
       {showsYarn && <ReservationPanel order={current} canMove={can.issueMaterial(user.role)} onChanged={order.reload} />}
       {current.feasibility && (
         <div className="erp-card section-gap">

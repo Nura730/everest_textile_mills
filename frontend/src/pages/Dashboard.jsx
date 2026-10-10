@@ -160,6 +160,7 @@ function ModuleStatus({ role }) {
         <li><CheckCircle2 size={14} aria-hidden="true" /> Order feasibility check and confirmation</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn reservation, issue to production and returns</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Machines: registry, maintenance, problems and downtime</li>
+        <li><CheckCircle2 size={14} aria-hidden="true" /> Production runs and roll output</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
         {previews.map((item) => (
           <li key={item.to} className="module-preview">

@@ -110,3 +110,15 @@ export const machinesApi = {
       idempotencyKey,
     }),
 };
+
+// Phase 8: production runs. Every action carries an Idempotency-Key (one per user action).
+export const productionApi = {
+  list: (query) => apiRequest("/production-runs", { query }),
+  get: (id) => apiRequest(`/production-runs/${id}`),
+  plan: (body, idempotencyKey) =>
+    apiRequest("/production-runs", { method: "POST", body, idempotencyKey }),
+  act: (id, action, body, idempotencyKey) =>
+    apiRequest(`/production-runs/${id}/${action}`, { method: "POST", body: body ?? {}, idempotencyKey }),
+  recordRoll: (id, body, idempotencyKey) =>
+    apiRequest(`/production-runs/${id}/rolls`, { method: "POST", body, idempotencyKey }),
+};

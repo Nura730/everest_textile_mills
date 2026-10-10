@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Pencil, Wrench } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { machinesApi } from '../api/endpoints.js';
@@ -347,6 +347,7 @@ export default function MachineDetail() {
       <div className="erp-tall-kpi-grid">
         <div className="erp-card"><div className="detail-label">Status</div><div className="detail-value"><MachineStatusBadge status={machine.status} /></div><div className="cell-sub">since {formatDateTime(machine.statusChangedAt)}</div></div>
         <div className="erp-card"><div className="detail-label">Open problems</div><div className="detail-value">{openProblems.length}</div></div>
+        <div className="erp-card"><div className="detail-label">Current run</div><div className="detail-value">{machine.currentRunId ? <Link to={`/production/${machine.currentRunId}`}>View run</Link> : 'None'}</div></div>
         <div className="erp-card"><div className="detail-label">Downtime (critical problems)</div><div className="detail-value">{minutesText(downtime.totalMinutes)}</div><div className="cell-sub">{downtime.criticalProblems} critical{downtime.ongoing ? ' · ongoing' : ''}</div></div>
       </div>
 

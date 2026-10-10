@@ -181,6 +181,8 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .reserve-input { width: 110px; text-align: right; margin-left: auto; }
 .reserve-mismatch { color: var(--color-error-dark); }
 
+.run-progress { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */
