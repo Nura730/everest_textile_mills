@@ -73,6 +73,7 @@ describe('app wiring', () => {
 
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
     expect(res.headers['access-control-expose-headers']).toContain('X-Request-Id');
+    expect(res.headers['access-control-expose-headers']).toContain('Idempotent-Replayed');
   });
 
   it('does not grant CORS to unknown origins', async () => {

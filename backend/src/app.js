@@ -24,7 +24,7 @@ export function createApp({ config = getConfig(), logger = getLogger() } = {}) {
   app.use(helmet());
   // 3. Only known frontends may call the API from a browser. Auth uses a Bearer header,
   //    not cookies, so credentials stay disabled.
-  app.use(cors({ origin: [...config.corsOrigins], exposedHeaders: [REQUEST_ID_HEADER] }));
+  app.use(cors({ origin: [...config.corsOrigins], exposedHeaders: [REQUEST_ID_HEADER, 'Idempotent-Replayed'] }));
   // 4. Body parsing after logging so malformed-JSON errors still have a request id.
   app.use(express.json({ limit: config.jsonBodyLimit }));
 
