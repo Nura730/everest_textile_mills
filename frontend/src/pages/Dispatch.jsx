@@ -1,172 +1,261 @@
 import { useState } from 'react';
-import { Truck, Package, MapPin, Calendar, Search, Plus, ArrowRight } from 'lucide-react';
-import { dispatches } from '../data/mockData';
+import { Truck, ShieldCheck, Download, Search, CheckCircle, FileText, X } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
 const statusFilters = ['All', 'Not Started', 'Awaiting QC', 'Packing', 'Shipped'];
 
 export default function Dispatch() {
+  const { dispatches, confirmDispatch, stockLedger } = useApp();
   const [activeFilter, setActiveFilter] = useState('All');
+  const [signingDispatch, setSigningDispatch] = useState(null);
 
-  const filtered = dispatches.filter(d => {
+  const [dispatchForm, setDispatchForm] = useState({
+    vehicle: 'MH-12-TX-8821',
+    driver: 'Santosh Pawar',
+    signature: 'Ramesh Tiwari (Store Keeper)',
+  });
+
+  const filtered = dispatches.filter((d) => {
     if (activeFilter === 'All') return true;
     return d.status === activeFilter;
   });
 
+  const shippedCount = dispatches.filter((d) => d.status === 'Shipped').length;
+  const inProgressCount = dispatches.filter((d) =>
+    ['Packing', 'Awaiting QC'].includes(d.status)
+  ).length;
+
+  const handleSignSubmit = (e) => {
+    e.preventDefault();
+    if (signingDispatch) {
+      confirmDispatch(signingDispatch.id, dispatchForm);
+      setSigningDispatch(null);
+    }
+  };
+
   return (
-    <div>
-      <div className="page-header">
-        <div className="page-header-info">
-          <h1>Dispatch</h1>
-          <p>Shipment scheduling, packing, and delivery tracking</p>
-        </div>
-        <div className="page-header-actions">
-          <button className="btn btn-primary">
-            <Plus size={16} />
-            Schedule Dispatch
-          </button>
+    <div className="erp-page-container">
+      <div className="erp-page-header">
+        <div className="erp-page-header-text">
+          <h1 className="erp-page-title">Dispatch & Logistics Management</h1>
+          <p className="erp-page-subtitle">
+            Section 18: Finished goods verification, duplicate prevention, and Store Keeper digital dispatch signoff
+          </p>
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="grid-4" style={{ marginBottom: 'var(--space-4)' }}>
-        <div className="metric-card">
-          <div className="metric-card-label">
-            <Truck size={16} />
-            Total Dispatches
+      {/* KPI Cards */}
+      <div className="erp-tall-kpi-grid" style={{ marginBottom: 20 }}>
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Scheduled Shipments</span>
+            <Truck size={16} className="tall-kpi-icon" />
           </div>
-          <div className="metric-card-value">{dispatches.length}</div>
+          <div className="tall-kpi-value">{dispatches.length}</div>
+          <div className="tall-kpi-subtext">Consignment manifests</div>
         </div>
-        <div className="metric-card">
-          <div className="metric-card-label">Shipped</div>
-          <div className="metric-card-value">{dispatches.filter(d => d.status === 'Shipped').length}</div>
+
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Shipped & Delivered</span>
+            <CheckCircle size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">{shippedCount}</div>
+          <div className="tall-kpi-subtext">Legally signed & invoiced</div>
         </div>
-        <div className="metric-card">
-          <div className="metric-card-label">In Progress</div>
-          <div className="metric-card-value">{dispatches.filter(d => ['Packing', 'Awaiting QC'].includes(d.status)).length}</div>
+
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Packing / In Staging</span>
+            <Truck size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">{inProgressCount}</div>
+          <div className="tall-kpi-subtext">Awaiting final carrier handoff</div>
         </div>
-        <div className="metric-card">
-          <div className="metric-card-label">Not Started</div>
-          <div className="metric-card-value">{dispatches.filter(d => d.status === 'Not Started').length}</div>
+
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Duplicate Prevention</span>
+            <ShieldCheck size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">100%</div>
+          <div className="tall-kpi-subtext">Strict roll ID uniqueness enforced</div>
         </div>
       </div>
 
       {/* Filter */}
-      <div className="filter-bar">
-        {statusFilters.map(filter => (
-          <button
-            key={filter}
-            className={`filter-chip ${activeFilter === filter ? 'active' : ''}`}
-            onClick={() => setActiveFilter(filter)}
-          >
-            {filter}
-          </button>
-        ))}
+      <div className="erp-filter-bar">
+        <div className="filter-chips-row">
+          {statusFilters.map((filter) => (
+            <button
+              key={filter}
+              className={`erp-filter-chip ${activeFilter === filter ? 'active' : ''}`}
+              onClick={() => setActiveFilter(filter)}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Dispatch Table */}
-      <div className="card">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Dispatch ID</th>
-              <th>Order</th>
-              <th>Customer</th>
-              <th>Fabric</th>
-              <th>Quantity</th>
-              <th>Vehicle</th>
-              <th>Dispatch Date</th>
-              <th>ETA</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(dispatch => (
-              <tr key={dispatch.id}>
-                <td className="table-cell-primary">{dispatch.id}</td>
-                <td>{dispatch.order}</td>
-                <td>{dispatch.customer}</td>
-                <td>{dispatch.fabric}</td>
-                <td>{dispatch.quantity}</td>
-                <td style={{ fontFamily: dispatch.vehicle !== '—' ? 'monospace' : 'inherit', fontSize: 'var(--font-size-sm)', color: 'var(--color-gray-500)' }}>
-                  {dispatch.vehicle}
-                </td>
-                <td style={{ color: 'var(--color-gray-500)' }}>{dispatch.dispatchDate}</td>
-                <td style={{ color: 'var(--color-gray-500)' }}>{dispatch.eta}</td>
-                <td>
-                  <span className={`badge ${
-                    dispatch.status === 'Shipped' ? 'badge-dark' :
-                    dispatch.status === 'Packing' ? 'badge-neutral' :
-                    'badge-outline'
-                  }`}>
-                    {dispatch.status}
-                  </span>
-                </td>
-                <td>
-                  <button className="btn btn-ghost btn-sm">
-                    <ArrowRight size={14} />
-                  </button>
-                </td>
+      <div className="erp-card">
+        <div className="erp-table-wrapper">
+          <table className="erp-data-table">
+            <thead>
+              <tr>
+                <th>Manifest ID</th>
+                <th>Order Ref</th>
+                <th>Customer / Destination</th>
+                <th>Fabric</th>
+                <th>Quantity</th>
+                <th>Transport Vehicle</th>
+                <th>Invoice</th>
+                <th>Digital Signature</th>
+                <th>Status</th>
+                <th>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {filtered.length === 0 && (
-          <div className="empty-state">
-            <Truck size={32} />
-            <div className="empty-state-title">No dispatches found</div>
-            <div className="empty-state-text">Try adjusting your filter.</div>
-          </div>
-        )}
+            </thead>
+            <tbody>
+              {filtered.map((d) => (
+                <tr key={d.id}>
+                  <td className="table-primary-cell">{d.id}</td>
+                  <td>{d.order}</td>
+                  <td>{d.customer}</td>
+                  <td>{d.fabric}</td>
+                  <td>{d.quantity}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{d.vehicle}</td>
+                  <td>
+                    {d.invoiceNumber && d.invoiceNumber !== '—' ? (
+                      <span className="erp-status-badge outline">{d.invoiceNumber}</span>
+                    ) : (
+                      <span className="text-xs text-secondary">Pending Dispatch</span>
+                    )}
+                  </td>
+                  <td>
+                    {d.digitalSignature && d.digitalSignature !== '—' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <ShieldCheck size={13} />
+                        <span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                          {d.digitalSignature}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-secondary">—</span>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className={`erp-status-badge ${
+                        d.status === 'Shipped'
+                          ? 'active'
+                          : d.status === 'Packing'
+                          ? 'neutral'
+                          : 'outline'
+                      }`}
+                    >
+                      {d.status}
+                    </span>
+                  </td>
+                  <td>
+                    {d.status !== 'Shipped' && (
+                      <button
+                        className="erp-btn-sm erp-btn-dark"
+                        onClick={() => setSigningDispatch(d)}
+                      >
+                        <ShieldCheck size={13} />
+                        <span>Sign & Dispatch</span>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Shipment Timeline */}
-      <div className="card" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="card-header">
-          <div>
-            <div className="card-title">Dispatch Pipeline</div>
-            <div className="card-subtitle">Order flow from production to delivery</div>
-          </div>
-        </div>
+      {/* MODAL: Dispatch Confirmation & Digital Signature (Section 11 & 18) */}
+      {signingDispatch && (
+        <div className="erp-modal-overlay">
+          <div className="erp-modal-box">
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Confirm Dispatch & Authorize Transfer</h3>
+                <p className="modal-subtitle">
+                  {signingDispatch.id} • Order {signingDispatch.order} ({signingDispatch.customer})
+                </p>
+              </div>
+              <button className="modal-close-btn" onClick={() => setSigningDispatch(null)}>
+                <X size={18} />
+              </button>
+            </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-4)', overflowX: 'auto', paddingBottom: 'var(--space-2)' }}>
-          {['Awaiting QC', 'Packing', 'Ready to Ship', 'In Transit', 'Delivered'].map((stage, index) => {
-            const count = stage === 'Ready to Ship'
-              ? 0
-              : stage === 'In Transit'
-              ? dispatches.filter(d => d.status === 'Shipped').length
-              : stage === 'Delivered'
-              ? 0
-              : dispatches.filter(d => d.status === stage).length;
+            <form onSubmit={handleSignSubmit}>
+              <div className="modal-body">
+                <div className="erp-form-grid">
+                  <div className="form-group">
+                    <label className="erp-label">Transport Vehicle Registration</label>
+                    <input
+                      type="text"
+                      className="erp-input"
+                      value={dispatchForm.vehicle}
+                      onChange={(e) => setDispatchForm({ ...dispatchForm, vehicle: e.target.value })}
+                      required
+                    />
+                  </div>
 
-            return (
-              <div key={stage} style={{
-                flex: '1 0 160px',
-                padding: 'var(--space-4)',
-                background: 'var(--color-gray-50)',
-                borderRadius: 'var(--radius-md)',
-                border: 'var(--border-light)',
-                textAlign: 'center',
-                position: 'relative',
-              }}>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-gray-400)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 'var(--space-2)' }}>
-                  Stage {index + 1}
-                </div>
-                <div style={{ fontWeight: 600, color: 'var(--color-gray-900)', marginBottom: 'var(--space-1)' }}>
-                  {stage}
-                </div>
-                <div style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-black)' }}>
-                  {count}
-                </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-gray-400)' }}>
-                  order{count !== 1 ? 's' : ''}
+                  <div className="form-group">
+                    <label className="erp-label">Driver Name</label>
+                    <input
+                      type="text"
+                      className="erp-input"
+                      value={dispatchForm.driver}
+                      onChange={(e) => setDispatchForm({ ...dispatchForm, driver: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="digital-signature-box" style={{ gridColumn: 'span 2' }}>
+                    <div className="sig-header">
+                      <ShieldCheck size={18} />
+                      <strong>Section 11 Digital Signature — Final Custody Hand-off</strong>
+                    </div>
+                    <p className="sig-statement">
+                      "I hereby certify as Store Keeper that {signingDispatch.quantity} of verified, passed finished goods rolls have been physically loaded onto transport vehicle {dispatchForm.vehicle} for buyer delivery."
+                    </p>
+                    <div className="form-group" style={{ marginTop: 8 }}>
+                      <label className="erp-label">Store Keeper Signatory</label>
+                      <input
+                        type="text"
+                        className="erp-input"
+                        value={dispatchForm.signature}
+                        onChange={(e) =>
+                          setDispatchForm({ ...dispatchForm, signature: e.target.value })
+                        }
+                        required
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
-            );
-          })}
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="erp-btn-outline"
+                  onClick={() => setSigningDispatch(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="erp-btn-primary">
+                  Generate Invoice & Confirm Dispatch
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
