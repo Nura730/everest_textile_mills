@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { appendOnly } from './plugins/appendOnly.js';
 
 const { Schema } = mongoose;
 
@@ -30,29 +31,7 @@ auditLogSchema.index({ orderId: 1, at: 1 });
 auditLogSchema.index({ actorId: 1, at: 1 });
 auditLogSchema.index({ action: 1, at: 1 });
 
-// ── Append-only ────────────────────────────────────────────────────────────────
-// History is evidence. Through this model, an entry can be created and read, nothing else.
-// (A determined DBA can still edit the collection; in production the app's database user would
-// get insert/find privileges only on auditLogs. See docs/DATABASE.md.)
-function rejectMutation() {
-  throw new Error('auditLogs is append-only: entries cannot be updated or deleted');
-}
-
-const MUTATING_QUERIES = [
-  'updateOne',
-  'updateMany',
-  'findOneAndUpdate',
-  'replaceOne',
-  'findOneAndReplace',
-  'deleteOne',
-  'deleteMany',
-  'findOneAndDelete',
-];
-auditLogSchema.pre(MUTATING_QUERIES, { query: true, document: false }, rejectMutation);
-auditLogSchema.pre('deleteOne', { query: false, document: true }, rejectMutation);
-auditLogSchema.pre('save', function rejectResave() {
-  if (!this.isNew) rejectMutation();
-});
-auditLogSchema.pre('bulkWrite', rejectMutation);
+// History is evidence: through this model an entry can be created and read, nothing else.
+auditLogSchema.plugin(appendOnly, { collectionLabel: 'auditLogs' });
 
 export const AuditLog = mongoose.model('AuditLog', auditLogSchema);
