@@ -48,6 +48,7 @@ export function toPublicProduct(product, { includeSpec }) {
     pricePerMetrePaise: product.defaultPricePerMetrePaise,
     isActive: product.isActive,
     createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
   };
   if (includeSpec) publicProduct.yarnGramsPerMetre = product.yarnGramsPerMetre;
   return publicProduct;

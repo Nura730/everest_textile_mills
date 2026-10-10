@@ -23,6 +23,23 @@ export const ERROR_CODES = Object.freeze({
   // Orders
   BUYER_INACTIVE: 409,
   PRODUCT_INACTIVE: 409,
+  // The feasibility check failed, so the order cannot be confirmed; details carry the checks.
+  ORDER_NOT_FEASIBLE: 409,
+  // The order's status no longer allows editing (only ORDER_CREATED orders can be edited).
+  ORDER_NOT_EDITABLE: 409,
+  // A return of more yarn than the order has on the production floor.
+  QUANTITY_EXCEEDS_ISSUED: 409,
+  // Machines
+  MACHINE_INACTIVE: 409,
+  // Production runs
+  YARN_NOT_ISSUED: 409,
+  NO_OUTPUT_RECORDED: 409,
+  QUANTITY_EXCEEDS_ORDER: 409,
+  // Quality: a PASS without the inspector's signature (the request is incomplete).
+  SIGNATURE_REQUIRED: 400,
+  // Dispatch: a chosen finished good is not in stock for the order.
+  FINISHED_GOODS_UNAVAILABLE: 409,
+  PROBLEM_ALREADY_RESOLVED: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,
   LAST_ACTIVE_ADMIN: 409,

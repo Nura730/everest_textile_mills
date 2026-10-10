@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { AuditLog } from '../../src/models/AuditLog.js';
 import { IdempotencyRecord } from '../../src/models/IdempotencyRecord.js';
 import { InventoryTransaction } from '../../src/models/InventoryTransaction.js';
+import { Dispatch, FinishedGood, Invoice } from '../../src/models/Fulfilment.js';
+import { Machine } from '../../src/models/Machine.js';
+import { MachineEvent } from '../../src/models/MachineEvent.js';
+import { MaterialReservation } from '../../src/models/MaterialReservation.js';
+import { ProductionRun } from '../../src/models/ProductionRun.js';
+import { QcInspection } from '../../src/models/QcInspection.js';
+import { Roll } from '../../src/models/Roll.js';
+import { Signature } from '../../src/models/Signature.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 
 export const newKey = () => randomUUID();
@@ -26,6 +34,16 @@ export async function ensureInventoryCollections() {
     IdempotencyRecord.init(),
     InventoryTransaction.createCollection(),
     AuditLog.createCollection(),
+    MaterialReservation.createCollection(),
+    Machine.init(),
+    MachineEvent.init(),
+    ProductionRun.init(),
+    Roll.init(),
+    QcInspection.init(),
+    Signature.init(),
+    FinishedGood.init(),
+    Dispatch.init(),
+    Invoice.init(),
   ]);
 }
 
@@ -36,6 +54,17 @@ export async function clearInventory() {
     IdempotencyRecord.deleteMany({}),
     InventoryTransaction.collection.deleteMany({}),
     AuditLog.collection.deleteMany({}),
+    MaterialReservation.deleteMany({}),
+    // Production data (seed:dev also creates machines), so no suite leaks it into the next.
+    Machine.deleteMany({}),
+    MachineEvent.collection.deleteMany({}),
+    ProductionRun.deleteMany({}),
+    Roll.deleteMany({}),
+    QcInspection.collection.deleteMany({}),
+    Signature.collection.deleteMany({}),
+    FinishedGood.deleteMany({}),
+    Dispatch.deleteMany({}),
+    Invoice.deleteMany({}),
   ]);
 }
 

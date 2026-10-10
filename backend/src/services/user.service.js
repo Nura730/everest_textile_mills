@@ -3,6 +3,7 @@ import { ROLES } from '../constants/roles.js';
 import { User, toPublicUser } from '../models/User.js';
 import { findBuyerById } from '../repositories/catalog.repository.js';
 import { AppError } from '../utils/AppError.js';
+import { searchAcross } from '../utils/search.js';
 import { hashPassword } from './password.service.js';
 
 /**
@@ -37,8 +38,8 @@ export async function createUser({ name, email, password, role, buyerId }, actor
   return toPublicUser(user);
 }
 
-export async function listUsers({ role, isActive, page, limit }) {
-  const filter = {};
+export async function listUsers({ role, isActive, q, page, limit }) {
+  const filter = { ...searchAcross(['name', 'email'], q) };
   if (role !== undefined) filter.role = role;
   if (isActive !== undefined) filter.isActive = isActive;
 

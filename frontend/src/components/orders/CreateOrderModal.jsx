@@ -4,10 +4,14 @@ import { buyersApi, ordersApi, productsApi } from '../../api/endpoints.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { ROLES } from '../../auth/roles.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
-import { addDays, formatPaise, todayInIndia } from '../../utils/format.js';
+import { addDays, addYears, formatPaise, todayInIndia } from '../../utils/format.js';
 import { Field, Modal } from '../ui/Modal.jsx';
 import { ErrorState, LoadingState } from '../ui/States.jsx';
 import { useToast } from '../ui/Toast.jsx';
+
+// The backend's limits (validators/order.validators.js), checked here too so the user sees them first.
+const MAX_ORDER_METRES = 1_000_000;
+const MAX_DEADLINE_YEARS = 2;
 
 /**
  * Place an order. A BUYER orders for their own company (the backend takes it from the account and
@@ -47,9 +51,11 @@ export function CreateOrderModal({ onClose, onCreated }) {
     if (!form.productId) found.productId = 'Choose a fabric.';
     if (isAdmin && !form.buyerId) found.buyerId = 'Choose the buyer company.';
     if (!(quantity > 0)) found.quantityMetres = 'Enter a quantity greater than 0.';
-    else if (!/^\d+(\.\d{1,2})?$/.test(form.quantityMetres)) found.quantityMetres = 'Use at most 2 decimal places.';
+    else if (!/^\d+(\.\d{1,2})?$/.test(form.quantityMetres.trim())) found.quantityMetres = 'Use at most 2 decimal places.';
+    else if (quantity > MAX_ORDER_METRES) found.quantityMetres = `At most ${MAX_ORDER_METRES.toLocaleString('en-IN')} m per order.`;
     if (!form.requiredBy) found.requiredBy = 'Choose the delivery date.';
     else if (form.requiredBy <= todayInIndia()) found.requiredBy = 'The date must be after today.';
+    else if (form.requiredBy > addYears(todayInIndia(), MAX_DEADLINE_YEARS)) found.requiredBy = `The date must be within ${MAX_DEADLINE_YEARS} years.`;
     return found;
   }
 
@@ -131,8 +137,8 @@ export function CreateOrderModal({ onClose, onCreated }) {
           <Field label="Quantity (metres)" htmlFor="order-qty" error={errors.quantityMetres} hint="Up to 1,000,000 m, at most 2 decimals." required>
             <input id="order-qty" className="erp-input" inputMode="decimal" value={form.quantityMetres} onChange={update('quantityMetres')} disabled={busy} placeholder="5000" />
           </Field>
-          <Field label="Required by" htmlFor="order-date" error={errors.requiredBy} hint="Delivery date (India calendar). Must be after today." required>
-            <input id="order-date" type="date" className="erp-input" min={addDays(todayInIndia(), 1)} value={form.requiredBy} onChange={update('requiredBy')} disabled={busy} />
+          <Field label="Required by" htmlFor="order-date" error={errors.requiredBy} hint="Delivery date (India calendar). After today, within 2 years." required>
+            <input id="order-date" type="date" className="erp-input" min={addDays(todayInIndia(), 1)} max={addYears(todayInIndia(), MAX_DEADLINE_YEARS)} value={form.requiredBy} onChange={update('requiredBy')} disabled={busy} />
           </Field>
           <Field label="Notes for the factory (optional)" htmlFor="order-notes" error={errors.buyerNotes}>
             <textarea id="order-notes" className="erp-input" rows={2} maxLength={500} value={form.buyerNotes} onChange={update('buyerNotes')} disabled={busy} placeholder="e.g. Pack in 100 m rolls" />

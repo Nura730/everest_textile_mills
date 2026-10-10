@@ -10,6 +10,16 @@ export function LoadingState({ label = 'Loading…', fullPage = false }) {
   return fullPage ? <div className="full-page-center">{content}</div> : content;
 }
 
+/** Said whenever a list shows fewer rows than exist, so a cut-off list is never mistaken for all of it. */
+export function ListLimitNotice({ shown, total }) {
+  if (total === undefined || total === null || shown >= total) return null;
+  return (
+    <p className="list-limit-notice" role="note">
+      Showing the first {shown.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')}.
+    </p>
+  );
+}
+
 export function EmptyState({ title, children, action }) {
   return (
     <div className="state-box">

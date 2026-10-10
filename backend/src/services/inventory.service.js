@@ -98,9 +98,9 @@ export async function getLot(id, actor) {
 }
 
 /** The ledger behind one lot, newest first: every receipt, adjustment, reservation and issue. */
-export async function getLotTransactions(id, { page, limit }) {
+export async function getLotTransactions(id, { type, orderId, from, to, page, limit }) {
   await requireLot(id);
-  const { rows, total } = await findTransactionsPageForLot(id, { page, limit });
+  const { rows, total } = await findTransactionsPageForLot(id, { type, orderId, from, to }, { page, limit });
   return { transactions: rows.map(toPublicTransaction), meta: { page, limit, total } };
 }
 

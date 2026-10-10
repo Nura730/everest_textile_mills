@@ -75,6 +75,7 @@ describe('buyers', () => {
       address: 'Ring Road, Surat, Gujarat',
       isActive: true,
       createdAt: expect.any(String),
+      updatedAt: expect.any(String),
     });
     expect(await AuditLog.countDocuments({ action: 'BUYER_CREATED' })).toBe(1);
   });
@@ -143,6 +144,7 @@ describe('products', () => {
       yarnGramsPerMetre: 170,
       isActive: true,
       createdAt: expect.any(String),
+      updatedAt: expect.any(String),
     });
     expect(await AuditLog.countDocuments({ action: 'PRODUCT_CREATED' })).toBe(1);
   });

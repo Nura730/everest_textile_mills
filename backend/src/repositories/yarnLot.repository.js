@@ -67,6 +67,47 @@ export function summarizeByMaterialAndColour({ material, includeDepleted }) {
   ]);
 }
 
+/** Total and reserved grams across every lot of one material and colour (feasibility input). */
+export async function sumStockForMaterialColour({ material, colour }, { session } = {}) {
+  const [row] = await YarnLot.aggregate([
+    { $match: { material, colour } },
+    { $group: { _id: null, totalGrams: { $sum: '$totalGrams' }, reservedGrams: { $sum: '$reservedGrams' } } },
+  ]).session(session ?? null);
+  return { totalGrams: row?.totalGrams ?? 0, reservedGrams: row?.reservedGrams ?? 0 };
+}
+
 export function findAllLotBalances() {
   return YarnLot.find({}, { lotNumber: 1, totalGrams: 1, reservedGrams: 1 }).lean();
 }
+
+// ── Phase 4: reservation movements. Each is one guarded atomic update (check + write together). ──
+
+/** Lots of one material and colour with yarn available, oldest first (FIFO). */
+export function findAvailableLotsFifo({ material, colour }, { session } = {}) {
+  return YarnLot.find({ material, colour, $expr: { $gt: ['$totalGrams', '$reservedGrams'] } })
+    .sort({ receivedAt: 1, _id: 1 })
+    .session(session ?? null)
+    .lean();
+}
+
+export function findLotsByIds(ids, { session } = {}) {
+  return YarnLot.find({ _id: { $in: ids } }).session(session ?? null).lean();
+}
+
+const updateLot = (filter, update, session) =>
+  YarnLot.findOneAndUpdate(filter, update, { returnDocument: 'after', session, lean: true });
+
+/** reserved += grams, only while at least `grams` is available (total - reserved). */
+export const reserveInLotGuarded = (lotId, grams, session) =>
+  updateLot({ _id: lotId, $expr: { $gte: [{ $subtract: ['$totalGrams', '$reservedGrams'] }, grams] } }, { $inc: { reservedGrams: grams } }, session);
+
+/** reserved -= grams, only while at least `grams` is reserved. */
+export const releaseReservedGuarded = (lotId, grams, session) =>
+  updateLot({ _id: lotId, reservedGrams: { $gte: grams } }, { $inc: { reservedGrams: -grams } }, session);
+
+/** Reserved yarn handed to production: total and reserved both drop, only while both cover it. */
+export const issueFromLotGuarded = (lotId, grams, session) =>
+  updateLot({ _id: lotId, reservedGrams: { $gte: grams }, totalGrams: { $gte: grams } }, { $inc: { totalGrams: -grams, reservedGrams: -grams } }, session);
+
+/** Unused yarn back from the floor: total += grams. */
+export const returnToLot = (lotId, grams, session) => updateLot({ _id: lotId }, { $inc: { totalGrams: grams } }, session);

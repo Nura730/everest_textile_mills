@@ -9,6 +9,17 @@ export function formatPaise(paise) {
   return inr.format(paise / 100);
 }
 
+/**
+ * "320.50" (rupees, as typed) → 32050 paise, or null when it is not a non-negative amount with at
+ * most 2 decimals. Never rounds: ₹320.999 is rejected instead of silently becoming ₹321.00.
+ */
+export function rupeesToPaise(text) {
+  const value = String(text).trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) return null;
+  const [rupees, fraction = ''] = value.split('.');
+  return Number(rupees) * 100 + Number(fraction.padEnd(2, '0'));
+}
+
 export function formatNumber(value, unit) {
   if (value === undefined || value === null) return '—';
   return unit ? `${number.format(value)} ${unit}` : number.format(value);
@@ -41,6 +52,11 @@ export function addDays(dateString, days) {
   const date = new Date(`${dateString}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+/** "2026-10-10" + 2 years → "2028-10-10": the same string arithmetic as the backend (utils/dates.js). */
+export function addYears(dateString, years) {
+  return `${Number(dateString.slice(0, 4)) + years}${dateString.slice(4)}`;
 }
 
 /** Whole days from today (India) to a "YYYY-MM-DD" deadline; negative when overdue. */

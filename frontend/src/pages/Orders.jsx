@@ -1,28 +1,36 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
-import { ordersApi } from '../api/endpoints.js';
+import { buyersApi, ordersApi, productsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES, can } from '../auth/roles.js';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
+import { FilterBar, FilterCheckbox, FilterDate, FilterSelect, SearchInput } from '../components/ui/Filters.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge } from '../components/ui/OrderStatus.jsx';
 import { STATUS_LABELS } from '../utils/orderStatus.js';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
+import { useFilters } from '../hooks/useFilters.js';
 import { formatDate, formatNumber, formatPaise } from '../utils/format.js';
 
 const PAGE_SIZE = 20;
+const NO_FILTERS = { q: '', status: '', productId: '', buyerId: '', requiredFrom: '', requiredTo: '', overdue: false };
 
 export default function Orders() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isBuyer = user.role === ROLES.BUYER;
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
+  const isAdmin = user.role === ROLES.ADMIN;
+  const { filters, set, clear, query, active, page, setPage } = useFilters(NO_FILTERS);
   const [creating, setCreating] = useState(false);
 
-  const orders = useApiQuery(() => ordersApi.list({ status, page, limit: PAGE_SIZE }), [status, page]);
+  // Filter choices. Buyer companies can only be listed by an ADMIN (other staff use the search box);
+  // the admin also sees retired products, because older orders may be for them.
+  const products = useApiQuery(() => productsApi.list({ limit: 100, includeInactive: isAdmin }), [isAdmin]);
+  const buyers = useApiQuery(() => (isAdmin ? buyersApi.list({ limit: 100 }) : Promise.resolve({ data: { buyers: [] } })), [isAdmin]);
+
+  const orders = useApiQuery(() => ordersApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page]);
   const list = orders.data?.orders ?? [];
   const total = orders.meta?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -53,38 +61,67 @@ export default function Orders() {
       />
 
       <div className="erp-card">
-        <div className="toolbar">
-          <label className="erp-label" htmlFor="status-filter">Status</label>
-          <select
+        <FilterBar active={active} onClear={clear} label="Order filters">
+          <SearchInput
+            id="order-search"
+            value={filters.q}
+            onChange={(value) => set('q', value)}
+            placeholder={isBuyer ? 'Search order no. or fabric' : 'Search order no., buyer or fabric'}
+          />
+          <FilterSelect
             id="status-filter"
-            className="erp-input toolbar-select"
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All statuses</option>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
+            label="Status"
+            value={filters.status}
+            onChange={(value) => set('status', value)}
+            allLabel="All statuses"
+            options={Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+          />
+          <FilterSelect
+            id="product-filter"
+            label="Fabric"
+            value={filters.productId}
+            onChange={(value) => set('productId', value)}
+            allLabel="All fabrics"
+            options={(products.data?.products ?? []).map((product) => ({ value: product.id, label: `${product.name} (${product.code})` }))}
+          />
+          {isAdmin && (
+            <FilterSelect
+              id="buyer-filter"
+              label="Buyer"
+              value={filters.buyerId}
+              onChange={(value) => set('buyerId', value)}
+              allLabel="All buyers"
+              options={(buyers.data?.buyers ?? []).map((buyer) => ({ value: buyer.id, label: `${buyer.code} — ${buyer.name}` }))}
+            />
+          )}
+          <FilterDate id="required-from" label="Required from" value={filters.requiredFrom} max={filters.requiredTo || undefined} onChange={(value) => set('requiredFrom', value)} />
+          <FilterDate id="required-to" label="Required to" value={filters.requiredTo} min={filters.requiredFrom || undefined} onChange={(value) => set('requiredTo', value)} />
+          <FilterCheckbox id="overdue-filter" label="Overdue only" checked={filters.overdue} onChange={(value) => set('overdue', value)} />
           <span className="toolbar-count">{orders.loading ? 'Loading…' : `${total} order${total === 1 ? '' : 's'}`}</span>
-        </div>
+        </FilterBar>
 
         {orders.error && <ErrorState error={orders.error} onRetry={orders.reload} />}
         {!orders.error && orders.loading && !orders.data && <LoadingState label="Loading orders…" />}
         {!orders.error && orders.data && list.length === 0 && (
-          <EmptyState
-            title={status ? `No ${STATUS_LABELS[status].toLowerCase()} orders` : 'No orders yet'}
-            action={
-              can.createOrder(user.role) && !status ? (
-                <button type="button" className="erp-btn-primary" onClick={() => setCreating(true)}>Place the first order</button>
-              ) : null
-            }
-          >
-            {isBuyer ? 'Orders you place appear here with their progress.' : 'Orders placed by buyers appear here.'}
-          </EmptyState>
+          active ? (
+            <EmptyState
+              title="No orders match these filters"
+              action={<button type="button" className="erp-btn-outline" onClick={clear}>Clear filters</button>}
+            >
+              {filters.overdue ? 'Overdue means the required-by date has passed and the order is not yet delivered, cancelled or rejected.' : 'Try widening the dates or clearing a filter.'}
+            </EmptyState>
+          ) : (
+            <EmptyState
+              title="No orders yet"
+              action={
+                can.createOrder(user.role) ? (
+                  <button type="button" className="erp-btn-primary" onClick={() => setCreating(true)}>Place the first order</button>
+                ) : null
+              }
+            >
+              {isBuyer ? 'Orders you place appear here with their progress.' : 'Orders placed by buyers appear here.'}
+            </EmptyState>
+          )
         )}
 
         {list.length > 0 && (

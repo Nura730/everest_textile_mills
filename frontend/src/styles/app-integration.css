@@ -157,6 +157,47 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
   border-radius: 10px; background: var(--color-gray-100); font-size: 0.8125rem; line-height: 1.5; color: var(--color-gray-700);
 }
 
+/* ── Feasibility (extends the .feasibility-* panel styles in index.css) ────── */
+.feasibility-metric-label { font-size: 0.6875rem; color: var(--color-gray-500); }
+.feasibility-metric-value { font-size: 0.9375rem; font-weight: 600; color: var(--color-gray-900); }
+.feasibility-reasons-list { list-style: none; margin: 0; }
+.feasibility-check { display: flex; gap: 6px; align-items: flex-start; line-height: 1.5; }
+.feasibility-check svg { flex-shrink: 0; margin-top: 2px; }
+.feasibility-check.fail { color: var(--color-error-dark); }
+.feasibility-check.not_assessed { color: var(--color-gray-500); }
+
+/* ── Filters (toolbar row) ──────────────────────────────────────────────────── */
+.filter-bar { flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.filter-field { display: flex; flex-direction: column; gap: 4px; }
+.filter-field .toolbar-select { min-width: 140px; }
+.filter-search { position: relative; display: flex; align-items: center; flex: 1 1 220px; max-width: 320px; }
+.filter-search svg { position: absolute; left: 10px; color: var(--color-gray-500); pointer-events: none; }
+.filter-search .erp-input { padding-left: 30px; width: 100%; }
+.filter-check { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--color-gray-700); padding-bottom: 8px; }
+.readonly-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; padding: 10px 12px; border-radius: 8px; background: var(--color-gray-100); font-size: 0.8125rem; }
+.readonly-grid span { display: block; font-size: 0.6875rem; color: var(--color-gray-500); }
+@media (max-width: 600px) { .filter-field, .filter-search { flex: 1 1 100%; max-width: none; } .readonly-grid { grid-template-columns: 1fr 1fr; } }
+
+.reserve-input { width: 110px; text-align: right; margin-left: auto; }
+.reserve-mismatch { color: var(--color-error-dark); }
+
+.run-progress { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
+
+.signature-pad { display: flex; flex-direction: column; gap: 6px; }
+.signature-canvas { width: 100%; max-width: 400px; aspect-ratio: 10 / 3; border: 1px dashed var(--color-gray-400); border-radius: 8px; background: var(--color-white); touch-action: none; cursor: crosshair; }
+.signature-actions { display: flex; justify-content: space-between; align-items: center; max-width: 400px; }
+.signature-block { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--color-gray-100); }
+.signature-record { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-gray-200); }
+.signature-image { max-width: 240px; border: 1px solid var(--color-gray-200); border-radius: 6px; background: var(--color-white); }
+.defect-row { display: grid; grid-template-columns: 1.3fr 0.8fr 2fr auto; gap: 8px; margin-top: 8px; }
+@media (max-width: 600px) { .defect-row { grid-template-columns: 1fr 1fr; } }
+
+.invoice-sheet { display: flex; flex-direction: column; gap: 14px; }
+.invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media print { .erp-sidebar, .erp-header, .modal-footer { display: none !important; } }
+
+.list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
+
 /* ── Status history ────────────────────────────────────────────────────────── */
 .status-history { list-style: none; margin: 12px 0 0; padding: 0; }
 .status-history-item { position: relative; display: flex; gap: 12px; padding-bottom: 16px; }
@@ -449,4 +490,6 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
   .erp-user-info, .hide-sm { display: none; }
   .erp-header-right { gap: 8px; }
   .erp-tall-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .feasibility-metrics-summary { grid-template-columns: 1fr 1fr; }
+  .feasibility-verdict-row { flex-direction: column; align-items: flex-start; gap: 4px; }
 }

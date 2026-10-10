@@ -31,3 +31,23 @@ export async function getProduct(req, res) {
   const product = await catalogService.getProduct(req.validated.params.id, req.user);
   return sendSuccess(res, { product });
 }
+
+export async function updateBuyer(req, res) {
+  const buyer = await catalogService.updateBuyer(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendSuccess(res, { buyer });
+}
+
+export async function setBuyerStatus(req, res) {
+  const buyer = await catalogService.setBuyerStatus(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendSuccess(res, { buyer });
+}
+
+export async function updateProduct(req, res) {
+  const product = await catalogService.updateProduct(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendSuccess(res, { product });
+}
+
+export async function setProductStatus(req, res) {
+  const product = await catalogService.setProductStatus(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendSuccess(res, { product });
+}

@@ -4,11 +4,16 @@ import { fieldErrorsOf } from '../api/client.js';
 import { buyersApi, usersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES, ROLE_LABELS } from '../auth/roles.js';
+import { FilterBar, FilterSelect, SearchInput } from '../components/ui/Filters.jsx';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
+import { useFilters } from '../hooks/useFilters.js';
+
+const NO_FILTERS = { q: '', role: '', isActive: '' };
+const STATUS_OPTIONS = [{ value: 'true', label: 'Active' }, { value: 'false', label: 'Deactivated' }];
 import { formatDateTime } from '../utils/format.js';
 
 function CreateUserModal({ buyers, onClose, onCreated }) {
@@ -95,9 +100,13 @@ export default function Users() {
   const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [toggling, setToggling] = useState(null); // { user, busy }
-  const users = useApiQuery(() => usersApi.list({ limit: 100 }), []);
-  const buyers = useApiQuery(() => buyersApi.list({ isActive: true, limit: 100 }), []);
+  const { filters, set, clear, query, active } = useFilters(NO_FILTERS);
+  const users = useApiQuery(() => usersApi.list({ ...query, limit: 100 }), [query]);
+  // All companies for the name column (a deactivated company's users still need a name);
+  // only active ones can receive a new account.
+  const buyers = useApiQuery(() => buyersApi.list({ limit: 100 }), []);
   const buyerName = (id) => buyers.data?.buyers.find((buyer) => buyer.id === id)?.code ?? '—';
+  const activeBuyers = (buyers.data?.buyers ?? []).filter((buyer) => buyer.isActive);
   const list = users.data?.users ?? [];
 
   async function confirmToggle() {
@@ -127,9 +136,23 @@ export default function Users() {
         }
       />
       <div className="erp-card">
+        <FilterBar active={active} onClear={clear} label="User filters">
+          <SearchInput id="user-search" value={filters.q} onChange={(value) => set('q', value)} placeholder="Search name or email" />
+          <FilterSelect
+            id="role-filter"
+            label="Role"
+            value={filters.role}
+            onChange={(value) => set('role', value)}
+            allLabel="All roles"
+            options={Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))}
+          />
+          <FilterSelect id="user-status-filter" label="Status" value={filters.isActive} onChange={(value) => set('isActive', value)} options={STATUS_OPTIONS} />
+        </FilterBar>
         {users.error && <ErrorState error={users.error} onRetry={users.reload} />}
         {!users.error && !users.data && <LoadingState label="Loading accounts…" />}
-        {users.data && list.length === 0 && <EmptyState title="No accounts" />}
+        {users.data && list.length === 0 && (
+          <EmptyState title={active ? 'No accounts match these filters' : 'No accounts'} action={active ? <button type="button" className="erp-btn-outline" onClick={clear}>Clear filters</button> : null} />
+        )}
         {list.length > 0 && (
           <div className="erp-table-wrapper">
             <table className="erp-data-table">
@@ -166,10 +189,11 @@ export default function Users() {
             </table>
           </div>
         )}
+        <ListLimitNotice shown={list.length} total={users.meta?.total} />
       </div>
       {creating && (
         <CreateUserModal
-          buyers={buyers.data?.buyers ?? []}
+          buyers={activeBuyers}
           onClose={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);

@@ -1,12 +1,20 @@
 import { InventoryTransaction } from '../models/InventoryTransaction.js';
+import { endOfIndiaDayExclusive, startOfIndiaDay } from '../utils/dates.js';
 
 export async function appendTransaction(entry, session) {
   const [row] = await InventoryTransaction.create([entry], { session });
   return row;
 }
 
-export async function findTransactionsPageForLot(yarnLotId, { page, limit }) {
+export async function findTransactionsPageForLot(yarnLotId, { type, orderId, from, to }, { page, limit }) {
   const filter = { yarnLotId };
+  if (type) filter.type = type;
+  if (orderId) filter.orderId = orderId;
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = startOfIndiaDay(from);
+    if (to) filter.createdAt.$lt = endOfIndiaDayExclusive(to);
+  }
   const [rows, total] = await Promise.all([
     InventoryTransaction.find(filter)
       .sort({ createdAt: -1, _id: -1 })

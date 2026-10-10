@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { CHECK_RESULT, FEASIBILITY_CHECK, FEASIBILITY_STATUS } from '../constants/feasibility.js';
 import { ALL_ORDER_STATUSES, ORDER_STATUS } from '../constants/orderStatus.js';
 import { ROLES } from '../constants/roles.js';
 import { dateToDateString } from '../utils/dates.js';
@@ -43,6 +44,36 @@ const statusChangeSchema = new Schema(
   { _id: false },
 );
 
+// The feasibility verdict the order was confirmed on (Phase 6): what the factory knew and decided.
+const feasibilityCheckSchema = new Schema(
+  {
+    code: { type: String, required: true, enum: Object.values(FEASIBILITY_CHECK) },
+    result: { type: String, required: true, enum: Object.values(CHECK_RESULT) },
+    message: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const feasibilitySchema = new Schema(
+  {
+    status: { type: String, required: true, enum: Object.values(FEASIBILITY_STATUS) },
+    checks: { type: [feasibilityCheckSchema], required: true },
+    inputs: {
+      requiredYarnGrams: { type: Number, required: true, validate: integer },
+      stockTotalGrams: { type: Number, required: true, validate: integer },
+      stockReservedGrams: { type: Number, required: true, validate: integer },
+      committedGrams: { type: Number, required: true, validate: integer },
+      freeGrams: { type: Number, required: true, validate: integer },
+      shortfallGrams: { type: Number, required: true, validate: integer },
+      requiredBy: { type: String, required: true },
+      assessedOn: { type: String, required: true },
+      daysToDeadline: { type: Number, required: true, validate: integer },
+    },
+    computedAt: { type: Date, required: true },
+  },
+  { _id: false },
+);
+
 const orderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true },
@@ -59,6 +90,9 @@ const orderSchema = new Schema(
     buyerNotes: { type: String, trim: true, maxlength: 500, default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByRole: { type: String, required: true },
+    // Set on confirmation (Phase 6).
+    feasibility: { type: feasibilitySchema, default: null },
+    confirmedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true },
 );
@@ -70,10 +104,33 @@ orderSchema.index({ status: 1, requiredBy: 1 });
 // The admin/staff list, newest first.
 orderSchema.index({ createdAt: -1 });
 
+/** A feasibility result (stored snapshot or live check) as the API returns it: kg, not grams. */
+export function toPublicFeasibility(feasibility) {
+  const { inputs } = feasibility;
+  return {
+    status: feasibility.status,
+    checks: feasibility.checks.map(({ code, result, message }) => ({ code, result, message })),
+    inputs: {
+      requiredYarnKg: gramsToKg(inputs.requiredYarnGrams),
+      stockTotalKg: gramsToKg(inputs.stockTotalGrams),
+      stockReservedKg: gramsToKg(inputs.stockReservedGrams),
+      stockAvailableKg: gramsToKg(inputs.stockTotalGrams - inputs.stockReservedGrams),
+      committedKg: gramsToKg(inputs.committedGrams),
+      freeKg: gramsToKg(inputs.freeGrams),
+      shortfallKg: gramsToKg(inputs.shortfallGrams),
+      requiredBy: inputs.requiredBy,
+      assessedOn: inputs.assessedOn,
+      daysToDeadline: inputs.daysToDeadline,
+    },
+    computedAt: feasibility.computedAt,
+  };
+}
+
 /**
  * What a viewer may see of an order:
  *  - money (price, order value): ADMIN and the owning BUYER only;
- *  - planning data (yarn requirement) and who changed the status: internal roles only.
+ *  - planning data (yarn requirement, feasibility, who confirmed) and who changed the status:
+ *    internal roles only. A buyer sees that the order was confirmed, not the factory's stock.
  * Ownership itself is checked in the service before this is called.
  */
 export function toPublicOrder(order, viewer) {
@@ -110,6 +167,8 @@ export function toPublicOrder(order, viewer) {
   if (!isBuyer) {
     publicOrder.requiredYarnKg = gramsToKg(order.requiredYarnGrams);
     publicOrder.createdBy = String(order.createdBy);
+    publicOrder.feasibility = order.feasibility ? toPublicFeasibility(order.feasibility) : null;
+    publicOrder.confirmedBy = order.confirmedBy ? String(order.confirmedBy) : null;
   }
   return publicOrder;
 }

@@ -18,6 +18,16 @@ export function dateStringToDate(dateString) {
   return new Date(`${dateString}T00:00:00.000Z`);
 }
 
+/** The instant an Indian calendar day starts ("2026-10-10" -> 2026-10-09T18:30:00Z). */
+export function startOfIndiaDay(dateString) {
+  return new Date(`${dateString}T00:00:00.000+05:30`);
+}
+
+/** The instant the Indian calendar day AFTER dateString starts: an exclusive upper bound. */
+export function endOfIndiaDayExclusive(dateString) {
+  return new Date(startOfIndiaDay(dateString).getTime() + 24 * 60 * 60 * 1000);
+}
+
 export function dateToDateString(date) {
   return date.toISOString().slice(0, 10);
 }

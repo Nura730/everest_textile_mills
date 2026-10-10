@@ -1,5 +1,5 @@
-// The backend's order lifecycle (docs/DATABASE.md). Only ORDER_CREATED → CANCELLED / REJECTED is
-// implemented today; later stages are shown as upcoming, never as done.
+// The backend's order lifecycle (docs/DATABASE.md). Implemented today: ORDER_CREATED → CONFIRMED /
+// CANCELLED / REJECTED and CONFIRMED → CANCELLED; later stages are shown as upcoming, never as done.
 export const ORDER_STEPS = [
   { status: 'ORDER_CREATED', label: 'Order created' },
   { status: 'CONFIRMED', label: 'Confirmed' },

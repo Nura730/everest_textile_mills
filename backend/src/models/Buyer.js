@@ -32,6 +32,7 @@ export function toPublicBuyer(buyer) {
     address: buyer.address ?? null,
     isActive: buyer.isActive,
     createdAt: buyer.createdAt,
+    updatedAt: buyer.updatedAt,
   };
 }
 

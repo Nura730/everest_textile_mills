@@ -33,7 +33,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm start` | Production start, JSON logs on stdout |
 | `npm test` | Jest (native ESM) against an in-memory MongoDB replica set |
 | `npm run test:watch` | Same, in watch mode |
-| `npm run seed:dev` | Creates `admin@`, `store@`, `floor@`, `qc@`, `buyer@everest.local` (all with `SEED_PASSWORD`), the buyer company `BUY-DEV` (linked to `buyer@`), and products `COT-NAVY-PLAIN` and `POL-WHITE-TWILL`. Idempotent, never overwrites a password, **refuses in production** |
+| `npm run seed:dev` | Creates `admin@`, `store@`, `floor@`, `qc@`, `buyer@` and `buyer2@everest.local` (all with `SEED_PASSWORD`), buyer companies `BUY-DEV` (linked to `buyer@`) and `BUY-TPR` (linked to `buyer2@`), products `COT-NAVY-PLAIN` and `POL-WHITE-TWILL`, four yarn lots and five demo orders, all through the real services (see `docs/DEV_ACCOUNTS.md`). Idempotent, never overwrites a password, **refuses in production** |
 | `npm run bootstrap:admin` | Creates the **first** admin from `BOOTSTRAP_ADMIN_*`. Works in production; refuses while an active admin exists; never promotes an existing account |
 
 The first `npm test` downloads a `mongod` binary (~100 MB) into the npm cache; it needs internet once.
@@ -170,6 +170,27 @@ Notes:
 | `POST /api/orders` | | | | ✓ own company | ✓ (names buyer) |
 | `POST /api/orders/:id/cancel` | | | | ✓ own | ✓ |
 | `POST /api/orders/:id/reject` | | | | | ✓ |
+| `GET /api/orders/:id/feasibility` | ✓ | ✓ | | | ✓ |
+| `POST /api/orders/:id/confirm` | | | | | ✓ |
+| `PATCH /api/orders/:id` | | | | ✓ own, while `ORDER_CREATED` | ✓ while `ORDER_CREATED` |
+| `POST /api/orders/:id/reserve`, `/issue`, `/return` | ✓ | | | | ✓ |
+| `GET /api/orders/:id/reservations` | ✓ | ✓ | | | ✓ |
+| `GET /api/machines`, `GET /api/machines/:id`, `GET /api/machines/:id/events` | | ✓ | ✓ | | ✓ |
+| `POST /api/machines`, `PATCH /api/machines/:id`, `PATCH /api/machines/:id/active` | | | | | ✓ |
+| `POST /api/machines/:id/maintenance/start`, `/maintenance/end`, `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
+| `GET /api/production-runs`, `GET /api/production-runs/:id` | ✓ | ✓ | ✓ | | ✓ |
+| `POST /api/production-runs`, `/:id/start`, `/pause`, `/resume`, `/complete`, `/cancel`, `/rolls` | | ✓ | | | ✓ |
+| `GET /api/rolls`, `GET /api/rolls/:id` | ✓ | ✓ | ✓ | | ✓ |
+| `POST /api/rolls/:id/inspections` | | | ✓ | | ✓ |
+| `POST /api/rolls/:id/rework-done` | | ✓ | | | ✓ |
+| `GET /api/qc/inspections`, `GET /api/qc/summary` | | ✓ | ✓ | | ✓ |
+| `GET /api/finished-goods`, `GET /api/summary/fulfilment` | ✓ | ✓ | ✓ | | ✓ |
+| `PATCH /api/finished-goods/:id/location`, `POST /api/dispatches`, `/:id/confirm`, `/:id/cancel` | ✓ | | | | ✓ |
+| `GET /api/dispatches`, `GET /api/dispatches/:id` | ✓ | ✓ | ✓ | ✓ own | ✓ |
+| `POST /api/dispatches/:id/invoice` | | | | | ✓ |
+| `GET /api/invoices`, `GET /api/invoices/:id` | | | | ✓ own | ✓ |
+| `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
+| `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -331,7 +352,8 @@ Any other field (`isActive`, `passwordHash`, …) is rejected with 400.
 
 ### `GET /api/users` — ADMIN
 
-Query: `role` (optional), `isActive=true|false` (optional), `page` (default 1), `limit` (1–100, default 50).
+Query: `role` (optional), `isActive=true|false` (optional), `q` (name or email contains, case-insensitive,
+≤ 100 chars), `page` (default 1), `limit` (1–100, default 50). Filters combine.
 Newest first.
 
 ```bash
@@ -465,6 +487,9 @@ Query: `material`, `colour` (case-insensitive), `includeDepleted=true|false` (de
 
 ### `GET /api/yarn-lots/:id/transactions` — the ledger behind a lot (newest first)
 
+Query: `type` (one of the movement types below), `orderId` (movements made for one order), `from` /
+`to` (`YYYY-MM-DD`, Indian calendar days, inclusive; `to` before `from` is a 400), `page`, `limit`.
+
 ```json
 {
   "success": true,
@@ -482,7 +507,8 @@ Query: `material`, `colour` (case-insensitive), `includeDepleted=true|false` (de
 }
 ```
 
-Types: `RECEIPT`, `ADJUSTMENT` (now); `RESERVATION`, `RESERVATION_RELEASE`, `ISSUE`, `RETURN` (Phase 4).
+Types: `RECEIPT`, `ADJUSTMENT`, `RESERVATION`, `RESERVATION_RELEASE`, `ISSUE`, `RETURN`. Reservation
+movements carry `orderId` and `reservationId`.
 
 ### `GET /api/inventory/yarn-summary` — the catalog (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
 
@@ -573,7 +599,28 @@ Then create the buyer's login with `POST /api/users` and `"role": "BUYER", "buye
 
 ### `GET /api/buyers`, `GET /api/buyers/:id` (ADMIN)
 
-Query: `isActive=true|false`, `page`, `limit`. Sorted by name. `404` for an unknown id.
+Query: `isActive=true|false`, `q` (code or name contains), `page`, `limit`. Sorted by name. `404` for an unknown id.
+
+### `PATCH /api/buyers/:id` — edit contact details (ADMIN)
+
+Body: `expectedUpdatedAt` (required: the `updatedAt` you loaded) plus at least one of `name`,
+`contactName`, `email`, `phone`, `address` (same rules as creation; the optional four accept `null` to
+clear). `code` is the company's identifier and is **not editable**; any other field is a 400.
+`200` with the buyer. Existing orders keep the company name they were placed with.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad field, unknown/protected field, nothing to change, missing `expectedUpdatedAt` |
+| 404 | `NOT_FOUND` | Unknown buyer |
+| 409 | `CONFLICT` (`details.reason: "STALE_EDIT"`) | Someone else changed the buyer after you loaded it: reload and retry |
+
+Saving values that are already stored changes nothing and returns `200` (so a retried save succeeds).
+Each real change writes a `BUYER_UPDATED` audit entry with only the changed fields in `before`/`after`.
+
+### `PATCH /api/buyers/:id/status` — activate / deactivate (ADMIN)
+
+Body: `{ "isActive": false }`. An inactive company cannot place orders (`409 BUYER_INACTIVE`); its existing
+orders, users and history are unchanged. Same status again: no-op `200`. Audited as `BUYER_STATUS_CHANGED`.
 
 ### Product object
 
@@ -635,8 +682,25 @@ curl -s -X POST http://localhost:4000/api/products -H "Authorization: Bearer $TO
 
 ### `GET /api/products`, `GET /api/products/:id` (all roles)
 
-Query: `material`, `colour`, `page`, `limit`; `includeInactive=true` works for ADMIN only — everyone
-else always gets active products, and an inactive product's detail is `404` for them.
+Query: `material`, `colour`, `weave`, `q` (code or name contains), `page`, `limit`. For ADMIN only:
+`includeInactive=true` lists active and retired, `isActive=true|false` lists one status. Everyone else
+always gets active products whatever they send, and an inactive product's detail is `404` for them.
+
+### `PATCH /api/products/:id` — edit a fabric (ADMIN)
+
+Body: `expectedUpdatedAt` plus at least one of `name`, `pricePerMetrePaise` (integer ≥ 1),
+`yarnGramsPerMetre` (integer, at least gsm × width / 100 of the **stored** fabric). `code`, `material`,
+`colour`, `weave`, `widthCm`, `gsm` and `machineType` define the fabric and are **not editable** (400): a
+different fabric is a new product. Changes apply to orders placed from now on; existing orders keep the
+price and yarn figure copied onto them. Same errors and no-op rule as buyer edits; audited as
+`PRODUCT_UPDATED`.
+
+### `PATCH /api/products/:id/status` — retire / reactivate (ADMIN)
+
+Body: `{ "isActive": false }`. A retired product cannot be ordered (`409 PRODUCT_INACTIVE`) and cannot take
+a quantity change on an open order; existing orders continue. Audited as `PRODUCT_STATUS_CHANGED`.
+
+Buyer and product objects include `updatedAt` (send it back as `expectedUpdatedAt` when editing).
 
 ### Order object
 
@@ -647,6 +711,7 @@ What each role receives:
 | id, orderNumber, status, buyer, product, quantityMetres, requiredBy, buyerNotes, statusHistory, timestamps | ✓ | ✓ | ✓ |
 | `pricePerMetrePaise`, `orderValuePaise` | ✓ | ✓ | |
 | `requiredYarnKg`, `createdBy`, `statusHistory[].by` | | ✓ | ✓ |
+| `feasibility`, `confirmedBy` (both `null` until confirmed) | | ✓ | ✓ |
 
 As seen by the buyer:
 
@@ -671,8 +736,10 @@ As seen by the buyer:
 }
 ```
 
-The same order for ADMIN additionally has `"requiredYarnKg": 850`, `"createdBy": "…"` and `"by"` on each
-history entry. For the floor manager: `requiredYarnKg`, `createdBy`, `by` — but no price or value.
+The same order for ADMIN additionally has `"requiredYarnKg": 850`, `"createdBy": "…"`, `"by"` on each
+history entry, and `"feasibility"` / `"confirmedBy"` (see confirmation below). For the floor manager:
+the same internal fields — but no price or value. A buyer sees that an order is `CONFIRMED`, never the
+factory's stock figures behind the decision.
 
 Product and price are **copied onto the order** when it is created; editing the catalog later never
 changes an existing order.
@@ -680,13 +747,19 @@ changes an existing order.
 ### Order statuses
 
 ```
-ORDER_CREATED ──cancel (owning BUYER or ADMIN)──▶ CANCELLED
-ORDER_CREATED ──reject (ADMIN)──────────────────▶ REJECTED
+ORDER_CREATED ──confirm (ADMIN, feasibility must pass)──▶ CONFIRMED
+ORDER_CREATED ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
+ORDER_CREATED ──reject (ADMIN)──────────────────────────▶ REJECTED
+CONFIRMED     ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
+CONFIRMED     ──reserve yarn (STORE_KEEPER or ADMIN)────▶ MATERIAL_RESERVED
+MATERIAL_RESERVED ──cancel (owning BUYER or ADMIN; releases unissued yarn, cancels planned runs)──▶ CANCELLED
+MATERIAL_RESERVED ──first production run starts──▶ IN_PRODUCTION
+IN_PRODUCTION ──last run completes and output covers the order──▶ PRODUCTION_COMPLETED
 ```
 
-Only these transitions exist today. `CONFIRMED` (after the feasibility check) and the later statuses
-(`MATERIAL_RESERVED`, `IN_PRODUCTION`, `PRODUCTION_COMPLETED`, `READY_FOR_DISPATCH`, `DISPATCHED`,
-`INVOICED`) arrive with their phases. Any other change returns `409 INVALID_STATE_TRANSITION`.
+Only these transitions exist today. An order `IN_PRODUCTION` can no longer be cancelled. The later statuses
+(`READY_FOR_DISPATCH`, `DISPATCHED`, `INVOICED`) arrive with their phases. Any other change returns
+`409 INVALID_STATE_TRANSITION`.
 
 ### `POST /api/orders` — place an order (BUYER, ADMIN; Idempotency-Key)
 
@@ -737,7 +810,18 @@ Anything else — `status`, `orderNumber`, prices, `buyerId` from a buyer — is
 
 ### `GET /api/orders` (all roles; BUYER sees own only)
 
-Query: `status`, `productId`, `buyerId` (ignored for buyers), `page`, `limit`. Newest first.
+Query (all optional, all combine):
+
+| Param | Meaning |
+|---|---|
+| `status` | One status |
+| `productId`, `buyerId` | Exact match (`buyerId` is ignored for buyers: they always get their own company) |
+| `requiredFrom`, `requiredTo` | Required-by date range, `YYYY-MM-DD`, inclusive (`to` before `from` is a 400) |
+| `overdue=true` | Required-by date **before today (India)** and a delivery still pending: status is not `CANCELLED`, `REJECTED`, `DISPATCHED` or `INVOICED`. Due today is not overdue. With a closed `status` it matches nothing |
+| `q` | Order number, buyer code/name or product code/name contains (case-insensitive, literal, ≤ 100 chars) |
+| `page`, `limit` | Paging over the filtered result; `meta.total` is the filtered count |
+
+Newest first.
 
 ```json
 { "success": true, "data": { "orders": [ { …Order… } ] }, "meta": { "page": 1, "limit": 10, "total": 1 } }
@@ -747,9 +831,27 @@ Query: `status`, `productId`, `buyerId` (ignored for buyers), `page`, `limit`. N
 
 Another company's order returns **404 `NOT_FOUND`** (exactly like a missing order), never 403.
 
+### `PATCH /api/orders/:id` — edit an order (owning BUYER, ADMIN; Idempotency-Key)
+
+Only while the order is `ORDER_CREATED` (before confirmation, which was decided on these figures).
+Body: `expectedUpdatedAt` plus at least one of `quantityMetres`, `requiredBy`, `buyerNotes` (same rules as
+creation; `buyerNotes: null` clears). Product, buyer, price, totals, yarn, status and order number are
+**not accepted** (400). Changing the quantity recalculates `requiredYarnKg` and `orderValuePaise` on the
+server from the order's **own** price snapshot. Status history is unchanged; the edit is audited as
+`ORDER_UPDATED` with before/after.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad/protected field, past or too-distant date, nothing to change, missing key |
+| 404 | `NOT_FOUND` | Unknown order, or another company's order (for a buyer) |
+| 409 | `ORDER_NOT_EDITABLE` | The order is past `ORDER_CREATED` (`details.status`): cancel and place a new order instead |
+| 409 | `PRODUCT_INACTIVE` / `BUYER_INACTIVE` | A quantity change on a retired product / inactive company (notes and date still allowed) |
+| 409 | `CONFLICT` (`STALE_EDIT`) | The order changed after you loaded it |
+
 ### `POST /api/orders/:id/cancel` (owning BUYER, ADMIN; Idempotency-Key)
 
-Body: `{ "reason": "Buyer changed plans" }` (5–500 chars). `200` with the updated order:
+Works on an order in `ORDER_CREATED` or `CONFIRMED`. Body: `{ "reason": "Buyer changed plans" }`
+(5–500 chars). `200` with the updated order:
 
 ```json
 "statusHistory": [
@@ -775,6 +877,232 @@ Cancelling again:
 ### `POST /api/orders/:id/reject` (ADMIN; Idempotency-Key)
 
 Body: `{ "reason": "Deadline cannot be met" }`. Same responses as cancel; ends in `REJECTED`.
+Only from `ORDER_CREATED` (a confirmed order can be cancelled, not rejected).
+
+### Feasibility
+
+An explainable check, never a black box: each check says what it compared and why it passed.
+
+| Check | Rule | Result |
+|---|---|---|
+| `MATERIAL` | **free** yarn of the order's material and colour ≥ `requiredYarnKg`, where free = (total − reserved across all lots) − yarn needed by **other `CONFIRMED` orders** (confirmed orders hold no reservation until Phase 4, so they are subtracted to stop the same kilograms being promised twice) | `PASS` / `FAIL` |
+| `DEADLINE` | `requiredBy` is still after today (India calendar) | `PASS` / `FAIL` |
+| `MACHINE_CAPACITY` | Not evaluated until machines exist (Phase 7); never fails an order | `NOT_ASSESSED` |
+
+`status` is `NOT_FEASIBLE` if any check is `FAIL`, otherwise `FEASIBLE`. There is no hidden safety margin:
+exactly enough yarn passes.
+
+### `GET /api/orders/:id/feasibility` (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
+
+Runs the check now against current stock and changes nothing. Not available to buyers (it reveals stock).
+
+```json
+{
+  "success": true,
+  "data": {
+    "feasibility": {
+      "status": "NOT_FEASIBLE",
+      "checks": [
+        { "code": "MATERIAL", "result": "FAIL",
+          "message": "Short by 250 kg: needs 850 kg of COTTON Navy yarn but only 600 kg is free (1,450 kg available in stock − 850 kg promised to other confirmed orders)." },
+        { "code": "DEADLINE", "result": "PASS", "message": "30 days left until the required-by date (2026-11-09)." },
+        { "code": "MACHINE_CAPACITY", "result": "NOT_ASSESSED",
+          "message": "Machine capacity and workload are not checked yet: machines arrive in a later phase." }
+      ],
+      "inputs": {
+        "requiredYarnKg": 850, "stockTotalKg": 1650, "stockReservedKg": 200, "stockAvailableKg": 1450,
+        "committedKg": 850, "freeKg": 600, "shortfallKg": 250,
+        "requiredBy": "2026-11-09", "assessedOn": "2026-10-10", "daysToDeadline": 30
+      },
+      "computedAt": "2026-10-10T11:02:13.481Z"
+    }
+  }
+}
+```
+
+`404` for an unknown order.
+
+### `POST /api/orders/:id/confirm` (ADMIN; Idempotency-Key)
+
+Body: none, or `{}` (any field is a 400: there is no way to force a verdict). The check is run again
+**inside the transaction**; if it passes the order becomes `CONFIRMED`, the result is stored on the order
+as `feasibility` (the snapshot it was confirmed on, same shape as above), `confirmedBy` is set, and an
+`ORDER_CONFIRMED` audit entry is written. `200` with the updated order.
+
+| Status | Code | When |
+|---|---|---|
+| 409 | `ORDER_NOT_FEASIBLE` | A check failed. `message` lists the reasons; `details.feasibility` has the full result. Nothing is stored, so retrying with the same key after stock arrives runs the check again |
+| 409 | `INVALID_STATE_TRANSITION` | The order is not in `ORDER_CREATED` |
+| 404 | `NOT_FOUND` | Unknown order |
+
+Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
+a lock per material and colour, and the second one sees the first as committed.
+
+## Finished goods, dispatch and invoices (Phases 11-12)
+
+```
+QC PASS ─▶ finished good IN_STOCK (roll FINISHED)
+order PRODUCTION_COMPLETED + no roll awaiting QC/rework + stock ─▶ READY_FOR_DISPATCH
+prepare: IN_STOCK ─▶ RESERVED_FOR_DISPATCH      cancel: back to IN_STOCK
+confirm (signed): RESERVED ─▶ DISPATCHED; order ─▶ DISPATCHED when nothing is left in stock
+invoice (one per confirmed dispatch): order ─▶ INVOICED when every confirmed dispatch is invoiced
+```
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/finished-goods` | Query: `orderId`, `status` (`IN_STOCK`\|`RESERVED_FOR_DISPATCH`\|`DISPATCHED`), `q`, paging |
+| `PATCH /api/finished-goods/:id/location` (Idempotency-Key) | `{ location }`; the only editable field; not once dispatched |
+| `POST /api/dispatches` (Idempotency-Key) | `{ orderId, finishedGoodIds[], vehicleNumber?, notes? }`. Order must be `READY_FOR_DISPATCH`; every good must be `IN_STOCK` and of this order (409 `FINISHED_GOODS_UNAVAILABLE`, `details.finishedGoodIds`); duplicates 400. Guarded per good: two dispatches cannot take the same roll |
+| `POST /api/dispatches/:id/confirm` (Idempotency-Key) | `{ signature: { accepted: true, image }, vehicleNumber? }` — without a signature 400 `SIGNATURE_REQUIRED`. Only `PREPARED` |
+| `POST /api/dispatches/:id/cancel` (Idempotency-Key) | `{ reason }`; only `PREPARED`; goods back in stock |
+| `POST /api/dispatches/:id/invoice` (ADMIN; Idempotency-Key) | Confirmed dispatch only; one invoice per dispatch (409 `DUPLICATE_RESOURCE`). Lines at the order's own price per metre; **GST 5% (assumption for woven fabric, HSN 5208–5407)**; integer paise |
+| `GET /api/invoices`, `/:id` | ADMIN all; BUYER own company only (others 404) |
+| `GET /api/dispatches`, `/:id` | Internal roles all; BUYER own company only |
+
+Audit: `FINISHED_GOOD_CREATED`, `FINISHED_GOOD_MOVED`, `DISPATCH_PREPARED`, `DISPATCH_CONFIRMED`,
+`DISPATCH_CANCELLED`, `INVOICE_ISSUED`, `ORDER_READY_FOR_DISPATCH`, `ORDER_DISPATCHED`, `ORDER_INVOICED`.
+
+## Rolls and quality control (Phases 9-10)
+
+```
+QC_PENDING ──PASS (signed)──▶ QC_PASSED
+    │──REWORK──▶ IN_REWORK ──rework done──▶ QC_PENDING   (next attempt; history kept)
+    └──REJECT──▶ REJECTED   (terminal: never becomes stock)
+```
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/rolls` | Query: `status`, `orderId`, `machineId`, `runId`, `q` (roll/order/run number, machine code), `page`, `limit`. `status=QC_PENDING` is the QC queue, oldest first |
+| `GET /api/rolls/:id` | Trace: `{ roll, order, run, machine, yarnLots: [{ lotNumber, supplierName, receivedAt, issuedToOrderKg }], inspections, qcSignature }`. The signature image is included for QC and admin |
+| `POST /api/rolls/:id/inspections` (QC_INSPECTOR, ADMIN; Idempotency-Key) | `{ result: PASS\|REWORK\|REJECT, defects: [{ type, severity: MINOR\|MAJOR\|CRITICAL, notes? }], notes?, signature? }`. Roll must be `QC_PENDING` (409). REWORK/REJECT need ≥ 1 defect (400). PASS needs `signature: { accepted: true, image: <PNG data URL ≤ 60 kB> }` (else 400 `SIGNATURE_REQUIRED`, `details.statement`). `201` with `{ roll, inspection }` |
+| `POST /api/rolls/:id/rework-done` (FLOOR_MANAGER, ADMIN; Idempotency-Key) | `{ note? }`. `IN_REWORK → QC_PENDING`, `reworkCount + 1` |
+| `GET /api/qc/inspections` | Query: `orderId`, `machineId`, `result`, paging. Newest first |
+| `GET /api/qc/summary` | `{ rolls: { <status>: { rolls, metres } }, inspections: { PASS, REWORK, REJECT } }` |
+
+Defect types: `COLOUR_MISMATCH`, `BROKEN_ENDS`, `BROKEN_PICKS`, `STAINS`, `HOLES`, `WIDTH_VARIATION`,
+`GSM_VARIATION`, `WEAVE_FAULT`, `OTHER`. Inspections and signatures are append-only. A signature stores the
+exact statement ("I confirm that roll … has passed inspection."), the signer, the image and a SHA-256 hash
+of the canonical signed record. Audit: `QC_PASSED`, `QC_REWORK`, `QC_REJECTED`, `ROLL_REWORK_DONE`.
+
+## Production runs (Phase 8)
+
+One order on one machine of the fabric's type (D3: single stage). An order can be split across runs.
+
+```
+PLANNED ──start──▶ RUNNING ⇄ PAUSED ──complete──▶ COMPLETED
+   └──cancel──▶ CANCELLED
+```
+
+| Endpoint (FLOOR_MANAGER, ADMIN; Idempotency-Key) | Rules |
+|---|---|
+| `POST /api/production-runs` `{ orderId, machineId, targetMetres, plannedStartAt?, note? }` | Order `MATERIAL_RESERVED` or `IN_PRODUCTION` (else 409 `CONFLICT`); machine active, `AVAILABLE` (409 `INVALID_STATE_TRANSITION`) and of the product's `machineType` (400); target ≤ what is left of the order (409 `QUANTITY_EXCEEDS_ORDER`, `details.remainingMetres`). Run `PLANNED`, machine `ASSIGNED`. `201` |
+| `POST /:id/start` `{}` | Run `PLANNED`; machine `ASSIGNED` to this run (a `DOWN`/`MAINTENANCE` machine: 409); yarn of the order on the floor (409 `YARN_NOT_ISSUED`). Run and machine `RUNNING`; first start moves the order to `IN_PRODUCTION` |
+| `POST /:id/pause` `{ reason }` / `POST /:id/resume` `{}` | Run and machine together; resume needs the machine `PAUSED` (not `DOWN`) |
+| `POST /:id/rolls` `{ lengthMetres (≤ 2 dec, ≤ 10,000), weightKg? }` | Run `RUNNING`/`PAUSED`. Creates a roll `QC_PENDING` with `rollNumber` (`ROLL-<year>-00001`) and its order, run, machine and issued yarn lots; adds to `producedMetres`. `201` with `roll` |
+| `POST /:id/complete` `{ note? }` | Run `RUNNING`/`PAUSED` with ≥ 1 roll (409 `NO_OUTPUT_RECORDED`). Machine freed. Order → `PRODUCTION_COMPLETED` when no run is open and completed output ≥ ordered quantity |
+| `POST /:id/cancel` `{ reason }` | Only `PLANNED`; machine freed |
+
+Reads (STORE_KEEPER, FLOOR_MANAGER, QC_INSPECTOR, ADMIN): `GET /api/production-runs?orderId=&machineId=&status=&page=&limit=`
+and `GET /api/production-runs/:id` → `{ run, rolls }`.
+
+**Run object:** `{ id, runNumber, orderId, orderNumber, machineId, machineCode, targetMetres, producedMetres,
+rollCount, status, statusHistory, plannedStartAt, startedAt, completedAt, supervisorId, note, createdAt, updatedAt }`.
+**Roll object:** `{ id, rollNumber, orderId, orderNumber, runId, runNumber, machineId, machineCode, yarnLots:
+[{ yarnLotId, lotNumber }], lengthMetres, weightKg, status, producedAt, producedBy, reworkCount }`.
+
+A critical machine problem (or a problem with `pauseProduction`) pauses the machine's running run; after
+repair the run is resumed by a person. Cancelling a reserved order cancels its planned runs. Audit:
+`RUN_PLANNED`, `RUN_STARTED`, `RUN_PAUSED`, `RUN_RESUMED`, `RUN_COMPLETED`, `RUN_CANCELLED`, `ROLL_RECORDED`.
+
+## Machines (Phase 7)
+
+States (decision D4: no `IDLE`): `AVAILABLE`, `ASSIGNED` (a run is booked, Phase 8), `RUNNING`, `PAUSED`,
+`DOWN`, `MAINTENANCE`. A `DOWN` or `MAINTENANCE` machine can never start a run.
+
+```
+AVAILABLE ──start maintenance──▶ MAINTENANCE ──end maintenance──▶ AVAILABLE
+AVAILABLE/ASSIGNED/RUNNING/PAUSED/MAINTENANCE ──CRITICAL problem──▶ DOWN
+DOWN ──last open CRITICAL problem resolved──▶ where it was (RUNNING and PAUSED come back PAUSED;
+                                              MAINTENANCE comes back AVAILABLE)
+RUNNING ──LOW/MEDIUM problem with pauseProduction──▶ PAUSED
+LOW/MEDIUM problems otherwise: recorded and open, status unchanged
+```
+
+Every change appends a `machineEvents` row (append-only) and an audit entry in one transaction;
+status actions require an `Idempotency-Key`. Other transitions: `409 INVALID_STATE_TRANSITION` with
+`details: { from, to, allowedFrom }`.
+
+**Machine object:** `{ id, code, name, type, ratedMetresPerHour, location, status, statusChangedAt,
+currentRunId, isActive, createdAt, updatedAt }` (lists add `openProblems`).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/machines` | Query: `type`, `status`, `q` (code/name/location), `isActive` (default `true`), `page`, `limit` |
+| `POST /api/machines` (ADMIN) | `{ code, name, type, ratedMetresPerHour, location? }`; code unique (409 `DUPLICATE_RESOURCE`); starts `AVAILABLE` |
+| `GET /api/machines/:id` | `{ machine, openProblems: [event], downtime: { criticalProblems, totalMinutes, ongoing } }`. Downtime = critical problem reported → resolved (open ones up to now) |
+| `PATCH /api/machines/:id` (ADMIN) | `expectedUpdatedAt` + `name` / `ratedMetresPerHour` / `location` (null clears). Code, type and status are not editable (400). Stale save: 409 `CONFLICT` |
+| `PATCH /api/machines/:id/active` (ADMIN) | `{ isActive }`. Cannot retire with production booked or running (`ASSIGNED`/`RUNNING`/`PAUSED`: 409 `CONFLICT`). Retired machines are hidden by default and refuse actions (409 `MACHINE_INACTIVE`) |
+| `GET /api/machines/:id/events` | History, newest first. Query: `type`, `from`/`to` (Indian calendar days), `page`, `limit` |
+| `POST /api/machines/:id/maintenance/start` / `end` | `{ note? }` |
+| `POST /api/machines/:id/problems` | `{ category: MECHANICAL\|ELECTRICAL\|MATERIAL\|QUALITY\|OTHER, severity: LOW\|MEDIUM\|CRITICAL, description (5–1000), estimatedDowntimeMinutes?, pauseProduction? }` → `201` with the event |
+| `POST /api/machines/:id/problems/:eventId/resolve` | `{ resolution (5–1000) }`. Once only (409 `PROBLEM_ALREADY_RESOLVED`); a problem of another machine is 404 |
+
+## Material reservation (Phase 4)
+
+Available ≠ reserved: reserving moves yarn from a lot's available stock into its `reservedKg` without
+changing `totalKg`; issuing hands reserved yarn to production (it leaves the lot: `totalKg` and
+`reservedKg` both drop); returning brings unused yarn back (`totalKg` rises). Each movement appends a
+ledger row (`RESERVATION`, `ISSUE`, `RETURN`, `RESERVATION_RELEASE`) with the order's id, plus an audit
+entry (`MATERIAL_RESERVED`, `MATERIAL_ISSUED`, `MATERIAL_RETURNED`, `MATERIAL_RELEASED`), in one
+transaction. Reconciliation keeps proving every lot against its ledger.
+
+### `POST /api/orders/:id/reserve` (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+Order must be `CONFIRMED`; it becomes `MATERIAL_RESERVED`. Reserves the **whole** `requiredYarnKg` of the
+order's material and colour, never part of it.
+
+- Body `{}` (or none): the oldest lots first (FIFO).
+- Body `{ "allocations": [{ "yarnLotId": "…", "quantityKg": 500 }, …] }`: the store keeper's own lots.
+  Each lot must be the order's material and colour, appear once, and the amounts must add up to exactly
+  the requirement (≤ 3 decimals each).
+
+`200`: `{ "data": { "order": { …status MATERIAL_RESERVED… }, "reservations": [ …Reservation… ] } }`
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad allocation: wrong material/colour, duplicate or unknown lot, amounts not adding up |
+| 409 | `INSUFFICIENT_STOCK` | Not enough available yarn in total (`details`: `requiredKg`, `availableKg`, `shortfallKg`) or in a chosen lot (`details.lotNumber`) |
+| 409 | `INVALID_STATE_TRANSITION` | The order is not `CONFIRMED` |
+
+Two orders reserving the same yarn at the same moment cannot both get it (guarded per-lot updates plus
+the per-material/colour lock shared with confirmation).
+
+**Reservation object:** `{ id, orderId, yarnLotId, lotNumber, status, reservedKg, issuedKg, returnedKg,
+releasedKg, openKg, onFloorKg, createdAt, updatedAt }` where `openKg` is still reserved in the lot and
+`onFloorKg` = issued − returned. Status: `ACTIVE`, `PARTIALLY_ISSUED`, `FULLY_ISSUED`, `RELEASED`.
+
+### `GET /api/orders/:id/reservations` (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
+
+`{ "data": { "reservations": [ … ], "totals": { reservedKg, issuedKg, returnedKg, releasedKg, openKg, onFloorKg } } }`
+
+### `POST /api/orders/:id/issue` (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+Body `{ "quantityKg": 300 }`. Hands reserved yarn to the floor, oldest reservation first; partial issues
+allowed. Only while the order's yarn is reserved (`MATERIAL_RESERVED`; later also `IN_PRODUCTION`). The
+order status does not change (production runs arrive in Phase 8). `200` with reservations and totals.
+`409 INSUFFICIENT_STOCK` (`details.openKg`) above what is still reserved; `409 CONFLICT` for another status.
+
+### `POST /api/orders/:id/return` (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+Body `{ "quantityKg": 50, "reason": "Unused cones back from loom 3" }` (reason 5–500 chars). Unused yarn
+back into the lots it came from; at most what the order has on the floor; allowed in any status (a
+cancelled order's yarn may still come back). `409 QUANTITY_EXCEEDS_ISSUED` (`details.onFloorKg`) above that.
+
+### Cancelling a reserved order
+
+`POST /api/orders/:id/cancel` on a `MATERIAL_RESERVED` order also releases everything still reserved
+(ledger `RESERVATION_RELEASE`, audit `MATERIAL_RELEASED`) in the same transaction. Yarn already issued
+stays issued until returned.
 
 ### Unknown route
 
@@ -806,6 +1134,16 @@ the current factory state. No `422` is used anywhere.
 | `INVALID_STATE_TRANSITION` | 409 | Status change not allowed from the current status; `details`: `{ from, to, allowed }` | Refresh the record; show `message` |
 | `BUYER_INACTIVE` | 409 | The buyer company is inactive | Show `message` |
 | `PRODUCT_INACTIVE` | 409 | The product is no longer sold | Refresh the catalog |
+| `ORDER_NOT_FEASIBLE` | 409 | Confirmation refused: the feasibility check failed; `details.feasibility` | Show the failing checks, refresh the feasibility |
+| `ORDER_NOT_EDITABLE` | 409 | Edit refused: the order is past `ORDER_CREATED`; `details.status` | Reload the order; offer cancel instead |
+| `QUANTITY_EXCEEDS_ISSUED` | 409 | Return of more yarn than the order has on the floor; `details.onFloorKg` | Show the limit, refresh the reservations |
+| `MACHINE_INACTIVE` | 409 | Action on a retired machine | Reactivate it first, or pick another machine |
+| `PROBLEM_ALREADY_RESOLVED` | 409 | The problem was resolved already (e.g. by someone else) | Refresh the machine |
+| `YARN_NOT_ISSUED` | 409 | Starting a run before any of the order's yarn is on the floor | Ask the store to issue yarn |
+| `NO_OUTPUT_RECORDED` | 409 | Completing a run without a roll | Record rolls first |
+| `QUANTITY_EXCEEDS_ORDER` | 409 | Planning more than is left of the order; `details.remainingMetres` | Lower the target |
+| `FINISHED_GOODS_UNAVAILABLE` | 409 | A chosen finished good is not in stock for the order | Refresh the stock and choose again |
+| `SIGNATURE_REQUIRED` | 400 | A QC pass (or dispatch) without the signature; `details.statement` | Ask the person to accept the statement and sign |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
@@ -856,7 +1194,8 @@ src/
   repositories/     data access with guarded atomic updates (yarn lots, ledger)
   audit/            recordAudit(): audit entry inside the business transaction
   validators/       zod request schemas
-  services/         business rules: auth, users, inventory, idempotency, password hashing, tokens
+  services/         business rules: auth, users, inventory, catalog, orders, feasibility,
+                    idempotency, password hashing, tokens
   middleware/       requestLogger, authenticate, authorize, rateLimit, validate, notFound, errorHandler
   routes/           URL → handler mapping; index.js mounts everything under /api
   controllers/      HTTP in/out only, no business rules
