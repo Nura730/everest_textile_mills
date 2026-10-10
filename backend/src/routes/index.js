@@ -6,6 +6,7 @@ import healthRoutes from './health.routes.js';
 import inventoryRoutes from './inventory.routes.js';
 import machineRoutes from './machine.routes.js';
 import productionRoutes from './production.routes.js';
+import { qcRoutes, rollRoutes } from './quality.routes.js';
 import orderRoutes from './order.routes.js';
 import productRoutes from './product.routes.js';
 import userRoutes from './user.routes.js';
@@ -33,5 +34,7 @@ router.use('/products', productRoutes);
 router.use('/orders', orderRoutes);
 router.use('/machines', machineRoutes);
 router.use('/production-runs', productionRoutes);
+router.use('/rolls', rollRoutes);
+router.use('/qc', qcRoutes);
 
 export default router;

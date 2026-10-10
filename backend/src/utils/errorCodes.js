@@ -35,6 +35,8 @@ export const ERROR_CODES = Object.freeze({
   YARN_NOT_ISSUED: 409,
   NO_OUTPUT_RECORDED: 409,
   QUANTITY_EXCEEDS_ORDER: 409,
+  // Quality: a PASS without the inspector's signature (the request is incomplete).
+  SIGNATURE_REQUIRED: 400,
   PROBLEM_ALREADY_RESOLVED: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,

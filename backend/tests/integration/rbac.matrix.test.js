@@ -8,6 +8,7 @@ import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
 import { Order } from '../../src/models/Order.js';
 import { ProductionRun } from '../../src/models/ProductionRun.js';
+import { Roll } from '../../src/models/Roll.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -20,6 +21,7 @@ import {
   ensureCatalogCollections,
 } from '../helpers/catalog.js';
 import { clearInventory, ensureInventoryCollections, newKey, receiptBody } from '../helpers/inventory.js';
+import { SIGNED } from '../helpers/signature.js';
 
 /**
  * THE PERMISSION MATRIX. Every protected route and the roles allowed to call it.
@@ -94,6 +96,18 @@ async function runIn(status, { rollCount = 0 } = {}) {
   if (status !== 'PLANNED') await Order.updateOne({ _id: order._id }, { $set: { status: 'IN_PRODUCTION' } });
   return run;
 }
+
+/** A roll in `status` from a running run. */
+async function rollIn(status = 'QC_PENDING') {
+  const run = await runIn('RUNNING');
+  seq += 1;
+  return Roll.create({
+    rollNumber: `ROLL-MTX-${seq}`, orderId: run.orderId, orderNumber: run.orderNumber, runId: run._id, runNumber: run.runNumber,
+    machineId: run.machineId, machineCode: run.machineCode, lengthCm: 10_000, producedBy: MATRIX_ACTOR, status,
+  });
+}
+const QC = [ROLES.QC_INSPECTOR, ROLES.ADMIN];
+const QC_VIEWERS = [ROLES.QC_INSPECTOR, ROLES.FLOOR_MANAGER, ROLES.ADMIN];
 
 const MATRIX = [
   {
@@ -406,6 +420,23 @@ const MATRIX = [
     allowed: FLOOR,
     build: async () => ({ path: `/api/production-runs/${(await runIn(status, opts))._id}/${action}`, body, headers: { 'Idempotency-Key': newKey() } }),
   })),
+  // ── Phases 9-10: rolls and QC ──
+  { name: 'GET /api/rolls', method: 'get', allowed: PRODUCTION_VIEWERS, build: async () => ({ path: '/api/rolls' }) },
+  { name: 'GET /api/rolls/:id', method: 'get', allowed: PRODUCTION_VIEWERS, build: async () => ({ path: `/api/rolls/${(await rollIn())._id}` }) },
+  {
+    name: 'POST /api/rolls/:id/inspections',
+    method: 'post',
+    allowed: QC,
+    build: async () => ({ path: `/api/rolls/${(await rollIn())._id}/inspections`, body: { result: 'PASS', signature: SIGNED }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/rolls/:id/rework-done',
+    method: 'post',
+    allowed: FLOOR,
+    build: async () => ({ path: `/api/rolls/${(await rollIn('IN_REWORK'))._id}/rework-done`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  { name: 'GET /api/qc/inspections', method: 'get', allowed: QC_VIEWERS, build: async () => ({ path: '/api/qc/inspections' }) },
+  { name: 'GET /api/qc/summary', method: 'get', allowed: QC_VIEWERS, build: async () => ({ path: '/api/qc/summary' }) },
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',
