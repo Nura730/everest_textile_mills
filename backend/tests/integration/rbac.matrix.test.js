@@ -4,15 +4,32 @@ import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ALL_ROLES, ROLES } from '../../src/constants/roles.js';
 import { resetLoginRateLimits } from '../../src/middleware/rateLimit.js';
 import { User } from '../../src/models/User.js';
+import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
+import { clearInventory, ensureInventoryCollections, newKey, receiptBody } from '../helpers/inventory.js';
 
 /**
  * THE PERMISSION MATRIX. Every protected route and the roles allowed to call it.
  * Each later phase adds its routes here; a route missing from this table is a review flag.
- * `build` returns { path, body } for a fresh, valid request so allowed roles get past
+ * `build` returns { path, body, headers } for a fresh, valid request so allowed roles get past
  * validation and the test checks authorization only.
  */
 let seq = 0;
+const STOCK_VIEWERS = [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN];
+
+async function existingLot() {
+  seq += 1;
+  return YarnLot.create({
+    lotNumber: `MATRIX-${seq}`,
+    material: 'COTTON',
+    colour: 'Navy',
+    supplierName: 'Matrix Supplier',
+    costPerKgPaise: 30000,
+    receivedAt: new Date(),
+    receivedBy: '64b7f0c2a1b2c3d4e5f60718',
+    totalGrams: 100_000,
+  });
+}
 const MATRIX = [
   {
     name: 'GET /api/auth/me',
@@ -47,6 +64,53 @@ const MATRIX = [
       return { path: `/api/users/${target._id}/status`, body: { isActive: false } };
     },
   },
+  // ── Phase 3: inventory ──
+  {
+    name: 'GET /api/yarn-lots',
+    method: 'get',
+    allowed: STOCK_VIEWERS,
+    build: async () => ({ path: '/api/yarn-lots' }),
+  },
+  {
+    name: 'POST /api/yarn-lots',
+    method: 'post',
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    build: async () => ({ path: '/api/yarn-lots', body: receiptBody(), headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'GET /api/yarn-lots/:id',
+    method: 'get',
+    allowed: STOCK_VIEWERS,
+    build: async () => ({ path: `/api/yarn-lots/${(await existingLot())._id}` }),
+  },
+  {
+    name: 'GET /api/yarn-lots/:id/transactions',
+    method: 'get',
+    allowed: STOCK_VIEWERS,
+    build: async () => ({ path: `/api/yarn-lots/${(await existingLot())._id}/transactions` }),
+  },
+  {
+    name: 'POST /api/yarn-lots/:id/adjustments',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({
+      path: `/api/yarn-lots/${(await existingLot())._id}/adjustments`,
+      body: { deltaKg: 1, reason: 'Matrix recount' },
+      headers: { 'Idempotency-Key': newKey() },
+    }),
+  },
+  {
+    name: 'GET /api/inventory/yarn-summary',
+    method: 'get',
+    allowed: STOCK_VIEWERS,
+    build: async () => ({ path: '/api/inventory/yarn-summary' }),
+  },
+  {
+    name: 'GET /api/inventory/reconciliation',
+    method: 'get',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: '/api/inventory/reconciliation' }),
+  },
 ];
 
 let app;
@@ -55,6 +119,7 @@ let logs;
 beforeAll(async () => {
   await connectDatabase(process.env.MONGODB_URI);
   await User.init();
+  await ensureInventoryCollections();
 });
 
 beforeEach(async () => {
@@ -64,6 +129,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await User.deleteMany({});
+  await clearInventory();
 });
 
 afterAll(async () => {
@@ -72,9 +138,10 @@ afterAll(async () => {
 });
 
 async function call(route, actor) {
-  const { path, body } = await route.build();
+  const { path, body, headers = {} } = await route.build();
   let req = request(app)[route.method](path);
   if (actor) req = req.set('Authorization', bearer(actor));
+  for (const [name, value] of Object.entries(headers)) req = req.set(name, value);
   return body === undefined ? req : req.send(body);
 }
 
