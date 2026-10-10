@@ -4,6 +4,8 @@ import { User, toPublicUser } from '../models/User.js';
 import { findBuyerById } from '../repositories/catalog.repository.js';
 import { AppError } from '../utils/AppError.js';
 import { searchAcross } from '../utils/search.js';
+import { runInTransaction } from '../utils/transaction.js';
+import { recordAudit } from '../audit/recordAudit.js';
 import { hashPassword } from './password.service.js';
 
 /**
@@ -27,13 +29,19 @@ export async function createUser({ name, email, password, role, buyerId }, actor
     }
   }
 
-  const user = await User.create({
-    name,
-    email,
-    passwordHash: await hashPassword(password),
-    role,
-    buyerId: role === ROLES.BUYER ? buyerId : null,
-    createdBy: actor.id,
+  const passwordHash = await hashPassword(password);
+  const user = await runInTransaction(async (session) => {
+    const [created] = await User.create(
+      [{ name, email, passwordHash, role, buyerId: role === ROLES.BUYER ? buyerId : null, createdBy: actor.id }],
+      { session },
+    );
+    // Administrative changes are audited (Phase 13), in the same transaction as the change.
+    await recordAudit(
+      { action: 'USER_CREATED', entityType: 'User', entityId: created._id, after: { email: created.email, role: created.role, buyerId: created.buyerId ? String(created.buyerId) : null } },
+      { actor, source: 'ONLINE' },
+      session,
+    );
+    return created;
   });
   return toPublicUser(user);
 }
@@ -111,6 +119,11 @@ export async function setUserStatus(userId, isActive, actor) {
         ? { $set: { isActive: true } }
         : { $set: { isActive: false }, $inc: { tokenVersion: 1 } };
       updated = await User.findOneAndUpdate({ _id: target._id }, update, { returnDocument: 'after', session });
+      await recordAudit(
+        { action: 'USER_STATUS_CHANGED', entityType: 'User', entityId: target._id, before: { isActive: target.isActive }, after: { isActive, tokensRevoked: !isActive } },
+        { actor, source: 'ONLINE' },
+        session,
+      );
     });
     return toPublicUser(updated);
   } finally {

@@ -4,6 +4,7 @@ import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ALL_ROLES, ROLES } from '../../src/constants/roles.js';
 import { resetLoginRateLimits } from '../../src/middleware/rateLimit.js';
+import { AuditLog } from '../../src/models/AuditLog.js';
 import { Machine } from '../../src/models/Machine.js';
 import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
@@ -516,6 +517,19 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  // ── Phase 13 and buyer portal ──
+  { name: 'GET /api/audit', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/audit' }) },
+  { name: 'GET /api/audit/actions', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/audit/actions' }) },
+  {
+    name: 'POST /api/audit/:id/corrections',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const { insertedId } = await AuditLog.collection.insertOne({ action: 'STOCK_ADJUSTED', actorId: new mongoose.Types.ObjectId(), actorRole: 'ADMIN', entityType: 'YarnLot', entityId: new mongoose.Types.ObjectId(), source: 'ONLINE', at: new Date() });
+      return { path: `/api/audit/${insertedId}/corrections`, body: { note: 'Matrix correction' } };
+    },
+  },
+  { name: 'GET /api/orders/:id/timeline', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: `/api/orders/${(await newOrder())._id}/timeline` }) },
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',
