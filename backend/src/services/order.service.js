@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { recordAudit } from "../audit/recordAudit.js";
 import { CHECK_RESULT, FEASIBILITY_STATUS } from "../constants/feasibility.js";
 import {
@@ -24,8 +23,10 @@ import { AppError } from "../utils/AppError.js";
 import { diffFields, isStale, staleEditConflict } from "../utils/edits.js";
 import { dateStringToDate, todayInIndia } from "../utils/dates.js";
 import { metresToCm } from "../utils/units.js";
+import { claimYarnCommitmentLock } from "../repositories/locks.repository.js";
 import { assessOrderFeasibility } from "./feasibility.service.js";
 import { executeIdempotent } from "./idempotency.service.js";
+import { releaseOrderReservations } from "./material.service.js";
 
 /**
  * Integer-only order maths.
@@ -263,6 +264,11 @@ function changeStatus(orderId, actionName, { reason }, context) {
       const invalid = () => invalidTransition(order, action.to);
       if (!canTransition(order.status, action.to)) throw invalid();
 
+      // Cancelling a reserved order gives back the yarn not yet issued (same transaction).
+      if (order.status === ORDER_STATUS.MATERIAL_RESERVED) {
+        await releaseOrderReservations(order, { reason }, context, session);
+      }
+
       const updated = await transitionStatusGuarded(
         order._id,
         order.status,
@@ -315,21 +321,12 @@ export async function getOrderFeasibility(id) {
   return toPublicFeasibility(await assessOrderFeasibility(order));
 }
 
-/**
+/*
  * Two admins confirming two orders for the same yarn at the same moment would each see the other
- * as unconfirmed and both pass (write skew: the transactions write different orders). Writing one
- * shared lock per material and colour turns that into a write conflict; withTransaction retries
- * the loser, whose retry counts the winner's order as committed.
+ * as unconfirmed and both pass (write skew: the transactions write different orders). The shared
+ * per-material/colour lock (repositories/locks.repository.js) turns that into a write conflict;
+ * withTransaction retries the loser, whose retry counts the winner's order as committed.
  */
-async function claimYarnCommitmentLock({ material, colour }, session) {
-  await mongoose.connection
-    .collection("locks")
-    .updateOne(
-      { _id: `yarn-commitment:${material}:${colour}` },
-      { $inc: { version: 1 } },
-      { upsert: true, session },
-    );
-}
 
 /**
  * ORDER_CREATED → CONFIRMED (ADMIN). The feasibility check runs inside the transaction; a failing

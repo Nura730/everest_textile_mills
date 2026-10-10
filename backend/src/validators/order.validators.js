@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ALL_ORDER_STATUSES } from "../constants/orderStatus.js";
 import { addYears, todayInIndia } from "../utils/dates.js";
 import { hasAtMostDecimals } from "../utils/units.js";
+import { kilograms } from "./inventory.validators.js";
 import {
   dateFilterSchema,
   expectedUpdatedAtSchema,
@@ -86,6 +87,25 @@ export const updateOrderBodySchema = z
       ctx.addIssue({ code: "custom", path: [], message: "must include at least one of: quantityMetres, requiredBy, buyerNotes" });
     }
   });
+
+/*
+ * Reserve yarn for a confirmed order. No body (or {}) = oldest lots first; `allocations` = the
+ * store keeper's own choice of lots, which must add up to the order's requirement (service check).
+ */
+export const reserveOrderBodySchema = z.strictObject({
+  allocations: z
+    .array(z.strictObject({ yarnLotId: objectIdSchema, quantityKg: kilograms() }))
+    .min(1)
+    .max(50)
+    .optional(),
+});
+
+export const issueOrderBodySchema = z.strictObject({ quantityKg: kilograms() });
+
+export const returnOrderBodySchema = z.strictObject({
+  quantityKg: kilograms(),
+  reason: z.string().trim().min(5).max(500),
+});
 
 export const statusChangeBodySchema = z.strictObject({
   reason: z.string().trim().min(5).max(500),

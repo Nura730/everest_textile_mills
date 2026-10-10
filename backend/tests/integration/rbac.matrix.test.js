@@ -3,6 +3,9 @@ import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ALL_ROLES, ROLES } from '../../src/constants/roles.js';
 import { resetLoginRateLimits } from '../../src/middleware/rateLimit.js';
+import { Machine } from '../../src/models/Machine.js';
+import { MachineEvent } from '../../src/models/MachineEvent.js';
+import { MaterialReservation } from '../../src/models/MaterialReservation.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -43,6 +46,35 @@ async function existingLot({ totalGrams = 100_000 } = {}) {
     totalGrams,
   });
 }
+const MATRIX_ACTOR = '64b7f0c2a1b2c3d4e5f60718';
+
+/** A MATERIAL_RESERVED order holding 850 kg in one lot (issuedGrams of it already on the floor). */
+async function reservedOrder({ issuedGrams = 0 } = {}) {
+  const lot = await existingLot({ totalGrams: 1_000_000 - issuedGrams });
+  await YarnLot.updateOne({ _id: lot._id }, { $set: { reservedGrams: 850_000 - issuedGrams } });
+  const order = await createTestOrder({ buyer: matrixBuyer, product: matrixProduct, createdBy: MATRIX_ACTOR, status: 'MATERIAL_RESERVED' });
+  await MaterialReservation.create({
+    orderId: order._id, yarnLotId: lot._id, lotNumber: lot.lotNumber, reservedGrams: 850_000, issuedGrams,
+    status: issuedGrams ? 'PARTIALLY_ISSUED' : 'ACTIVE', createdBy: MATRIX_ACTOR,
+  });
+  return { order, lot };
+}
+
+const MACHINE_VIEWERS = [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN];
+const MACHINE_OPERATORS = [ROLES.FLOOR_MANAGER, ROLES.ADMIN];
+const newMachine = (overrides = {}) => {
+  seq += 1;
+  return Machine.create({ code: `M-${seq}`, name: `Matrix machine ${seq}`, type: 'WEAVING', ratedCmPerHour: 1500, ...overrides });
+};
+async function openProblem() {
+  const machine = await newMachine();
+  const event = await MachineEvent.create({
+    machineId: machine._id, type: 'PROBLEM_REPORTED', fromStatus: 'AVAILABLE', toStatus: 'AVAILABLE',
+    problem: { category: 'OTHER', severity: 'LOW', description: 'Matrix problem' }, actorId: MATRIX_ACTOR, actorRole: 'FLOOR_MANAGER',
+  });
+  return { machine, event };
+}
+
 const MATRIX = [
   {
     name: 'GET /api/auth/me',
@@ -245,6 +277,89 @@ const MATRIX = [
       };
     },
   },
+  // ── Phase 4: material reservation ──
+  {
+    name: 'POST /api/orders/:id/reserve',
+    method: 'post',
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    build: async () => {
+      await existingLot({ totalGrams: 1_000_000 });
+      const order = await createTestOrder({ buyer: matrixBuyer, product: matrixProduct, createdBy: MATRIX_ACTOR, status: 'CONFIRMED' });
+      return { path: `/api/orders/${order._id}/reserve`, body: {}, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
+  {
+    name: 'GET /api/orders/:id/reservations',
+    method: 'get',
+    allowed: STOCK_VIEWERS,
+    build: async () => ({ path: `/api/orders/${(await newOrder())._id}/reservations` }),
+  },
+  {
+    name: 'POST /api/orders/:id/issue',
+    method: 'post',
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    build: async () => {
+      const { order } = await reservedOrder();
+      return { path: `/api/orders/${order._id}/issue`, body: { quantityKg: 10 }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
+  {
+    name: 'POST /api/orders/:id/return',
+    method: 'post',
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    build: async () => {
+      const { order } = await reservedOrder({ issuedGrams: 100_000 });
+      return { path: `/api/orders/${order._id}/return`, body: { quantityKg: 10, reason: 'Matrix return' }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
+  // ── Phase 7: machines ──
+  { name: 'GET /api/machines', method: 'get', allowed: MACHINE_VIEWERS, build: async () => ({ path: '/api/machines' }) },
+  {
+    name: 'POST /api/machines',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => { seq += 1; return { path: '/api/machines', body: { code: `MX-${seq}`, name: 'Matrix loom', type: 'WEAVING', ratedMetresPerHour: 15 } }; },
+  },
+  { name: 'GET /api/machines/:id', method: 'get', allowed: MACHINE_VIEWERS, build: async () => ({ path: `/api/machines/${(await newMachine())._id}` }) },
+  {
+    name: 'PATCH /api/machines/:id',
+    method: 'patch',
+    allowed: [ROLES.ADMIN],
+    build: async () => { const m = await newMachine(); return { path: `/api/machines/${m._id}`, body: { expectedUpdatedAt: m.updatedAt.toISOString(), name: 'Matrix renamed' } }; },
+  },
+  { name: 'PATCH /api/machines/:id/active', method: 'patch', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/machines/${(await newMachine())._id}/active`, body: { isActive: false } }) },
+  { name: 'GET /api/machines/:id/events', method: 'get', allowed: MACHINE_VIEWERS, build: async () => ({ path: `/api/machines/${(await newMachine())._id}/events` }) },
+  {
+    name: 'POST /api/machines/:id/maintenance/start',
+    method: 'post',
+    allowed: MACHINE_OPERATORS,
+    build: async () => ({ path: `/api/machines/${(await newMachine())._id}/maintenance/start`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/machines/:id/maintenance/end',
+    method: 'post',
+    allowed: MACHINE_OPERATORS,
+    build: async () => ({ path: `/api/machines/${(await newMachine({ status: 'MAINTENANCE' }))._id}/maintenance/end`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/machines/:id/problems',
+    method: 'post',
+    allowed: MACHINE_OPERATORS,
+    build: async () => ({
+      path: `/api/machines/${(await newMachine())._id}/problems`,
+      body: { category: 'MECHANICAL', severity: 'LOW', description: 'Matrix report' },
+      headers: { 'Idempotency-Key': newKey() },
+    }),
+  },
+  {
+    name: 'POST /api/machines/:id/problems/:eventId/resolve',
+    method: 'post',
+    allowed: MACHINE_OPERATORS,
+    build: async () => {
+      const { machine, event } = await openProblem();
+      return { path: `/api/machines/${machine._id}/problems/${event._id}/resolve`, body: { resolution: 'Matrix fix' }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',
@@ -308,6 +423,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await Machine.deleteMany({});
+  await MachineEvent.collection.deleteMany({});
   await User.deleteMany({});
   await clearInventory();
   await clearCatalog();

@@ -32,8 +32,9 @@ export const DELIVERY_PENDING_STATUSES = Object.freeze([
  * from → the statuses it may move to. Anything not listed is an invalid transition (409).
  * Phase 5: cancelling or rejecting a freshly created order.
  * Phase 6: ORDER_CREATED → CONFIRMED (only after a passing feasibility check), and a confirmed
- * order can still be cancelled (it holds no reservations yet). Phase 4 adds the reservation step,
- * and so on.
+ * order can still be cancelled.
+ * Phase 4: CONFIRMED → MATERIAL_RESERVED (yarn reserved), and a reserved order can be cancelled,
+ * which releases the yarn not yet issued. Production (Phase 8) adds MATERIAL_RESERVED → IN_PRODUCTION.
  */
 const ALLOWED_TRANSITIONS = Object.freeze({
   [ORDER_STATUS.ORDER_CREATED]: Object.freeze([
@@ -41,7 +42,8 @@ const ALLOWED_TRANSITIONS = Object.freeze({
     ORDER_STATUS.CANCELLED,
     ORDER_STATUS.REJECTED,
   ]),
-  [ORDER_STATUS.CONFIRMED]: Object.freeze([ORDER_STATUS.CANCELLED]),
+  [ORDER_STATUS.CONFIRMED]: Object.freeze([ORDER_STATUS.MATERIAL_RESERVED, ORDER_STATUS.CANCELLED]),
+  [ORDER_STATUS.MATERIAL_RESERVED]: Object.freeze([ORDER_STATUS.CANCELLED]),
 });
 
 export function allowedNextStatuses(from) {

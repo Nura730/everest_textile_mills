@@ -6,9 +6,10 @@ export async function appendTransaction(entry, session) {
   return row;
 }
 
-export async function findTransactionsPageForLot(yarnLotId, { type, from, to }, { page, limit }) {
+export async function findTransactionsPageForLot(yarnLotId, { type, orderId, from, to }, { page, limit }) {
   const filter = { yarnLotId };
   if (type) filter.type = type;
+  if (orderId) filter.orderId = orderId;
   if (from || to) {
     filter.createdAt = {};
     if (from) filter.createdAt.$gte = startOfIndiaDay(from);

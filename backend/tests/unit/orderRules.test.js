@@ -44,8 +44,8 @@ describe('order transition table', () => {
     expect(canTransition(ORDER_STATUS.ORDER_CREATED, ORDER_STATUS.CONFIRMED)).toBe(true);
   });
 
-  it('lets a confirmed order only be cancelled (not rejected, not re-confirmed)', () => {
-    expect(allowedNextStatuses(ORDER_STATUS.CONFIRMED)).toEqual([ORDER_STATUS.CANCELLED]);
+  it('lets a confirmed order only be reserved or cancelled (not rejected, not re-confirmed)', () => {
+    expect(allowedNextStatuses(ORDER_STATUS.CONFIRMED)).toEqual([ORDER_STATUS.MATERIAL_RESERVED, ORDER_STATUS.CANCELLED]);
   });
 
   it.each([ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED])('treats %s as terminal', (status) => {

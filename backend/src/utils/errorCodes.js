@@ -27,6 +27,11 @@ export const ERROR_CODES = Object.freeze({
   ORDER_NOT_FEASIBLE: 409,
   // The order's status no longer allows editing (only ORDER_CREATED orders can be edited).
   ORDER_NOT_EDITABLE: 409,
+  // A return of more yarn than the order has on the production floor.
+  QUANTITY_EXCEEDS_ISSUED: 409,
+  // Machines
+  MACHINE_INACTIVE: 409,
+  PROBLEM_ALREADY_RESOLVED: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,
   LAST_ACTIVE_ADMIN: 409,

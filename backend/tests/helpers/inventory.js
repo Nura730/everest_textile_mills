@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditLog } from '../../src/models/AuditLog.js';
 import { IdempotencyRecord } from '../../src/models/IdempotencyRecord.js';
 import { InventoryTransaction } from '../../src/models/InventoryTransaction.js';
+import { MaterialReservation } from '../../src/models/MaterialReservation.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 
 export const newKey = () => randomUUID();
@@ -26,6 +27,7 @@ export async function ensureInventoryCollections() {
     IdempotencyRecord.init(),
     InventoryTransaction.createCollection(),
     AuditLog.createCollection(),
+    MaterialReservation.createCollection(),
   ]);
 }
 
@@ -36,6 +38,7 @@ export async function clearInventory() {
     IdempotencyRecord.deleteMany({}),
     InventoryTransaction.collection.deleteMany({}),
     AuditLog.collection.deleteMany({}),
+    MaterialReservation.deleteMany({}),
   ]);
 }
 

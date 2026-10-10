@@ -8,6 +8,9 @@ import {
   adminCreateOrderBodySchema,
   buyerCreateOrderBodySchema,
   confirmOrderBodySchema,
+  issueOrderBodySchema,
+  reserveOrderBodySchema,
+  returnOrderBodySchema,
   updateOrderBodySchema,
   listOrdersQuerySchema,
   orderIdParamsSchema,
@@ -17,8 +20,10 @@ import {
 // Mounted at /api/orders, after authenticate. Ownership (a buyer sees only their own orders) is
 // enforced in the order service, on every read and every status change.
 const router = Router();
-// Who may see a feasibility check: it exposes stock levels, so internal planning roles only.
+// Who may see a feasibility check or an order's reservations: they expose stock levels, so
+// internal planning roles only. Moving yarn (reserve, issue, return) is the store's job.
 const FEASIBILITY_VIEWERS = [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN];
+const STORE = [ROLES.STORE_KEEPER, ROLES.ADMIN];
 
 /** The body a caller may send depends on who they are: only an ADMIN may name the buyer. */
 function validateCreateOrderBody(req, res, next) {
@@ -67,6 +72,33 @@ router.post(
   requireIdempotencyKey,
   validate({ params: orderIdParamsSchema, body: confirmOrderBodySchema }),
   orderController.confirmOrder,
+);
+router.post(
+  "/:id/reserve",
+  authorize(...STORE),
+  requireIdempotencyKey,
+  validate({ params: orderIdParamsSchema, body: reserveOrderBodySchema }),
+  orderController.reserveMaterial,
+);
+router.get(
+  "/:id/reservations",
+  authorize(...FEASIBILITY_VIEWERS),
+  validate({ params: orderIdParamsSchema }),
+  orderController.getReservations,
+);
+router.post(
+  "/:id/issue",
+  authorize(...STORE),
+  requireIdempotencyKey,
+  validate({ params: orderIdParamsSchema, body: issueOrderBodySchema }),
+  orderController.issueMaterial,
+);
+router.post(
+  "/:id/return",
+  authorize(...STORE),
+  requireIdempotencyKey,
+  validate({ params: orderIdParamsSchema, body: returnOrderBodySchema }),
+  orderController.returnMaterial,
 );
 router.post(
   "/:id/cancel",

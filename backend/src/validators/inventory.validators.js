@@ -9,7 +9,7 @@ export const MAX_RECEIPT_KG = 100_000;
 // Allows a receipt timestamp from a device whose clock runs a little ahead.
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-function kilograms({ allowNegative = false } = {}) {
+export function kilograms({ allowNegative = false } = {}) {
   let schema = z.number().max(MAX_RECEIPT_KG);
   schema = allowNegative ? schema.min(-MAX_RECEIPT_KG) : schema.positive();
   // Stored as integer grams: more than 3 decimals would be silently rounded.
@@ -58,6 +58,8 @@ export const lotIdParamsSchema = z.object({ id: objectIdSchema });
 export const ledgerQuerySchema = z
   .object({
     type: z.enum(INVENTORY_TRANSACTION_TYPES).optional(),
+    // Movements made for one order (reservation, issue, return, release).
+    orderId: objectIdSchema.optional(),
     // Movement date range (Indian calendar days, inclusive).
     from: dateFilterSchema,
     to: dateFilterSchema,

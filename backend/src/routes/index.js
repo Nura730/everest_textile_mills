@@ -4,6 +4,7 @@ import authRoutes from './auth.routes.js';
 import buyerRoutes from './buyer.routes.js';
 import healthRoutes from './health.routes.js';
 import inventoryRoutes from './inventory.routes.js';
+import machineRoutes from './machine.routes.js';
 import orderRoutes from './order.routes.js';
 import productRoutes from './product.routes.js';
 import userRoutes from './user.routes.js';
@@ -29,5 +30,6 @@ router.use('/inventory', inventoryRoutes);
 router.use('/buyers', buyerRoutes);
 router.use('/products', productRoutes);
 router.use('/orders', orderRoutes);
+router.use('/machines', machineRoutes);
 
 export default router;

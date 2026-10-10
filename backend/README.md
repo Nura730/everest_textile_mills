@@ -173,6 +173,11 @@ Notes:
 | `GET /api/orders/:id/feasibility` | ✓ | ✓ | | | ✓ |
 | `POST /api/orders/:id/confirm` | | | | | ✓ |
 | `PATCH /api/orders/:id` | | | | ✓ own, while `ORDER_CREATED` | ✓ while `ORDER_CREATED` |
+| `POST /api/orders/:id/reserve`, `/issue`, `/return` | ✓ | | | | ✓ |
+| `GET /api/orders/:id/reservations` | ✓ | ✓ | | | ✓ |
+| `GET /api/machines`, `GET /api/machines/:id`, `GET /api/machines/:id/events` | | ✓ | ✓ | | ✓ |
+| `POST /api/machines`, `PATCH /api/machines/:id`, `PATCH /api/machines/:id/active` | | | | | ✓ |
+| `POST /api/machines/:id/maintenance/start`, `/maintenance/end`, `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -471,8 +476,8 @@ Query: `material`, `colour` (case-insensitive), `includeDepleted=true|false` (de
 
 ### `GET /api/yarn-lots/:id/transactions` — the ledger behind a lot (newest first)
 
-Query: `type` (one of the movement types below), `from` / `to` (`YYYY-MM-DD`, Indian calendar days,
-inclusive; `to` before `from` is a 400), `page`, `limit`.
+Query: `type` (one of the movement types below), `orderId` (movements made for one order), `from` /
+`to` (`YYYY-MM-DD`, Indian calendar days, inclusive; `to` before `from` is a 400), `page`, `limit`.
 
 ```json
 {
@@ -491,7 +496,8 @@ inclusive; `to` before `from` is a 400), `page`, `limit`.
 }
 ```
 
-Types: `RECEIPT`, `ADJUSTMENT` (now); `RESERVATION`, `RESERVATION_RELEASE`, `ISSUE`, `RETURN` (Phase 4).
+Types: `RECEIPT`, `ADJUSTMENT`, `RESERVATION`, `RESERVATION_RELEASE`, `ISSUE`, `RETURN`. Reservation
+movements carry `orderId` and `reservationId`.
 
 ### `GET /api/inventory/yarn-summary` — the catalog (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
 
@@ -734,11 +740,13 @@ ORDER_CREATED ──confirm (ADMIN, feasibility must pass)──▶ CONFIRMED
 ORDER_CREATED ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
 ORDER_CREATED ──reject (ADMIN)──────────────────────────▶ REJECTED
 CONFIRMED     ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
+CONFIRMED     ──reserve yarn (STORE_KEEPER or ADMIN)────▶ MATERIAL_RESERVED
+MATERIAL_RESERVED ──cancel (owning BUYER or ADMIN; releases unissued yarn)──▶ CANCELLED
 ```
 
-Only these transitions exist today. The later statuses (`MATERIAL_RESERVED`, `IN_PRODUCTION`,
-`PRODUCTION_COMPLETED`, `READY_FOR_DISPATCH`, `DISPATCHED`, `INVOICED`) arrive with their phases. Any
-other change returns `409 INVALID_STATE_TRANSITION`.
+Only these transitions exist today. The later statuses (`IN_PRODUCTION`, `PRODUCTION_COMPLETED`,
+`READY_FOR_DISPATCH`, `DISPATCHED`, `INVOICED`) arrive with their phases. Any other change returns
+`409 INVALID_STATE_TRANSITION`.
 
 ### `POST /api/orders` — place an order (BUYER, ADMIN; Idempotency-Key)
 
@@ -917,6 +925,96 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
 
+## Machines (Phase 7)
+
+States (decision D4: no `IDLE`): `AVAILABLE`, `ASSIGNED` (a run is booked, Phase 8), `RUNNING`, `PAUSED`,
+`DOWN`, `MAINTENANCE`. A `DOWN` or `MAINTENANCE` machine can never start a run.
+
+```
+AVAILABLE ──start maintenance──▶ MAINTENANCE ──end maintenance──▶ AVAILABLE
+AVAILABLE/ASSIGNED/RUNNING/PAUSED/MAINTENANCE ──CRITICAL problem──▶ DOWN
+DOWN ──last open CRITICAL problem resolved──▶ where it was (RUNNING and PAUSED come back PAUSED;
+                                              MAINTENANCE comes back AVAILABLE)
+RUNNING ──LOW/MEDIUM problem with pauseProduction──▶ PAUSED
+LOW/MEDIUM problems otherwise: recorded and open, status unchanged
+```
+
+Every change appends a `machineEvents` row (append-only) and an audit entry in one transaction;
+status actions require an `Idempotency-Key`. Other transitions: `409 INVALID_STATE_TRANSITION` with
+`details: { from, to, allowedFrom }`.
+
+**Machine object:** `{ id, code, name, type, ratedMetresPerHour, location, status, statusChangedAt,
+currentRunId, isActive, createdAt, updatedAt }` (lists add `openProblems`).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/machines` | Query: `type`, `status`, `q` (code/name/location), `isActive` (default `true`), `page`, `limit` |
+| `POST /api/machines` (ADMIN) | `{ code, name, type, ratedMetresPerHour, location? }`; code unique (409 `DUPLICATE_RESOURCE`); starts `AVAILABLE` |
+| `GET /api/machines/:id` | `{ machine, openProblems: [event], downtime: { criticalProblems, totalMinutes, ongoing } }`. Downtime = critical problem reported → resolved (open ones up to now) |
+| `PATCH /api/machines/:id` (ADMIN) | `expectedUpdatedAt` + `name` / `ratedMetresPerHour` / `location` (null clears). Code, type and status are not editable (400). Stale save: 409 `CONFLICT` |
+| `PATCH /api/machines/:id/active` (ADMIN) | `{ isActive }`. Cannot retire with production booked or running (`ASSIGNED`/`RUNNING`/`PAUSED`: 409 `CONFLICT`). Retired machines are hidden by default and refuse actions (409 `MACHINE_INACTIVE`) |
+| `GET /api/machines/:id/events` | History, newest first. Query: `type`, `from`/`to` (Indian calendar days), `page`, `limit` |
+| `POST /api/machines/:id/maintenance/start` / `end` | `{ note? }` |
+| `POST /api/machines/:id/problems` | `{ category: MECHANICAL\|ELECTRICAL\|MATERIAL\|QUALITY\|OTHER, severity: LOW\|MEDIUM\|CRITICAL, description (5–1000), estimatedDowntimeMinutes?, pauseProduction? }` → `201` with the event |
+| `POST /api/machines/:id/problems/:eventId/resolve` | `{ resolution (5–1000) }`. Once only (409 `PROBLEM_ALREADY_RESOLVED`); a problem of another machine is 404 |
+
+## Material reservation (Phase 4)
+
+Available ≠ reserved: reserving moves yarn from a lot's available stock into its `reservedKg` without
+changing `totalKg`; issuing hands reserved yarn to production (it leaves the lot: `totalKg` and
+`reservedKg` both drop); returning brings unused yarn back (`totalKg` rises). Each movement appends a
+ledger row (`RESERVATION`, `ISSUE`, `RETURN`, `RESERVATION_RELEASE`) with the order's id, plus an audit
+entry (`MATERIAL_RESERVED`, `MATERIAL_ISSUED`, `MATERIAL_RETURNED`, `MATERIAL_RELEASED`), in one
+transaction. Reconciliation keeps proving every lot against its ledger.
+
+### `POST /api/orders/:id/reserve` (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+Order must be `CONFIRMED`; it becomes `MATERIAL_RESERVED`. Reserves the **whole** `requiredYarnKg` of the
+order's material and colour, never part of it.
+
+- Body `{}` (or none): the oldest lots first (FIFO).
+- Body `{ "allocations": [{ "yarnLotId": "…", "quantityKg": 500 }, …] }`: the store keeper's own lots.
+  Each lot must be the order's material and colour, appear once, and the amounts must add up to exactly
+  the requirement (≤ 3 decimals each).
+
+`200`: `{ "data": { "order": { …status MATERIAL_RESERVED… }, "reservations": [ …Reservation… ] } }`
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad allocation: wrong material/colour, duplicate or unknown lot, amounts not adding up |
+| 409 | `INSUFFICIENT_STOCK` | Not enough available yarn in total (`details`: `requiredKg`, `availableKg`, `shortfallKg`) or in a chosen lot (`details.lotNumber`) |
+| 409 | `INVALID_STATE_TRANSITION` | The order is not `CONFIRMED` |
+
+Two orders reserving the same yarn at the same moment cannot both get it (guarded per-lot updates plus
+the per-material/colour lock shared with confirmation).
+
+**Reservation object:** `{ id, orderId, yarnLotId, lotNumber, status, reservedKg, issuedKg, returnedKg,
+releasedKg, openKg, onFloorKg, createdAt, updatedAt }` where `openKg` is still reserved in the lot and
+`onFloorKg` = issued − returned. Status: `ACTIVE`, `PARTIALLY_ISSUED`, `FULLY_ISSUED`, `RELEASED`.
+
+### `GET /api/orders/:id/reservations` (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
+
+`{ "data": { "reservations": [ … ], "totals": { reservedKg, issuedKg, returnedKg, releasedKg, openKg, onFloorKg } } }`
+
+### `POST /api/orders/:id/issue` (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+Body `{ "quantityKg": 300 }`. Hands reserved yarn to the floor, oldest reservation first; partial issues
+allowed. Only while the order's yarn is reserved (`MATERIAL_RESERVED`; later also `IN_PRODUCTION`). The
+order status does not change (production runs arrive in Phase 8). `200` with reservations and totals.
+`409 INSUFFICIENT_STOCK` (`details.openKg`) above what is still reserved; `409 CONFLICT` for another status.
+
+### `POST /api/orders/:id/return` (STORE_KEEPER, ADMIN; Idempotency-Key)
+
+Body `{ "quantityKg": 50, "reason": "Unused cones back from loom 3" }` (reason 5–500 chars). Unused yarn
+back into the lots it came from; at most what the order has on the floor; allowed in any status (a
+cancelled order's yarn may still come back). `409 QUANTITY_EXCEEDS_ISSUED` (`details.onFloorKg`) above that.
+
+### Cancelling a reserved order
+
+`POST /api/orders/:id/cancel` on a `MATERIAL_RESERVED` order also releases everything still reserved
+(ledger `RESERVATION_RELEASE`, audit `MATERIAL_RELEASED`) in the same transaction. Yarn already issued
+stays issued until returned.
+
 ### Unknown route
 
 ```bash
@@ -949,6 +1047,9 @@ the current factory state. No `422` is used anywhere.
 | `PRODUCT_INACTIVE` | 409 | The product is no longer sold | Refresh the catalog |
 | `ORDER_NOT_FEASIBLE` | 409 | Confirmation refused: the feasibility check failed; `details.feasibility` | Show the failing checks, refresh the feasibility |
 | `ORDER_NOT_EDITABLE` | 409 | Edit refused: the order is past `ORDER_CREATED`; `details.status` | Reload the order; offer cancel instead |
+| `QUANTITY_EXCEEDS_ISSUED` | 409 | Return of more yarn than the order has on the floor; `details.onFloorKg` | Show the limit, refresh the reservations |
+| `MACHINE_INACTIVE` | 409 | Action on a retired machine | Reactivate it first, or pick another machine |
+| `PROBLEM_ALREADY_RESOLVED` | 409 | The problem was resolved already (e.g. by someone else) | Refresh the machine |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |

@@ -198,7 +198,7 @@ describe('POST /api/orders/:id/confirm — feasible', () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
       code: 'INVALID_STATE_TRANSITION',
-      details: { from: 'CONFIRMED', to: 'CONFIRMED', allowed: ['CANCELLED'] },
+      details: { from: 'CONFIRMED', to: 'CONFIRMED', allowed: ['MATERIAL_RESERVED', 'CANCELLED'] },
     });
   });
 

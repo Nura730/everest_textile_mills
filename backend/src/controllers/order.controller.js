@@ -1,3 +1,4 @@
+import * as materialService from "../services/material.service.js";
 import * as orderService from "../services/order.service.js";
 import { sendIdempotent, sendSuccess } from "../utils/apiResponse.js";
 import { requestContext } from "../utils/requestContext.js";
@@ -60,5 +61,25 @@ export async function updateOrder(req, res) {
     req.validated.body,
     requestContext(req),
   );
+  return sendIdempotent(res, result);
+}
+
+export async function reserveMaterial(req, res) {
+  const result = await materialService.reserveForOrder(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendIdempotent(res, result);
+}
+
+export async function getReservations(req, res) {
+  const data = await materialService.getOrderReservations(req.validated.params.id);
+  return sendSuccess(res, data);
+}
+
+export async function issueMaterial(req, res) {
+  const result = await materialService.issueForOrder(req.validated.params.id, req.validated.body, requestContext(req));
+  return sendIdempotent(res, result);
+}
+
+export async function returnMaterial(req, res) {
+  const result = await materialService.returnForOrder(req.validated.params.id, req.validated.body, requestContext(req));
   return sendIdempotent(res, result);
 }
