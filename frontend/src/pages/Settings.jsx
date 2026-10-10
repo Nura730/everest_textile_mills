@@ -1,38 +1,59 @@
 import { useState } from 'react';
-import { Settings as SettingsIcon, User, Building, Bell, Shield, Database, Globe, Save } from 'lucide-react';
+import {
+  Settings as SettingsIcon,
+  User,
+  Building,
+  Bell,
+  Shield,
+  Database,
+  Wifi,
+  WifiOff,
+  CheckCircle,
+  RotateCcw,
+} from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
 const sections = [
-  { id: 'general', label: 'General', icon: Building },
-  { id: 'users', label: 'Users & Roles', icon: User },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'security', label: 'Security', icon: Shield },
-  { id: 'integrations', label: 'Integrations', icon: Database },
+  { id: 'general', label: 'Mill Configuration', icon: Building },
+  { id: 'offline', label: 'Offline-First & Sync (Sec. 14)', icon: Database },
+  { id: 'security', label: 'Security & Signatures', icon: Shield },
 ];
 
 export default function Settings() {
+  const { isOffline, setIsOffline, pendingSyncQueue, triggerSync } = useApp();
   const [activeSection, setActiveSection] = useState('general');
+  const [millName, setMillName] = useState('Everest Textile Mills');
+  const [savedNotice, setSavedNotice] = useState(false);
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 3000);
+  };
 
   return (
-    <div>
-      <div className="page-header">
-        <div className="page-header-info">
-          <h1>Settings</h1>
-          <p>System configuration and preferences</p>
+    <div className="erp-page-container">
+      <div className="erp-page-header">
+        <div className="erp-page-header-text">
+          <h1 className="erp-page-title">System Settings & Architecture</h1>
+          <p className="erp-page-subtitle">
+            Mill operational parameters, Dexie/IndexedDB offline sync diagnostics, and security configurations
+          </p>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
-        {/* Settings Nav */}
-        <div style={{ width: 220, flexShrink: 0 }}>
-          <div className="card" style={{ padding: 'var(--space-2)' }}>
-            {sections.map(section => {
+      <div style={{ display: 'flex', gap: 24 }}>
+        {/* Settings Sub-nav */}
+        <div style={{ width: 240, flexShrink: 0 }}>
+          <div className="erp-card" style={{ padding: 8 }}>
+            {sections.map((section) => {
               const Icon = section.icon;
               return (
                 <button
                   key={section.id}
-                  className={`sidebar-link ${activeSection === section.id ? 'active' : ''}`}
+                  className={`erp-sidebar-item ${activeSection === section.id ? 'active' : ''}`}
                   onClick={() => setActiveSection(section.id)}
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', marginBottom: 4 }}
                 >
                   <Icon size={16} />
                   <span>{section.label}</span>
@@ -42,310 +63,189 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Settings Content */}
+        {/* Content Panel */}
         <div style={{ flex: 1 }}>
           {activeSection === 'general' && (
-            <div className="card">
+            <div className="erp-card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">General Settings</div>
-                  <div className="card-subtitle">Mill information and global preferences</div>
+                  <h3 className="card-title">Mill Identity & Base Parameters</h3>
+                  <p className="card-subtitle">Global factory enterprise setup</p>
                 </div>
               </div>
 
-              <div style={{ maxWidth: 480 }}>
-                <div className="form-group">
-                  <label className="form-label">Mill Name</label>
-                  <input className="form-input" type="text" defaultValue="Everest Textile Mills" />
+              <form onSubmit={handleSave} style={{ maxWidth: 500, marginTop: 12 }}>
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="erp-label">Textile Mill Legal Name</label>
+                  <input
+                    type="text"
+                    className="erp-input"
+                    value={millName}
+                    onChange={(e) => setMillName(e.target.value)}
+                    required
+                  />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Location</label>
-                  <input className="form-input" type="text" defaultValue="Surat, Gujarat, India" />
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="erp-label">Manufacturing Plant Location</label>
+                  <input
+                    type="text"
+                    className="erp-input"
+                    defaultValue="GIDC Industrial Estate, Surat, Gujarat, India"
+                  />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">GSTIN</label>
-                  <input className="form-input" type="text" defaultValue="24AABCE1234F1ZH" />
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="erp-label">GSTIN / Tax Identification</label>
+                  <input
+                    type="text"
+                    className="erp-input"
+                    defaultValue="24AAACE9876K1ZQ"
+                  />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Currency</label>
-                  <select className="form-input form-select">
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="erp-label">Operating Currency</label>
+                  <select className="erp-select">
                     <option>INR (₹) — Indian Rupee</option>
                     <option>USD ($) — US Dollar</option>
                     <option>EUR (€) — Euro</option>
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Default Shift Duration</label>
-                  <select className="form-input form-select">
-                    <option>8 Hours</option>
-                    <option>10 Hours</option>
-                    <option>12 Hours</option>
+                <div className="form-group" style={{ marginBottom: 20 }}>
+                  <label className="erp-label">Standard Shift Architecture</label>
+                  <select className="erp-select">
+                    <option>3 Shifts × 8 Hours (24hr continuous spinning/weaving)</option>
+                    <option>2 Shifts × 12 Hours</option>
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Production Unit</label>
-                  <select className="form-input form-select">
-                    <option>Meters (m)</option>
-                    <option>Yards (yd)</option>
-                    <option>Kilograms (kg)</option>
-                  </select>
-                </div>
-
-                <hr className="divider" />
-
-                <div className="form-group">
-                  <label className="form-label">Timezone</label>
-                  <select className="form-input form-select">
-                    <option>Asia/Kolkata (IST, UTC+5:30)</option>
-                    <option>Asia/Dubai (GST, UTC+4)</option>
-                    <option>Europe/London (GMT, UTC+0)</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Date Format</label>
-                  <select className="form-input form-select">
-                    <option>YYYY-MM-DD</option>
-                    <option>DD/MM/YYYY</option>
-                    <option>MM/DD/YYYY</option>
-                  </select>
-                </div>
-
-                <div style={{ marginTop: 'var(--space-6)' }}>
-                  <button className="btn btn-primary">
-                    <Save size={16} />
-                    Save Changes
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'users' && (
-            <div className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Users & Roles</div>
-                  <div className="card-subtitle">Manage team members and their access levels</div>
-                </div>
-                <button className="btn btn-primary btn-sm">
-                  <User size={14} />
-                  Add User
+                <button type="submit" className="erp-btn-primary">
+                  Save Changes
                 </button>
-              </div>
-
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Department</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="table-cell-primary">Suresh Kumar</td>
-                    <td>suresh.k@everesttextiles.com</td>
-                    <td><span className="badge badge-dark">Plant Manager</span></td>
-                    <td>Management</td>
-                    <td><span className="badge badge-neutral">Active</span></td>
-                  </tr>
-                  <tr>
-                    <td className="table-cell-primary">Kavita Shah</td>
-                    <td>kavita.s@everesttextiles.com</td>
-                    <td><span className="badge badge-outline">QC Inspector</span></td>
-                    <td>Quality</td>
-                    <td><span className="badge badge-neutral">Active</span></td>
-                  </tr>
-                  <tr>
-                    <td className="table-cell-primary">Rajesh Khanna</td>
-                    <td>rajesh.k@everesttextiles.com</td>
-                    <td><span className="badge badge-outline">Machine Operator</span></td>
-                    <td>Production</td>
-                    <td><span className="badge badge-neutral">Active</span></td>
-                  </tr>
-                  <tr>
-                    <td className="table-cell-primary">Priya Thakur</td>
-                    <td>priya.t@everesttextiles.com</td>
-                    <td><span className="badge badge-outline">QC Inspector</span></td>
-                    <td>Quality</td>
-                    <td><span className="badge badge-neutral">Active</span></td>
-                  </tr>
-                  <tr>
-                    <td className="table-cell-primary">Amit Patel</td>
-                    <td>amit.p@everesttextiles.com</td>
-                    <td><span className="badge badge-outline">Stores Manager</span></td>
-                    <td>Inventory</td>
-                    <td><span className="badge badge-neutral">Active</span></td>
-                  </tr>
-                </tbody>
-              </table>
+                {savedNotice && (
+                  <span style={{ marginLeft: 12, fontSize: 13, color: 'var(--color-black)', fontWeight: 500 }}>
+                    ✓ Settings saved successfully
+                  </span>
+                )}
+              </form>
             </div>
           )}
 
-          {activeSection === 'notifications' && (
-            <div className="card">
+          {activeSection === 'offline' && (
+            <div className="erp-card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Notification Preferences</div>
-                  <div className="card-subtitle">Configure how and when you receive alerts</div>
+                  <h3 className="card-title">Offline-First Synchronization Engine</h3>
+                  <p className="card-subtitle">
+                    Section 14 & 15: Dexie.js / IndexedDB client transactions and idempotency verification
+                  </p>
                 </div>
               </div>
 
-              <div style={{ maxWidth: 520 }}>
-                {[
-                  { label: 'Machine errors and breakdowns', description: 'Immediate notification when a machine reports an error', defaultChecked: true },
-                  { label: 'Material shortage alerts', description: 'When stock falls below minimum level', defaultChecked: true },
-                  { label: 'QC failure notifications', description: 'When an inspection fails quality checks', defaultChecked: true },
-                  { label: 'Order deadline reminders', description: '3 days before order delivery deadline', defaultChecked: true },
-                  { label: 'Production run completions', description: 'When a production run reaches 100%', defaultChecked: false },
-                  { label: 'Dispatch confirmations', description: 'When a shipment is dispatched', defaultChecked: false },
-                  { label: 'Maintenance reminders', description: '2 days before scheduled maintenance', defaultChecked: true },
-                ].map((item, index) => (
-                  <div key={index} style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    padding: 'var(--space-4) 0',
-                    borderBottom: 'var(--border-light)',
-                  }}>
+              <div className="offline-status-box" style={{ marginTop: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {isOffline ? (
+                      <WifiOff size={24} style={{ color: 'var(--color-error)' }} />
+                    ) : (
+                      <Wifi size={24} style={{ color: 'var(--color-black)' }} />
+                    )}
                     <div>
-                      <div style={{ fontWeight: 500, fontSize: 'var(--font-size-md)', color: 'var(--color-gray-900)' }}>
-                        {item.label}
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-gray-500)', marginTop: 2 }}>
-                        {item.description}
+                      <strong>
+                        Current Network State: {isOffline ? 'OFFLINE (Floor Storage Mode)' : 'CONNECTED (Central ERP Live)'}
+                      </strong>
+                      <div className="text-xs text-secondary">
+                        {isOffline
+                          ? 'Transactions saved to browser IndexedDB with unique UUID transaction IDs.'
+                          : 'Zero network latency. Bidirectional sync active with backend.'}
                       </div>
                     </div>
-                    <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0, marginLeft: 'var(--space-4)' }}>
-                      <input type="checkbox" defaultChecked={item.defaultChecked} style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }} />
-                      <span style={{
-                        position: 'absolute',
-                        cursor: 'pointer',
-                        inset: 0,
-                        background: item.defaultChecked ? 'var(--color-gray-900)' : 'var(--color-gray-300)',
-                        borderRadius: 11,
-                        transition: 'var(--transition-normal)',
-                      }}>
-                        <span style={{
-                          position: 'absolute',
-                          left: item.defaultChecked ? 20 : 2,
-                          top: 2,
-                          width: 18,
-                          height: 18,
-                          background: 'var(--color-white)',
-                          borderRadius: '50%',
-                          transition: 'var(--transition-normal)',
-                        }} />
-                      </span>
-                    </label>
                   </div>
-                ))}
 
-                <div style={{ marginTop: 'var(--space-6)' }}>
-                  <button className="btn btn-primary">
-                    <Save size={16} />
-                    Save Preferences
+                  <button
+                    className={`erp-btn-sm ${isOffline ? 'erp-btn-dark' : 'erp-btn-outline'}`}
+                    onClick={() => {
+                      if (isOffline) {
+                        triggerSync();
+                      } else {
+                        setIsOffline(true);
+                      }
+                    }}
+                  >
+                    {isOffline ? 'Simulate Reconnection & Sync' : 'Simulate Offline Floor Disconnect'}
                   </button>
+                </div>
+
+                <div className="erp-table-wrapper" style={{ marginTop: 16 }}>
+                  <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600 }}>
+                    Pending Sync Queue ({pendingSyncQueue.length} transactions waiting)
+                  </div>
+                  {pendingSyncQueue.length === 0 ? (
+                    <div style={{ padding: '16px 0', color: 'var(--color-gray-500)', fontSize: 13 }}>
+                      All local offline transactions are fully synchronized with MongoDB.
+                    </div>
+                  ) : (
+                    <table className="erp-data-table">
+                      <thead>
+                        <tr>
+                          <th>Transaction ID</th>
+                          <th>Action</th>
+                          <th>Actor</th>
+                          <th>Timestamp</th>
+                          <th>Sync Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingSyncQueue.map((item) => (
+                          <tr key={item.txnId}>
+                            <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.txnId}</td>
+                            <td>{item.event.action}</td>
+                            <td>{item.event.actorName}</td>
+                            <td>{item.event.timestamp}</td>
+                            <td>
+                              <span className="erp-status-badge outline">Pending Retry</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
           {activeSection === 'security' && (
-            <div className="card">
+            <div className="erp-card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Security</div>
-                  <div className="card-subtitle">Authentication and access control</div>
+                  <h3 className="card-title">Digital Signatures & Cryptography</h3>
+                  <p className="card-subtitle">
+                    Section 11: Selective high-accountability business boundaries (QC Approval & Dispatch Hand-off)
+                  </p>
                 </div>
               </div>
 
-              <div style={{ maxWidth: 480 }}>
-                <div className="form-group">
-                  <label className="form-label">Session Timeout</label>
-                  <select className="form-input form-select">
-                    <option>30 minutes</option>
-                    <option>1 hour</option>
-                    <option>4 hours</option>
-                    <option>8 hours</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Minimum Password Length</label>
-                  <select className="form-input form-select">
-                    <option>8 characters</option>
-                    <option>12 characters</option>
-                    <option>16 characters</option>
-                  </select>
-                </div>
-
-                <hr className="divider" />
-
-                <div style={{ marginTop: 'var(--space-4)' }}>
-                  <button className="btn btn-primary">
-                    <Save size={16} />
-                    Save Settings
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'integrations' && (
-            <div className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Integrations</div>
-                  <div className="card-subtitle">Connect external services and systems</div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                {[
-                  { name: 'Odoo ERP', description: 'Sync orders, invoices, and inventory with Odoo', connected: true },
-                  { name: 'Tally Prime', description: 'Financial accounting integration', connected: false },
-                  { name: 'SMS Gateway', description: 'Send dispatch and alert notifications via SMS', connected: true },
-                  { name: 'IoT Sensor Hub', description: 'Machine telemetry and real-time monitoring', connected: false },
-                ].map((item, index) => (
-                  <div key={index} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 'var(--space-4)',
-                    border: 'var(--border-light)',
-                    borderRadius: 'var(--radius-md)',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                      <div style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 'var(--radius-md)',
-                        background: 'var(--color-gray-150)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>
-                        <Database size={18} style={{ color: 'var(--color-gray-600)' }} />
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 600, color: 'var(--color-gray-900)' }}>{item.name}</div>
-                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-gray-500)' }}>{item.description}</div>
-                      </div>
-                    </div>
-                    <button className={`btn btn-sm ${item.connected ? 'btn-secondary' : 'btn-primary'}`}>
-                      {item.connected ? 'Configured' : 'Connect'}
-                    </button>
+              <div style={{ marginTop: 16, fontSize: 13, lineHeight: 1.6 }}>
+                <p style={{ marginBottom: 12 }}>
+                  In accordance with the hackathon engineering requirements, digital signatures are applied strictly at two formal handoff boundaries:
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                  <div className="erp-card" style={{ padding: 14 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>1. QC Approval Boundary</div>
+                    <p className="text-xs text-secondary">
+                      Ensures a certified inspector takes full traceability responsibility before moving rolls into finished goods inventory.
+                    </p>
                   </div>
-                ))}
+                  <div className="erp-card" style={{ padding: 14 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>2. Dispatch Carrier Boundary</div>
+                    <p className="text-xs text-secondary">
+                      Ensures Store Keeper legally signs off on physical vehicle loading and prevents duplicate invoice creation.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
