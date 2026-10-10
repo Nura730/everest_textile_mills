@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import authRoutes from './auth.routes.js';
 import healthRoutes from './health.routes.js';
+import inventoryRoutes from './inventory.routes.js';
 import userRoutes from './user.routes.js';
 import yarnLotRoutes from './yarnLot.routes.js';
 
@@ -21,5 +22,6 @@ router.use(authenticate);
 
 router.use('/users', userRoutes);
 router.use('/yarn-lots', yarnLotRoutes);
+router.use('/inventory', inventoryRoutes);
 
 export default router;
