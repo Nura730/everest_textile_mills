@@ -40,18 +40,25 @@ describe('GET /api/health', () => {
 });
 
 describe('app wiring', () => {
-  it('returns the 404 envelope for unknown routes with a request id', async () => {
-    const res = await request(app).get('/api/yarns');
+  it('returns the 404 envelope for unknown routes outside /api with a request id', async () => {
+    const res = await request(app).get('/nope');
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({
       success: false,
       error: {
         code: 'NOT_FOUND',
-        message: 'Route not found: GET /api/yarns',
+        message: 'Route not found: GET /nope',
         requestId: res.headers['x-request-id'],
       },
     });
+  });
+
+  it('answers 401, not 404, for unknown /api routes without a token (no route probing)', async () => {
+    const res = await request(app).get('/api/yarns');
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHENTICATED');
   });
 
   it('sets security headers and hides the framework', async () => {
