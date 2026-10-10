@@ -44,6 +44,8 @@ export const can = {
   createOrder: (role) => role === ROLES.BUYER || role === ROLES.ADMIN,
   cancelOrder: (role) => role === ROLES.BUYER || role === ROLES.ADMIN,
   rejectOrder: (role) => role === ROLES.ADMIN,
+  confirmOrder: (role) => role === ROLES.ADMIN,
+  viewFeasibility: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   manageBuyers: (role) => role === ROLES.ADMIN,
   manageProducts: (role) => role === ROLES.ADMIN,
   manageUsers: (role) => role === ROLES.ADMIN,

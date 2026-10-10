@@ -75,7 +75,7 @@ function OpenOrdersTable({ orders, showBuyer, showYarn, emptyText }) {
 
 /**
  * Open-order yarn demand next to available stock, per material and colour. Indicative only: the
- * formal per-order feasibility check (yarn, machines, deadline) is the next backend phase.
+ * formal per-order check is the feasibility panel on each order (GET /orders/:id/feasibility).
  */
 function YarnDemand({ summary, openOrders }) {
   const rows = useMemo(() => {
@@ -143,6 +143,7 @@ function ModuleStatus({ role }) {
       <ul className="module-list">
         <li><CheckCircle2 size={14} aria-hidden="true" /> Sign-in, roles and user accounts</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Buyers, fabric catalog and orders</li>
+        <li><CheckCircle2 size={14} aria-hidden="true" /> Order feasibility check and confirmation</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
         {previews.map((item) => (
           <li key={item.to} className="module-preview">
@@ -200,7 +201,7 @@ function AdminDashboard() {
         <Kpi label="Active buyers" value={d.buyers.meta.total} sub={`${d.products.meta.total} catalog fabrics`} icon={Building2} to="/buyers" />
         <Kpi label="Active users" value={d.users.meta.total} sub="Across all roles" icon={UsersIcon} to="/users" />
       </div>
-      <Section title="Orders awaiting confirmation" subtitle="Earliest deadline first. Open one to cancel or reject.">
+      <Section title="Orders awaiting confirmation" subtitle="Earliest deadline first. Open one to check feasibility and confirm, or reject.">
         <OpenOrdersTable orders={open.slice(0, 8)} showBuyer showYarn emptyText="No new orders are waiting." />
       </Section>
       <div className="detail-columns">

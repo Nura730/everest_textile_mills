@@ -119,13 +119,17 @@ transaction), `buyerId`, buyer snapshot (`code`, `name`), `productId`, product s
 `requiredBy` (calendar date stored as UTC midnight; must be after today in India, ≤ 2 years),
 `status`, `statusHistory[]` (`from`, `to`, `at`, `by`, `byRole`, `reason` — small, feeds the buyer
 timeline; the audit log stays the full record), `buyerNotes`, `createdBy`, `createdByRole`, timestamps.
-Later phases add: `feasibility` (latest snapshot: `status`, `reasons[]`, `inputs`, `computedAt`)
-and `estimatedCompletionAt` (Phase 6), `confirmedBy`.
+Built in Phase 6 (feasibility, material + deadline): `feasibility` — the snapshot the order was
+confirmed on (`status`, `checks[]` of `{ code, result, message }`, `inputs` in integer grams,
+`computedAt`), `null` until confirmed — and `confirmedBy`. Later: `estimatedCompletionAt` and a
+machine-capacity check once machines exist (Phase 7).
 Status changes are guarded updates (`{ _id, status: <expected> }`), so concurrent changes cannot
 both apply. Indexes: `{ orderNumber: 1 }` unique; `{ buyerId: 1, createdAt: -1 }` (a buyer's list);
 `{ status: 1, requiredBy: 1 }` (work queue by deadline); `{ createdAt: -1 }` (staff list).
 Transitions implemented in Phase 5: `ORDER_CREATED → CANCELLED` (owning BUYER or ADMIN) and
-`ORDER_CREATED → REJECTED` (ADMIN), both with a reason.
+`ORDER_CREATED → REJECTED` (ADMIN), both with a reason. Phase 6: `ORDER_CREATED → CONFIRMED` (ADMIN,
+only when the feasibility check passes) and `CONFIRMED → CANCELLED` (owning BUYER or ADMIN; nothing
+to release yet because reservations arrive in Phase 4).
 
 ```
 ORDER_CREATED ──confirm (runs feasibility)──▶ CONFIRMED ──reserve yarn──▶ MATERIAL_RESERVED
@@ -220,7 +224,8 @@ Written **in the same transaction** as the business change it describes.
   rework paise/roll, overhead basis points), each version effective from a date; costing records
   which version it used.
 - `locks`: shared documents that force write conflicts where snapshot isolation would allow write
-  skew (Phase 2: `user-admin-status`).
+  skew (Phase 2: `user-admin-status`; Phase 6: `yarn-commitment:<material>:<colour>`, claimed by
+  every confirmation so two orders cannot both be confirmed against the same free yarn).
 
 ## 4. Inventory design
 

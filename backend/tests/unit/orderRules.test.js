@@ -40,8 +40,12 @@ describe('order transition table', () => {
     expect(canTransition(ORDER_STATUS.ORDER_CREATED, ORDER_STATUS.REJECTED)).toBe(true);
   });
 
-  it('does not yet allow confirmation (it needs the Phase 6 feasibility check)', () => {
-    expect(canTransition(ORDER_STATUS.ORDER_CREATED, ORDER_STATUS.CONFIRMED)).toBe(false);
+  it('allows confirming a newly created order (the service gates it on feasibility)', () => {
+    expect(canTransition(ORDER_STATUS.ORDER_CREATED, ORDER_STATUS.CONFIRMED)).toBe(true);
+  });
+
+  it('lets a confirmed order only be cancelled (not rejected, not re-confirmed)', () => {
+    expect(allowedNextStatuses(ORDER_STATUS.CONFIRMED)).toEqual([ORDER_STATUS.CANCELLED]);
   });
 
   it.each([ORDER_STATUS.CANCELLED, ORDER_STATUS.REJECTED])('treats %s as terminal', (status) => {

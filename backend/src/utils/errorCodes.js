@@ -23,6 +23,8 @@ export const ERROR_CODES = Object.freeze({
   // Orders
   BUYER_INACTIVE: 409,
   PRODUCT_INACTIVE: 409,
+  // The feasibility check failed, so the order cannot be confirmed; details carry the checks.
+  ORDER_NOT_FEASIBLE: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,
   LAST_ACTIVE_ADMIN: 409,

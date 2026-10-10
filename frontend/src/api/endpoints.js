@@ -30,8 +30,15 @@ export const productsApi = {
 export const ordersApi = {
   list: (query) => apiRequest("/orders", { query }),
   get: (id) => apiRequest(`/orders/${id}`),
+  feasibility: (id) => apiRequest(`/orders/${id}/feasibility`),
   create: (body, idempotencyKey) =>
     apiRequest("/orders", { method: "POST", body, idempotencyKey }),
+  confirm: (id, idempotencyKey) =>
+    apiRequest(`/orders/${id}/confirm`, {
+      method: "POST",
+      body: {},
+      idempotencyKey,
+    }),
   cancel: (id, reason, idempotencyKey) =>
     apiRequest(`/orders/${id}/cancel`, {
       method: "POST",

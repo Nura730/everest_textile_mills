@@ -43,6 +43,7 @@ Last verified: 2026-10-10, against MongoDB Atlas, backend on :4000, frontend (Vi
 | Dashboard (5 role variants) | all | `/orders`, `/inventory/yarn-summary`, `/yarn-lots`, `/buyers`, `/products`, `/users` (role-dependent) | orders, yarnLots, buyers, products, users |
 | Orders list | all (buyer: own) | `GET /orders` | orders |
 | Order detail + cancel/reject | all (buyer: own) | `GET /orders/:id`, `POST /orders/:id/cancel`, `POST /orders/:id/reject` | orders, auditLogs, idempotencyRecords |
+| Order feasibility + confirm (on order detail) | SK, FM (view); ADMIN (view, confirm) | `GET /orders/:id/feasibility`, `POST /orders/:id/confirm` | orders, yarnLots, locks, auditLogs, idempotencyRecords |
 | Place order (modal) | BUYER, ADMIN | `GET /products`, `GET /buyers` (admin), `POST /orders` | orders, counters, auditLogs, idempotencyRecords |
 | Fabric catalog | all | `GET /products`, `POST /products` (admin) | products, auditLogs |
 | Buyers | ADMIN | `GET /buyers`, `POST /buyers` | buyers, auditLogs |
@@ -77,7 +78,7 @@ cd frontend && npx oxlint src && npm run build
 
 ## Known gaps (honest status)
 
-- **Not built yet (backend):** order confirmation/feasibility, material reservation, machines,
+- **Not built yet (backend):** machine-capacity part of feasibility, material reservation, machines,
   production, QC, finished goods, dispatch, invoicing, costing, audit-trail screen, offline sync.
   Their screens are previews with sample data and say so.
 - **Database name:** the current `MONGODB_URI` has no database path, so data lives in Atlas's

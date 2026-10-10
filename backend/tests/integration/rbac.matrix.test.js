@@ -30,7 +30,7 @@ let matrixBuyer;
 let matrixProduct;
 const newOrder = () => createTestOrder({ buyer: matrixBuyer, product: matrixProduct, createdBy: '64b7f0c2a1b2c3d4e5f60718' });
 
-async function existingLot() {
+async function existingLot({ totalGrams = 100_000 } = {}) {
   seq += 1;
   return YarnLot.create({
     lotNumber: `MATRIX-${seq}`,
@@ -40,7 +40,7 @@ async function existingLot() {
     costPerKgPaise: 30000,
     receivedAt: new Date(),
     receivedBy: '64b7f0c2a1b2c3d4e5f60718',
-    totalGrams: 100_000,
+    totalGrams,
   });
 }
 const MATRIX = [
@@ -200,6 +200,27 @@ const MATRIX = [
     method: 'get',
     allowed: ALL_ROLES,
     build: async () => ({ path: `/api/orders/${(await newOrder())._id}` }),
+  },
+  // ── Phase 6: feasibility and confirmation ──
+  {
+    name: 'GET /api/orders/:id/feasibility',
+    method: 'get',
+    allowed: STOCK_VIEWERS,
+    build: async () => ({ path: `/api/orders/${(await newOrder())._id}/feasibility` }),
+  },
+  {
+    name: 'POST /api/orders/:id/confirm',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    // Enough Navy cotton for the order's 850 kg, so the allowed role passes feasibility.
+    build: async () => {
+      await existingLot({ totalGrams: 1_000_000 });
+      return {
+        path: `/api/orders/${(await newOrder())._id}/confirm`,
+        body: {},
+        headers: { 'Idempotency-Key': newKey() },
+      };
+    },
   },
   {
     name: 'POST /api/orders/:id/cancel',

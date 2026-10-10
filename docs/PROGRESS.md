@@ -16,9 +16,9 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 | 2 | Auth & RBAC | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 270 |
 | — | Domain model (`docs/DATABASE.md`) | ✅ Done (D1, D2, D5 confirmed; D3, D4, D6–D8 pending) | `feature/backend` | via `feature/backend` | — |
 | 3 | Yarn inventory | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 439 |
-| 5 | Buyers, catalog, orders (+ ownership) — built before 4 (D5) | 🟡 Implemented, **uncommitted** (awaiting owner review) | `feature/backend` | — | 621 |
+| 5 | Buyers, catalog, orders (+ ownership) — built before 4 (D5) | ✅ Done, merged to `main` | `feature/backend` | via `feature/backend` | 621 |
+| 6 | Feasibility (material + deadline) and confirmation — built before 4 | 🟡 Implemented, **uncommitted** | `feature/backend` | — | 671 |
 | 4 | Material reservation | ⏳ Next | | | |
-| 6 | Feasibility | Not started | | | |
 | 7 | Machines | Not started | | | |
 | 8 | Production runs | Not started | | | |
 | 9 | Roll traceability | Not started | | | |
@@ -41,7 +41,7 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 - Cost visible to STORE_KEEPER/ADMIN only.
 - Docs: `docs/features/phase-03-inventory.md`, `docs/learning/phase-03-inventory.md`, README contract.
 
-## Phase 5 — what is done (uncommitted)
+## Phase 5 — what is done
 
 - `Buyer` (company), `Product` (fabric catalog with yarn g/m), `Order` (snapshots, statusHistory), `Counter`.
 - `users.buyerId`: required for BUYER at account creation; `req.user.buyerId` read from the DB.
@@ -52,11 +52,28 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 - `seed:dev` adds buyer `BUY-DEV` (linked to buyer@) and two products.
 - Docs: `docs/features/phase-05-orders.md`, `docs/learning/phase-05-orders.md`, README contract, DATABASE.md.
 
+## Phase 6 — what is done (uncommitted)
+
+Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE.md` lifecycle;
+`instruction.md` §25 lists feasibility before reservation).
+
+- Explainable check (`services/feasibility.service.js`): `MATERIAL` (free yarn of the material/colour =
+  stock − reserved − other `CONFIRMED` orders' need), `DEADLINE` (still after today, IST),
+  `MACHINE_CAPACITY` reported `NOT_ASSESSED` until machines exist.
+- `GET /api/orders/:id/feasibility` (STORE_KEEPER, FLOOR_MANAGER, ADMIN), live, read-only.
+- `POST /api/orders/:id/confirm` (ADMIN, Idempotency-Key): re-checks inside the transaction, refuses
+  with `409 ORDER_NOT_FEASIBLE`, stores the `feasibility` snapshot + `confirmedBy`, audits `ORDER_CONFIRMED`.
+- Per material/colour lock (`locks/yarn-commitment:*`) so concurrent confirmations cannot double-promise yarn.
+- `CONFIRMED → CANCELLED` (owning BUYER or ADMIN).
+- Frontend: feasibility card and Confirm button on order detail.
+- Docs: `docs/features/phase-06-feasibility.md`, `docs/learning/phase-06-feasibility.md`, README contract, DATABASE.md.
+
 ## Next
 
-1. Owner reviews and commits Phase 5.
-2. Phase 4 — material reservation for orders (reserve, release, issue, return) on the existing ledger.
-3. Phase 6 — feasibility and `ORDER_CREATED → CONFIRMED`.
+1. Owner reviews and commits Phase 6.
+2. Phase 4 — material reservation for confirmed orders (reserve → `MATERIAL_RESERVED`, release on
+   cancel, issue, return) on the existing ledger.
+3. Phase 7 — machines; then add the machine-capacity check to feasibility.
 
 ## Open decisions / process issues
 
@@ -64,7 +81,7 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 - **Integration:** the team merges `feature/backend` into `main` through PRs (as with PRs #3–#24).
   `develop` is not used in practice and is still at Phase 1.
 - **PRs must be opened by hand**: `gh` is not installed.
-- `instruction.md` has an uncommitted local edit by the owner; never included in backend commits.
+- Phase numbers here differ from `instruction.md` §32 (e.g. orders are Phase 4 there, 5 here).
 
 ## Known issues / limitations
 
@@ -74,6 +91,8 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 - Audit events for login and user management are specified but not emitted until Phase 13.
 - Existing BUYER accounts without `buyerId` see no orders until linked; there is no admin "link an
   existing user to a company" endpoint yet (`seed:dev` links `buyer@everest.local`).
-- Orders cannot progress past `ORDER_CREATED` until Phase 6 (confirmation after feasibility).
+- Orders cannot progress past `CONFIRMED` until Phase 4 (reservation).
+- Feasibility does not assess machine capacity yet; the admin dashboard's yarn-demand view counts only
+  `ORDER_CREATED` orders, not confirmed ones.
 - SIGTERM graceful-shutdown test is skipped on Windows.
 - Dev-only `npm audit` advisories in `sprintf-js` (via Jest); runtime dependencies have none.

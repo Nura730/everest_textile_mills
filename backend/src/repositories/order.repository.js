@@ -38,14 +38,29 @@ export async function findOrdersPage({ buyerId, status, productId }, { page, lim
 }
 
 /**
- * Moves an order from `from` to `to` only if it is still in `from` at the moment of the write
- * (check and write in one operation). Returns the updated order, or null if someone else changed
- * the status first.
+ * Yarn grams required by the orders of one material and colour in `status`, optionally leaving
+ * one order out (the one being assessed).
  */
-export function transitionStatusGuarded(orderId, from, to, change, session) {
+export async function sumOrderYarnGrams({ material, colour, status, excludeOrderId }, { session } = {}) {
+  const match = { 'product.material': material, 'product.colour': colour, status };
+  if (excludeOrderId) match._id = { $ne: excludeOrderId };
+  const [row] = await Order.aggregate([
+    { $match: match },
+    { $group: { _id: null, grams: { $sum: '$requiredYarnGrams' } } },
+  ]).session(session ?? null);
+  return row?.grams ?? 0;
+}
+
+/**
+ * Moves an order from `from` to `to` only if it is still in `from` at the moment of the write
+ * (check and write in one operation). `set` holds extra fields written with the change (e.g. the
+ * feasibility snapshot on confirmation). Returns the updated order, or null if someone else
+ * changed the status first.
+ */
+export function transitionStatusGuarded(orderId, from, to, change, session, set = {}) {
   return Order.findOneAndUpdate(
     { _id: orderId, status: from },
-    { $set: { status: to }, $push: { statusHistory: change } },
+    { $set: { ...set, status: to }, $push: { statusHistory: change } },
     { returnDocument: 'after', session, lean: true },
   );
 }

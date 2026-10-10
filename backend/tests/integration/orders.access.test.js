@@ -206,9 +206,16 @@ describe('POST /api/orders/:id/reject', () => {
     expect(res.body.error.details).toMatchObject({ from: 'CANCELLED', to: 'REJECTED' });
   });
 
-  it('returns 409 for an order in a later status that has no transition yet', async () => {
+  it('returns 409 when rejecting a confirmed order (it can only be cancelled now)', async () => {
     const confirmed = await createTestOrder({ buyer: surat, product, createdBy: admin._id, status: 'CONFIRMED' });
     const res = await act(admin, confirmed._id, 'reject');
+    expect(res.status).toBe(409);
+    expect(res.body.error.details.allowed).toEqual(['CANCELLED']);
+  });
+
+  it('returns 409 for an order in a later status that has no transition yet', async () => {
+    const reserved = await createTestOrder({ buyer: surat, product, createdBy: admin._id, status: 'MATERIAL_RESERVED' });
+    const res = await act(admin, reserved._id, 'reject');
     expect(res.status).toBe(409);
     expect(res.body.error.details.allowed).toEqual([]);
   });

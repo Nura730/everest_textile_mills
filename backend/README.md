@@ -170,6 +170,8 @@ Notes:
 | `POST /api/orders` | | | | ✓ own company | ✓ (names buyer) |
 | `POST /api/orders/:id/cancel` | | | | ✓ own | ✓ |
 | `POST /api/orders/:id/reject` | | | | | ✓ |
+| `GET /api/orders/:id/feasibility` | ✓ | ✓ | | | ✓ |
+| `POST /api/orders/:id/confirm` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -647,6 +649,7 @@ What each role receives:
 | id, orderNumber, status, buyer, product, quantityMetres, requiredBy, buyerNotes, statusHistory, timestamps | ✓ | ✓ | ✓ |
 | `pricePerMetrePaise`, `orderValuePaise` | ✓ | ✓ | |
 | `requiredYarnKg`, `createdBy`, `statusHistory[].by` | | ✓ | ✓ |
+| `feasibility`, `confirmedBy` (both `null` until confirmed) | | ✓ | ✓ |
 
 As seen by the buyer:
 
@@ -671,8 +674,10 @@ As seen by the buyer:
 }
 ```
 
-The same order for ADMIN additionally has `"requiredYarnKg": 850`, `"createdBy": "…"` and `"by"` on each
-history entry. For the floor manager: `requiredYarnKg`, `createdBy`, `by` — but no price or value.
+The same order for ADMIN additionally has `"requiredYarnKg": 850`, `"createdBy": "…"`, `"by"` on each
+history entry, and `"feasibility"` / `"confirmedBy"` (see confirmation below). For the floor manager:
+the same internal fields — but no price or value. A buyer sees that an order is `CONFIRMED`, never the
+factory's stock figures behind the decision.
 
 Product and price are **copied onto the order** when it is created; editing the catalog later never
 changes an existing order.
@@ -680,13 +685,15 @@ changes an existing order.
 ### Order statuses
 
 ```
-ORDER_CREATED ──cancel (owning BUYER or ADMIN)──▶ CANCELLED
-ORDER_CREATED ──reject (ADMIN)──────────────────▶ REJECTED
+ORDER_CREATED ──confirm (ADMIN, feasibility must pass)──▶ CONFIRMED
+ORDER_CREATED ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
+ORDER_CREATED ──reject (ADMIN)──────────────────────────▶ REJECTED
+CONFIRMED     ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
 ```
 
-Only these transitions exist today. `CONFIRMED` (after the feasibility check) and the later statuses
-(`MATERIAL_RESERVED`, `IN_PRODUCTION`, `PRODUCTION_COMPLETED`, `READY_FOR_DISPATCH`, `DISPATCHED`,
-`INVOICED`) arrive with their phases. Any other change returns `409 INVALID_STATE_TRANSITION`.
+Only these transitions exist today. The later statuses (`MATERIAL_RESERVED`, `IN_PRODUCTION`,
+`PRODUCTION_COMPLETED`, `READY_FOR_DISPATCH`, `DISPATCHED`, `INVOICED`) arrive with their phases. Any
+other change returns `409 INVALID_STATE_TRANSITION`.
 
 ### `POST /api/orders` — place an order (BUYER, ADMIN; Idempotency-Key)
 
@@ -749,7 +756,8 @@ Another company's order returns **404 `NOT_FOUND`** (exactly like a missing orde
 
 ### `POST /api/orders/:id/cancel` (owning BUYER, ADMIN; Idempotency-Key)
 
-Body: `{ "reason": "Buyer changed plans" }` (5–500 chars). `200` with the updated order:
+Works on an order in `ORDER_CREATED` or `CONFIRMED`. Body: `{ "reason": "Buyer changed plans" }`
+(5–500 chars). `200` with the updated order:
 
 ```json
 "statusHistory": [
@@ -775,6 +783,66 @@ Cancelling again:
 ### `POST /api/orders/:id/reject` (ADMIN; Idempotency-Key)
 
 Body: `{ "reason": "Deadline cannot be met" }`. Same responses as cancel; ends in `REJECTED`.
+Only from `ORDER_CREATED` (a confirmed order can be cancelled, not rejected).
+
+### Feasibility
+
+An explainable check, never a black box: each check says what it compared and why it passed.
+
+| Check | Rule | Result |
+|---|---|---|
+| `MATERIAL` | **free** yarn of the order's material and colour ≥ `requiredYarnKg`, where free = (total − reserved across all lots) − yarn needed by **other `CONFIRMED` orders** (confirmed orders hold no reservation until Phase 4, so they are subtracted to stop the same kilograms being promised twice) | `PASS` / `FAIL` |
+| `DEADLINE` | `requiredBy` is still after today (India calendar) | `PASS` / `FAIL` |
+| `MACHINE_CAPACITY` | Not evaluated until machines exist (Phase 7); never fails an order | `NOT_ASSESSED` |
+
+`status` is `NOT_FEASIBLE` if any check is `FAIL`, otherwise `FEASIBLE`. There is no hidden safety margin:
+exactly enough yarn passes.
+
+### `GET /api/orders/:id/feasibility` (STORE_KEEPER, FLOOR_MANAGER, ADMIN)
+
+Runs the check now against current stock and changes nothing. Not available to buyers (it reveals stock).
+
+```json
+{
+  "success": true,
+  "data": {
+    "feasibility": {
+      "status": "NOT_FEASIBLE",
+      "checks": [
+        { "code": "MATERIAL", "result": "FAIL",
+          "message": "Short by 250 kg: needs 850 kg of COTTON Navy yarn but only 600 kg is free (1,450 kg available in stock − 850 kg promised to other confirmed orders)." },
+        { "code": "DEADLINE", "result": "PASS", "message": "30 days left until the required-by date (2026-11-09)." },
+        { "code": "MACHINE_CAPACITY", "result": "NOT_ASSESSED",
+          "message": "Machine capacity and workload are not checked yet: machines arrive in a later phase." }
+      ],
+      "inputs": {
+        "requiredYarnKg": 850, "stockTotalKg": 1650, "stockReservedKg": 200, "stockAvailableKg": 1450,
+        "committedKg": 850, "freeKg": 600, "shortfallKg": 250,
+        "requiredBy": "2026-11-09", "assessedOn": "2026-10-10", "daysToDeadline": 30
+      },
+      "computedAt": "2026-10-10T11:02:13.481Z"
+    }
+  }
+}
+```
+
+`404` for an unknown order.
+
+### `POST /api/orders/:id/confirm` (ADMIN; Idempotency-Key)
+
+Body: none, or `{}` (any field is a 400: there is no way to force a verdict). The check is run again
+**inside the transaction**; if it passes the order becomes `CONFIRMED`, the result is stored on the order
+as `feasibility` (the snapshot it was confirmed on, same shape as above), `confirmedBy` is set, and an
+`ORDER_CONFIRMED` audit entry is written. `200` with the updated order.
+
+| Status | Code | When |
+|---|---|---|
+| 409 | `ORDER_NOT_FEASIBLE` | A check failed. `message` lists the reasons; `details.feasibility` has the full result. Nothing is stored, so retrying with the same key after stock arrives runs the check again |
+| 409 | `INVALID_STATE_TRANSITION` | The order is not in `ORDER_CREATED` |
+| 404 | `NOT_FOUND` | Unknown order |
+
+Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
+a lock per material and colour, and the second one sees the first as committed.
 
 ### Unknown route
 
@@ -806,6 +874,7 @@ the current factory state. No `422` is used anywhere.
 | `INVALID_STATE_TRANSITION` | 409 | Status change not allowed from the current status; `details`: `{ from, to, allowed }` | Refresh the record; show `message` |
 | `BUYER_INACTIVE` | 409 | The buyer company is inactive | Show `message` |
 | `PRODUCT_INACTIVE` | 409 | The product is no longer sold | Refresh the catalog |
+| `ORDER_NOT_FEASIBLE` | 409 | Confirmation refused: the feasibility check failed; `details.feasibility` | Show the failing checks, refresh the feasibility |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
@@ -856,7 +925,8 @@ src/
   repositories/     data access with guarded atomic updates (yarn lots, ledger)
   audit/            recordAudit(): audit entry inside the business transaction
   validators/       zod request schemas
-  services/         business rules: auth, users, inventory, idempotency, password hashing, tokens
+  services/         business rules: auth, users, inventory, catalog, orders, feasibility,
+                    idempotency, password hashing, tokens
   middleware/       requestLogger, authenticate, authorize, rateLimit, validate, notFound, errorHandler
   routes/           URL → handler mapping; index.js mounts everything under /api
   controllers/      HTTP in/out only, no business rules

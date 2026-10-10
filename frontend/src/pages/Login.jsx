@@ -227,7 +227,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1 className="login-title">Manufacturing ERP</h1>
+        <h1 className="login-title">Everest Textile Mills</h1>
         <p className="login-sub">Sign in to access the system</p>
 
         {formError && (

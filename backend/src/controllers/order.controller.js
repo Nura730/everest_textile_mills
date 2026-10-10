@@ -40,3 +40,16 @@ export async function rejectOrder(req, res) {
   );
   return sendIdempotent(res, result);
 }
+
+export async function getOrderFeasibility(req, res) {
+  const feasibility = await orderService.getOrderFeasibility(req.validated.params.id);
+  return sendSuccess(res, { feasibility });
+}
+
+export async function confirmOrder(req, res) {
+  const result = await orderService.confirmOrder(
+    req.validated.params.id,
+    requestContext(req),
+  );
+  return sendIdempotent(res, result);
+}

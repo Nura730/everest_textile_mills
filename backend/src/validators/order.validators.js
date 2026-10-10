@@ -57,3 +57,7 @@ export const orderIdParamsSchema = z.object({ id: objectIdSchema });
 export const statusChangeBodySchema = z.strictObject({
   reason: z.string().trim().min(5).max(500),
 });
+
+// Confirmation takes no input: the feasibility check decides. An empty body (or none) is fine;
+// anything else (a status, a forced verdict) is a 400.
+export const confirmOrderBodySchema = z.strictObject({});

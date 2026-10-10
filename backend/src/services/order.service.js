@@ -1,11 +1,13 @@
+import mongoose from "mongoose";
 import { recordAudit } from "../audit/recordAudit.js";
+import { CHECK_RESULT, FEASIBILITY_STATUS } from "../constants/feasibility.js";
 import {
   ORDER_STATUS,
   allowedNextStatuses,
   canTransition,
 } from "../constants/orderStatus.js";
 import { ROLES } from "../constants/roles.js";
-import { toPublicOrder } from "../models/Order.js";
+import { toPublicFeasibility, toPublicOrder } from "../models/Order.js";
 import {
   findBuyerById,
   findProductById,
@@ -20,6 +22,7 @@ import {
 import { AppError } from "../utils/AppError.js";
 import { dateStringToDate, todayInIndia } from "../utils/dates.js";
 import { metresToCm } from "../utils/units.js";
+import { assessOrderFeasibility } from "./feasibility.service.js";
 import { executeIdempotent } from "./idempotency.service.js";
 
 /**
@@ -43,6 +46,20 @@ export function formatOrderNumber(year, seq) {
 
 function notFound() {
   return new AppError("NOT_FOUND", "Order not found");
+}
+
+function invalidTransition(order, to) {
+  return new AppError(
+    "INVALID_STATE_TRANSITION",
+    `An order in status ${order.status} cannot become ${to}`,
+    {
+      details: {
+        from: order.status,
+        to,
+        allowed: allowedNextStatuses(order.status),
+      },
+    },
+  );
 }
 
 function missingReference(field) {
@@ -232,18 +249,7 @@ function changeStatus(orderId, actionName, { reason }, context) {
       const order = await findOrderById(orderId, { session });
       if (!order || !isOwnedBy(order, actor)) throw notFound();
 
-      const invalid = () =>
-        new AppError(
-          "INVALID_STATE_TRANSITION",
-          `An order in status ${order.status} cannot become ${action.to}`,
-          {
-            details: {
-              from: order.status,
-              to: action.to,
-              allowed: allowedNextStatuses(order.status),
-            },
-          },
-        );
+      const invalid = () => invalidTransition(order, action.to);
       if (!canTransition(order.status, action.to)) throw invalid();
 
       const updated = await transitionStatusGuarded(
@@ -287,3 +293,102 @@ export const cancelOrder = (orderId, input, context) =>
   changeStatus(orderId, "CANCEL", input, context);
 export const rejectOrder = (orderId, input, context) =>
   changeStatus(orderId, "REJECT", input, context);
+
+/**
+ * Live feasibility check for one order, without changing anything. Internal roles only (the route
+ * enforces it): the answer reveals stock levels, which buyers never see.
+ */
+export async function getOrderFeasibility(id) {
+  const order = await findOrderById(id);
+  if (!order) throw notFound();
+  return toPublicFeasibility(await assessOrderFeasibility(order));
+}
+
+/**
+ * Two admins confirming two orders for the same yarn at the same moment would each see the other
+ * as unconfirmed and both pass (write skew: the transactions write different orders). Writing one
+ * shared lock per material and colour turns that into a write conflict; withTransaction retries
+ * the loser, whose retry counts the winner's order as committed.
+ */
+async function claimYarnCommitmentLock({ material, colour }, session) {
+  await mongoose.connection
+    .collection("locks")
+    .updateOne(
+      { _id: `yarn-commitment:${material}:${colour}` },
+      { $inc: { version: 1 } },
+      { upsert: true, session },
+    );
+}
+
+/**
+ * ORDER_CREATED → CONFIRMED (ADMIN). The feasibility check runs inside the transaction; a failing
+ * check refuses the confirmation with 409 ORDER_NOT_FEASIBLE and the reasons. A passing check is
+ * stored on the order as the snapshot it was confirmed on.
+ */
+export function confirmOrder(orderId, context) {
+  const { actor } = context;
+
+  return executeIdempotent(
+    { context, operation: "ORDER_CONFIRM", request: { orderId } },
+    async (session) => {
+      const order = await findOrderById(orderId, { session });
+      if (!order) throw notFound();
+      if (!canTransition(order.status, ORDER_STATUS.CONFIRMED))
+        throw invalidTransition(order, ORDER_STATUS.CONFIRMED);
+
+      await claimYarnCommitmentLock(order.product, session);
+      const feasibility = await assessOrderFeasibility(order, { session });
+      if (feasibility.status !== FEASIBILITY_STATUS.FEASIBLE) {
+        const failing = feasibility.checks.filter(
+          (check) => check.result === CHECK_RESULT.FAIL,
+        );
+        throw new AppError(
+          "ORDER_NOT_FEASIBLE",
+          `This order cannot be confirmed. ${failing.map((check) => check.message).join(" ")}`,
+          { details: { feasibility: toPublicFeasibility(feasibility) } },
+        );
+      }
+
+      const updated = await transitionStatusGuarded(
+        order._id,
+        order.status,
+        ORDER_STATUS.CONFIRMED,
+        {
+          from: order.status,
+          to: ORDER_STATUS.CONFIRMED,
+          at: new Date(),
+          by: actor.id,
+          byRole: actor.role,
+        },
+        session,
+        { feasibility, confirmedBy: actor.id },
+      );
+      if (!updated) throw invalidTransition(order, ORDER_STATUS.CONFIRMED);
+
+      await recordAudit(
+        {
+          action: "ORDER_CONFIRMED",
+          entityType: "Order",
+          entityId: order._id,
+          orderId: order._id,
+          before: { status: order.status },
+          after: {
+            status: ORDER_STATUS.CONFIRMED,
+            feasibility: {
+              status: feasibility.status,
+              checks: feasibility.checks,
+              inputs: feasibility.inputs,
+            },
+          },
+        },
+        context,
+        session,
+      );
+
+      return {
+        statusCode: 200,
+        body: { order: toPublicOrder(updated, actor) },
+      };
+    },
+  );
+}

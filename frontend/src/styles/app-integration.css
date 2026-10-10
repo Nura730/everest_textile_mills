@@ -157,6 +157,15 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
   border-radius: 10px; background: var(--color-gray-100); font-size: 0.8125rem; line-height: 1.5; color: var(--color-gray-700);
 }
 
+/* ── Feasibility (extends the .feasibility-* panel styles in index.css) ────── */
+.feasibility-metric-label { font-size: 0.6875rem; color: var(--color-gray-500); }
+.feasibility-metric-value { font-size: 0.9375rem; font-weight: 600; color: var(--color-gray-900); }
+.feasibility-reasons-list { list-style: none; margin: 0; }
+.feasibility-check { display: flex; gap: 6px; align-items: flex-start; line-height: 1.5; }
+.feasibility-check svg { flex-shrink: 0; margin-top: 2px; }
+.feasibility-check.fail { color: var(--color-error-dark); }
+.feasibility-check.not_assessed { color: var(--color-gray-500); }
+
 /* ── Status history ────────────────────────────────────────────────────────── */
 .status-history { list-style: none; margin: 12px 0 0; padding: 0; }
 .status-history-item { position: relative; display: flex; gap: 12px; padding-bottom: 16px; }
@@ -449,4 +458,6 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
   .erp-user-info, .hide-sm { display: none; }
   .erp-header-right { gap: 8px; }
   .erp-tall-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .feasibility-metrics-summary { grid-template-columns: 1fr 1fr; }
+  .feasibility-verdict-row { flex-direction: column; align-items: flex-start; gap: 4px; }
 }

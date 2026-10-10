@@ -17,15 +17,18 @@ export const ALL_ORDER_STATUSES = Object.freeze(Object.values(ORDER_STATUS));
 
 /**
  * from → the statuses it may move to. Anything not listed is an invalid transition (409).
- * Phase 5: only cancelling or rejecting a freshly created order.
- * Phase 6 adds ORDER_CREATED → CONFIRMED (after the feasibility check), Phase 4 the reservation
- * step, and so on.
+ * Phase 5: cancelling or rejecting a freshly created order.
+ * Phase 6: ORDER_CREATED → CONFIRMED (only after a passing feasibility check), and a confirmed
+ * order can still be cancelled (it holds no reservations yet). Phase 4 adds the reservation step,
+ * and so on.
  */
 const ALLOWED_TRANSITIONS = Object.freeze({
   [ORDER_STATUS.ORDER_CREATED]: Object.freeze([
+    ORDER_STATUS.CONFIRMED,
     ORDER_STATUS.CANCELLED,
     ORDER_STATUS.REJECTED,
   ]),
+  [ORDER_STATUS.CONFIRMED]: Object.freeze([ORDER_STATUS.CANCELLED]),
 });
 
 export function allowedNextStatuses(from) {

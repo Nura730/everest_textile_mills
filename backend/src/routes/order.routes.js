@@ -7,6 +7,7 @@ import { validate } from "../middleware/validate.js";
 import {
   adminCreateOrderBodySchema,
   buyerCreateOrderBodySchema,
+  confirmOrderBodySchema,
   listOrdersQuerySchema,
   orderIdParamsSchema,
   statusChangeBodySchema,
@@ -15,6 +16,8 @@ import {
 // Mounted at /api/orders, after authenticate. Ownership (a buyer sees only their own orders) is
 // enforced in the order service, on every read and every status change.
 const router = Router();
+// Who may see a feasibility check: it exposes stock levels, so internal planning roles only.
+const FEASIBILITY_VIEWERS = [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN];
 
 /** The body a caller may send depends on who they are: only an ADMIN may name the buyer. */
 function validateCreateOrderBody(req, res, next) {
@@ -43,6 +46,19 @@ router.get(
   authorize(...ALL_ROLES),
   validate({ params: orderIdParamsSchema }),
   orderController.getOrder,
+);
+router.get(
+  "/:id/feasibility",
+  authorize(...FEASIBILITY_VIEWERS),
+  validate({ params: orderIdParamsSchema }),
+  orderController.getOrderFeasibility,
+);
+router.post(
+  "/:id/confirm",
+  authorize(ROLES.ADMIN),
+  requireIdempotencyKey,
+  validate({ params: orderIdParamsSchema, body: confirmOrderBodySchema }),
+  orderController.confirmOrder,
 );
 router.post(
   "/:id/cancel",

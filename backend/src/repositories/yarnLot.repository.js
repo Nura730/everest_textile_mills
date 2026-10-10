@@ -67,6 +67,15 @@ export function summarizeByMaterialAndColour({ material, includeDepleted }) {
   ]);
 }
 
+/** Total and reserved grams across every lot of one material and colour (feasibility input). */
+export async function sumStockForMaterialColour({ material, colour }, { session } = {}) {
+  const [row] = await YarnLot.aggregate([
+    { $match: { material, colour } },
+    { $group: { _id: null, totalGrams: { $sum: '$totalGrams' }, reservedGrams: { $sum: '$reservedGrams' } } },
+  ]).session(session ?? null);
+  return { totalGrams: row?.totalGrams ?? 0, reservedGrams: row?.reservedGrams ?? 0 };
+}
+
 export function findAllLotBalances() {
   return YarnLot.find({}, { lotNumber: 1, totalGrams: 1, reservedGrams: 1 }).lean();
 }
