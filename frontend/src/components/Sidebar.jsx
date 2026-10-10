@@ -1,109 +1,105 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
-  ShoppingCart,
-  Factory,
-  Package,
-  CheckSquare,
-  Cog,
-  Truck,
+  TrendingUp,
+  ClipboardList,
+  Sliders,
+  Box,
+  Layers,
+  History,
+  BarChart2,
+  Users,
   Settings,
   ChevronLeft,
   ChevronRight,
-  Layers,
+  ShieldAlert,
 } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
-const navSections = [
-  {
-    label: 'Overview',
-    items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      { to: '/orders', icon: ShoppingCart, label: 'Orders', badge: '10' },
-      { to: '/production', icon: Factory, label: 'Production' },
-      { to: '/inventory', icon: Package, label: 'Inventory', errorBadge: '3' },
-      { to: '/quality', icon: CheckSquare, label: 'Quality Control' },
-    ],
-  },
-  {
-    label: 'Resources',
-    items: [
-      { to: '/machines', icon: Cog, label: 'Machines', errorBadge: '1' },
-      { to: '/dispatch', icon: Truck, label: 'Dispatch' },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { to: '/settings', icon: Settings, label: 'Settings' },
-    ],
-  },
-];
+export default function Sidebar({ collapsed, onToggle }) {
+  const { machines, inventory, orders } = useApp();
 
-export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
-  const location = useLocation();
+  const errorMachinesCount = machines.filter((m) => m.error).length;
+  const shortageCount = inventory.filter((i) => i.shortage).length;
+  const qcFailedOrders = orders.filter((o) => o.status === 'Failed QC').length;
+
+  const menuItems = [
+    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    {
+      to: '/orders',
+      label: 'Manufacturing Orders',
+      icon: TrendingUp,
+      badge: qcFailedOrders > 0 ? `${qcFailedOrders} alert` : undefined,
+      isErrorBadge: qcFailedOrders > 0,
+    },
+    { to: '/production', label: 'Work Orders', icon: ClipboardList },
+    {
+      to: '/machines',
+      label: 'Work Centers',
+      icon: Sliders,
+      badge: errorMachinesCount > 0 ? `${errorMachinesCount}` : undefined,
+      isErrorBadge: errorMachinesCount > 0,
+    },
+    {
+      to: '/inventory',
+      label: 'Inventory',
+      icon: Box,
+      badge: shortageCount > 0 ? `${shortageCount}` : undefined,
+      isErrorBadge: shortageCount > 0,
+    },
+    { to: '/bom', label: 'BOM', icon: Layers },
+    { to: '/ledger', label: 'Stock Ledger', icon: History },
+    { to: '/reports', label: 'Reports', icon: BarChart2 },
+    { to: '/analytics', label: 'Analytics', icon: TrendingUp },
+    { to: '/users', label: 'Users', icon: Users },
+    { to: '/settings', label: 'Settings', icon: Settings },
+  ];
 
   return (
-    <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
-      {/* Brand */}
-      <div className="sidebar-brand">
-        <div className="sidebar-brand-logo">
-          <Layers />
-        </div>
-        {!collapsed && (
-          <div className="sidebar-brand-text">
-            Textile<span>IQ</span>
-          </div>
-        )}
-      </div>
-
-      {/* Navigation */}
-      <nav className="sidebar-nav">
-        {navSections.map((section) => (
-          <div key={section.label}>
-            {!collapsed && (
-              <div className="sidebar-section-label">{section.label}</div>
-            )}
-            {section.items.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.to;
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={`sidebar-link ${isActive ? 'active' : ''}`}
-                  onClick={onMobileClose}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon />
-                  {!collapsed && (
-                    <>
-                      <span>{item.label}</span>
-                      {item.badge && (
-                        <span className="sidebar-link-badge">{item.badge}</span>
-                      )}
-                      {item.errorBadge && (
-                        <span className="sidebar-link-badge error">{item.errorBadge}</span>
-                      )}
-                    </>
-                  )}
-                </NavLink>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
-
-      {/* Footer Toggle */}
-      <div className="sidebar-footer">
-        <button className="sidebar-toggle" onClick={onToggle}>
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+    <aside className={`erp-sidebar ${collapsed ? 'collapsed' : ''}`}>
+      {/* Sidebar Top: "Menu" + collapse toggle `<` */}
+      <div className="erp-sidebar-header">
+        {!collapsed && <span className="erp-sidebar-title">Menu</span>}
+        <button
+          className="erp-sidebar-toggle-btn"
+          onClick={onToggle}
+          title={collapsed ? 'Expand Menu' : 'Collapse Menu'}
+        >
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
+
+      {/* Nav Menu */}
+      <nav className="erp-sidebar-nav">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `erp-sidebar-item ${isActive ? 'active' : ''}`
+              }
+              title={collapsed ? item.label : undefined}
+            >
+              <Icon size={18} className="erp-nav-icon" />
+              {!collapsed && (
+                <>
+                  <span className="erp-nav-label">{item.label}</span>
+                  {item.badge && (
+                    <span
+                      className={`erp-nav-badge ${item.isErrorBadge ? 'error' : ''}`}
+                    >
+                      {item.isErrorBadge && <ShieldAlert size={11} style={{ marginRight: 2 }} />}
+                      {item.badge}
+                    </span>
+                  )}
+                </>
+              )}
+            </NavLink>
+          );
+        })}
+      </nav>
     </aside>
   );
 }
