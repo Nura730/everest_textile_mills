@@ -7,10 +7,10 @@ import { ROLES, can } from '../auth/roles.js';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
 import { Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
-import { formatPaise } from '../utils/format.js';
+import { formatPaise, rupeesToPaise } from '../utils/format.js';
 import { useNavigate } from 'react-router-dom';
 
 const MATERIALS = ['COTTON', 'POLYESTER', 'VISCOSE', 'NYLON', 'WOOL', 'SILK', 'LINEN', 'BLEND'];
@@ -32,9 +32,9 @@ function CreateProductModal({ onClose, onCreated }) {
   async function onSubmit(event) {
     event.preventDefault();
     if (busy) return;
-    const price = Number(form.priceRupees);
+    const pricePerMetrePaise = rupeesToPaise(form.priceRupees);
     const found = {};
-    if (!(price > 0)) found.pricePerMetrePaise = 'Enter the price per metre in rupees.';
+    if (!pricePerMetrePaise) found.pricePerMetrePaise = 'Enter a price per metre above ₹0, at most 2 decimals (e.g. 180.50).';
     if (!form.colour.trim()) found.colour = 'Enter the colour.';
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -48,7 +48,7 @@ function CreateProductModal({ onClose, onCreated }) {
       widthCm: Number(form.widthCm),
       gsm: Number(form.gsm),
       yarnGramsPerMetre: Number(form.yarnGramsPerMetre),
-      pricePerMetrePaise: Math.round(price * 100),
+      pricePerMetrePaise,
     };
     setBusy(true);
     try {
@@ -193,6 +193,7 @@ export default function Products() {
             </table>
           </div>
         )}
+        <ListLimitNotice shown={list.length} total={products.meta?.total} />
       </div>
       {creating && (
         <CreateProductModal

@@ -6,7 +6,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES, ROLE_LABELS } from '../auth/roles.js';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
 import { formatDateTime } from '../utils/format.js';
@@ -166,6 +166,7 @@ export default function Users() {
             </table>
           </div>
         )}
+        <ListLimitNotice shown={list.length} total={users.meta?.total} />
       </div>
       {creating && (
         <CreateUserModal

@@ -4,7 +4,7 @@ import { fieldErrorsOf } from '../api/client.js';
 import { buyersApi } from '../api/endpoints.js';
 import { Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
 import { formatDate } from '../utils/format.js';
@@ -137,6 +137,7 @@ export default function Buyers() {
             </table>
           </div>
         )}
+        <ListLimitNotice shown={list.length} total={buyers.meta?.total} />
       </div>
       {creating && (
         <CreateBuyerModal

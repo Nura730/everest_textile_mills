@@ -166,6 +166,8 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .feasibility-check.fail { color: var(--color-error-dark); }
 .feasibility-check.not_assessed { color: var(--color-gray-500); }
 
+.list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
+
 /* ── Status history ────────────────────────────────────────────────────────── */
 .status-history { list-style: none; margin: 12px 0 0; padding: 0; }
 .status-history-item { position: relative; display: flex; gap: 12px; padding-bottom: 16px; }

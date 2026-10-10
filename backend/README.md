@@ -33,7 +33,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm start` | Production start, JSON logs on stdout |
 | `npm test` | Jest (native ESM) against an in-memory MongoDB replica set |
 | `npm run test:watch` | Same, in watch mode |
-| `npm run seed:dev` | Creates `admin@`, `store@`, `floor@`, `qc@`, `buyer@everest.local` (all with `SEED_PASSWORD`), the buyer company `BUY-DEV` (linked to `buyer@`), and products `COT-NAVY-PLAIN` and `POL-WHITE-TWILL`. Idempotent, never overwrites a password, **refuses in production** |
+| `npm run seed:dev` | Creates `admin@`, `store@`, `floor@`, `qc@`, `buyer@` and `buyer2@everest.local` (all with `SEED_PASSWORD`), buyer companies `BUY-DEV` (linked to `buyer@`) and `BUY-TPR` (linked to `buyer2@`), products `COT-NAVY-PLAIN` and `POL-WHITE-TWILL`, four yarn lots and five demo orders, all through the real services (see `docs/DEV_ACCOUNTS.md`). Idempotent, never overwrites a password, **refuses in production** |
 | `npm run bootstrap:admin` | Creates the **first** admin from `BOOTSTRAP_ADMIN_*`. Works in production; refuses while an active admin exists; never promotes an existing account |
 
 The first `npm test` downloads a `mongod` binary (~100 MB) into the npm cache; it needs internet once.

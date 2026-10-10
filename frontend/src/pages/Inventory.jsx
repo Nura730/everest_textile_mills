@@ -6,10 +6,10 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { can } from '../auth/roles.js';
 import { Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
-import { formatDate, formatDateTime, formatNumber, formatPaise } from '../utils/format.js';
+import { formatDate, formatDateTime, formatNumber, formatPaise, rupeesToPaise } from '../utils/format.js';
 
 const MATERIALS = ['COTTON', 'POLYESTER', 'VISCOSE', 'NYLON', 'WOOL', 'SILK', 'LINEN', 'BLEND'];
 const TX_LABELS = {
@@ -46,10 +46,10 @@ function ReceiveModal({ onClose, onDone }) {
     event.preventDefault();
     if (busy) return;
     const qty = Number(form.quantityKg);
-    const cost = Number(form.costRupees);
+    const costPerKgPaise = rupeesToPaise(form.costRupees);
     const found = {};
     if (!(qty > 0)) found.quantityKg = 'Enter the received quantity in kg.';
-    if (!(cost >= 0) || form.costRupees === '') found.costPerKgPaise = 'Enter the cost per kg in rupees.';
+    if (costPerKgPaise === null) found.costPerKgPaise = 'Enter the cost per kg in rupees, at most 2 decimals (e.g. 320.50).';
     setErrors(found);
     if (Object.keys(found).length) return;
 
@@ -59,7 +59,7 @@ function ReceiveModal({ onClose, onDone }) {
       colour: form.colour,
       supplierName: form.supplierName,
       quantityKg: qty,
-      costPerKgPaise: Math.round(cost * 100),
+      costPerKgPaise,
       ...(form.yarnCount.trim() ? { yarnCount: form.yarnCount.trim() } : {}),
     };
     setBusy(true);
@@ -212,6 +212,7 @@ function LedgerModal({ lot, onClose }) {
           </tbody>
         </table>
       )}
+      {ledger.data && <ListLimitNotice shown={ledger.data.transactions.length} total={ledger.meta?.total} />}
     </Modal>
   );
 }
@@ -392,6 +393,7 @@ export default function Inventory() {
                 </table>
               </div>
             )}
+            <ListLimitNotice shown={lotList.length} total={lots.meta?.total} />
           </>
         )}
       </div>

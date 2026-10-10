@@ -36,6 +36,17 @@ function useDashboardData(loaders) {
   }, []);
 }
 
+/*
+ * Orders still ahead of production: awaiting a decision (ORDER_CREATED) or confirmed and waiting for
+ * yarn (CONFIRMED). Both need yarn and floor time. The list API filters by one status, so the two
+ * lists are fetched and merged.
+ */
+const PIPELINE_STATUSES = ['ORDER_CREATED', 'CONFIRMED'];
+async function loadPipelineOrders() {
+  const pages = await Promise.all(PIPELINE_STATUSES.map((status) => ordersApi.list({ status, limit: 100 })));
+  return { data: { orders: pages.flatMap((page) => page.data.orders) } };
+}
+
 const byDeadline = (a, b) => a.requiredBy.localeCompare(b.requiredBy);
 const overdueOrDueSoon = (orders) => orders.filter((order) => isOpenOrder(order) && daysUntil(order.requiredBy) <= 7);
 
@@ -175,6 +186,7 @@ function Section({ title, subtitle, action, children }) {
 function AdminDashboard() {
   const dash = useDashboardData({
     open: () => ordersApi.list({ status: 'ORDER_CREATED', limit: 100 }),
+    pipeline: loadPipelineOrders,
     all: () => ordersApi.list({ limit: 1 }),
     rejected: () => ordersApi.list({ status: 'REJECTED', limit: 1 }),
     cancelled: () => ordersApi.list({ status: 'CANCELLED', limit: 1 }),
@@ -205,8 +217,8 @@ function AdminDashboard() {
         <OpenOrdersTable orders={open.slice(0, 8)} showBuyer showYarn emptyText="No new orders are waiting." />
       </Section>
       <div className="detail-columns">
-        <Section title="Yarn demand vs stock" subtitle="Open orders compared with unreserved stock.">
-          <YarnDemand summary={d.summary.data.summary} openOrders={open} />
+        <Section title="Yarn demand vs stock" subtitle="New and confirmed orders compared with unreserved stock.">
+          <YarnDemand summary={d.summary.data.summary} openOrders={d.pipeline.data.orders} />
         </Section>
         <ModuleStatus role={ROLES.ADMIN} />
       </div>
@@ -273,7 +285,7 @@ function StoreDashboard() {
   const dash = useDashboardData({
     summary: () => inventoryApi.summary(),
     lots: () => inventoryApi.lots({ limit: 1 }),
-    open: () => ordersApi.list({ status: 'ORDER_CREATED', limit: 100 }),
+    open: loadPipelineOrders,
   });
   if (dash.error) return <ErrorState error={dash.error} onRetry={dash.reload} />;
   if (!dash.data) return <LoadingState label="Loading stock…" />;
@@ -287,7 +299,7 @@ function StoreDashboard() {
         <Kpi label="Yarn available" value={formatNumber(Math.round(available), 'kg')} icon={Box} to="/inventory" />
         <Kpi label="Reserved for orders" value={formatNumber(Math.round(reserved), 'kg')} icon={Box} />
         <Kpi label="Lots in stock" value={d.lots.meta.total} icon={Box} to="/inventory" />
-        <Kpi label="Open orders" value={d.open.data.orders.length} sub="Will need yarn" icon={ClipboardList} to="/orders" />
+        <Kpi label="Open orders" value={d.open.data.orders.length} sub="New or confirmed: will need yarn" icon={ClipboardList} to="/orders" />
       </div>
       <Section title="Yarn demand vs stock" subtitle="Plan purchases before shortages hit the floor." action={<Link className="erp-btn-primary" to="/inventory">Receive yarn</Link>}>
         <YarnDemand summary={summary} openOrders={d.open.data.orders} />
@@ -298,7 +310,7 @@ function StoreDashboard() {
 
 function FloorDashboard() {
   const dash = useDashboardData({
-    open: () => ordersApi.list({ status: 'ORDER_CREATED', limit: 100 }),
+    open: loadPipelineOrders,
     summary: () => inventoryApi.summary(),
   });
   if (dash.error) return <ErrorState error={dash.error} onRetry={dash.reload} />;
@@ -322,7 +334,7 @@ function FloorDashboard() {
 }
 
 function QcDashboard() {
-  const open = useApiQuery(() => ordersApi.list({ status: 'ORDER_CREATED', limit: 100 }), []);
+  const open = useApiQuery(loadPipelineOrders, []);
   return (
     <>
       <Section title="Pending inspections" subtitle="Rolls reach QC after production.">

@@ -28,146 +28,27 @@ function loginErrorMessage(error) {
   }
 }
 
-function CreateCompanyModal({ onClose, onCreated }) {
-  const toast = useToast();
-  const [form, setForm] = useState({
-    companyName: '',
-    millType: 'Spinning & Weaving Mill',
-    adminName: '',
-    email: '',
-    password: '',
-    location: '',
-  });
-  const [errors, setErrors] = useState({});
-  const [submitting, setSubmitting] = useState(false);
-
-  const update = (field) => (event) => {
-    setForm((current) => ({ ...current, [field]: event.target.value }));
-    setErrors((current) => ({ ...current, [field]: undefined }));
-  };
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    const found = {};
-    if (!form.companyName.trim()) found.companyName = 'Company name is required.';
-    if (!form.adminName.trim()) found.adminName = 'Administrator name is required.';
-    if (!form.email.trim()) found.email = 'Valid work email is required.';
-    if (form.password.length < 10) found.password = 'Password must be at least 10 characters.';
-
-    setErrors(found);
-    if (Object.keys(found).length > 0) return;
-
-    setSubmitting(true);
-    // Simulate tenant provisioning delay
-    setTimeout(() => {
-      setSubmitting(false);
-      toast.success(`Company account created for ${form.companyName}! You can now sign in.`);
-      onCreated(form.email);
-    }, 600);
-  }
-
+/**
+ * There is no self-registration: accounts are created by an ADMIN (POST /api/users), and buyer
+ * companies by an ADMIN (POST /api/buyers). This explains that instead of pretending to sign up.
+ */
+function AccountHelpModal({ onClose }) {
   return (
     <Modal
-      title="Create Company Account"
-      subtitle="Register a new manufacturing tenant and primary administrator."
+      title="Getting an account"
+      subtitle="Everest accounts are created by the factory administrator."
       onClose={onClose}
-      busy={submitting}
       footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
-          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={submitting}>
-            Cancel
-          </button>
-          <button type="button" className="erp-btn-primary" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? 'Creating workspace…' : 'Create Account'}
-          </button>
-        </div>
+        <button type="button" className="erp-btn-primary" onClick={onClose}>
+          Got it
+        </button>
       }
     >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div className="login-form-group" style={{ marginBottom: 0 }}>
-          <label className="login-form-label" htmlFor="reg-company">Company / Mill Name</label>
-          <input
-            id="reg-company"
-            type="text"
-            className={`erp-input ${errors.companyName ? 'erp-input-error' : ''}`}
-            placeholder="e.g. Everest Textile Mills Ltd."
-            value={form.companyName}
-            onChange={update('companyName')}
-            autoFocus
-          />
-          {errors.companyName && <span className="login-field-error">{errors.companyName}</span>}
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <div className="login-form-group" style={{ marginBottom: 0 }}>
-            <label className="login-form-label" htmlFor="reg-type">Mill Type</label>
-            <select
-              id="reg-type"
-              className="erp-input"
-              value={form.millType}
-              onChange={update('millType')}
-            >
-              <option value="Spinning & Weaving Mill">Spinning & Weaving Mill</option>
-              <option value="Knitting & Garment Unit">Knitting & Garment Unit</option>
-              <option value="Dyeing & Processing">Dyeing & Processing</option>
-              <option value="Yarn & Fabric Wholesaler">Yarn & Fabric Wholesaler</option>
-            </select>
-          </div>
-
-          <div className="login-form-group" style={{ marginBottom: 0 }}>
-            <label className="login-form-label" htmlFor="reg-location">Location / City</label>
-            <input
-              id="reg-location"
-              type="text"
-              className="erp-input"
-              placeholder="e.g. Tiruppur, Tamil Nadu"
-              value={form.location}
-              onChange={update('location')}
-            />
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <div className="login-form-group" style={{ marginBottom: 0 }}>
-            <label className="login-form-label" htmlFor="reg-admin">Administrator Name</label>
-            <input
-              id="reg-admin"
-              type="text"
-              className={`erp-input ${errors.adminName ? 'erp-input-error' : ''}`}
-              placeholder="e.g. Arun Shanmugavel"
-              value={form.adminName}
-              onChange={update('adminName')}
-            />
-            {errors.adminName && <span className="login-field-error">{errors.adminName}</span>}
-          </div>
-
-          <div className="login-form-group" style={{ marginBottom: 0 }}>
-            <label className="login-form-label" htmlFor="reg-email">Work Email</label>
-            <input
-              id="reg-email"
-              type="email"
-              className={`erp-input ${errors.email ? 'erp-input-error' : ''}`}
-              placeholder="e.g. admin@everesttextiles.com"
-              value={form.email}
-              onChange={update('email')}
-            />
-            {errors.email && <span className="login-field-error">{errors.email}</span>}
-          </div>
-        </div>
-
-        <div className="login-form-group" style={{ marginBottom: 0 }}>
-          <label className="login-form-label" htmlFor="reg-password">Admin Password (≥ 10 characters)</label>
-          <input
-            id="reg-password"
-            type="password"
-            className={`erp-input ${errors.password ? 'erp-input-error' : ''}`}
-            placeholder="Enter a secure password"
-            value={form.password}
-            onChange={update('password')}
-          />
-          {errors.password && <span className="login-field-error">{errors.password}</span>}
-        </div>
-      </form>
+      <p className="confirm-message">
+        There is no self-registration. Ask the factory administrator to create your account: staff accounts
+        are created under <strong>Users</strong>, and a buyer account is linked to its company, which the
+        administrator adds under <strong>Buyers</strong>. You will receive your email and password from them.
+      </p>
     </Modal>
   );
 }
@@ -184,7 +65,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
-  const [showCompanyModal, setShowCompanyModal] = useState(false);
+  const [showAccountHelp, setShowAccountHelp] = useState(false);
   const [showDemoShelf, setShowDemoShelf] = useState(false);
 
   if (status === 'signedIn') return <Navigate to="/dashboard" replace />;
@@ -217,11 +98,14 @@ export default function Login() {
     }
   }
 
+  // Fills the email only. Passwords never live in frontend code: the dev password is SEED_PASSWORD in
+  // backend/.env (docs/DEV_ACCOUNTS.md).
   function pickDemoAccount(demo) {
     setEmail(demo.email);
-    setPassword('Everest-Dev-bf7ba8');
+    setPassword('');
     setFieldErrors({});
     setFormError(null);
+    document.getElementById('password')?.focus();
   }
 
   return (
@@ -300,9 +184,9 @@ export default function Login() {
             <button
               type="button"
               className="create-company-link"
-              onClick={() => setShowCompanyModal(true)}
+              onClick={() => setShowAccountHelp(true)}
             >
-              Create Company Account
+              How to get one
             </button>
           </div>
         </form>
@@ -335,15 +219,7 @@ export default function Login() {
         </aside>
       )}
 
-      {showCompanyModal && (
-        <CreateCompanyModal
-          onClose={() => setShowCompanyModal(false)}
-          onCreated={(createdEmail) => {
-            setShowCompanyModal(false);
-            if (createdEmail) setEmail(createdEmail);
-          }}
-        />
-      )}
+      {showAccountHelp && <AccountHelpModal onClose={() => setShowAccountHelp(false)} />}
     </div>
   );
 }
