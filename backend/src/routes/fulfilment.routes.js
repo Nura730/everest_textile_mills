@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { attentionFor } from '../services/attention.service.js';
 import { z } from 'zod';
-import { ROLES } from '../constants/roles.js';
+import { ALL_ROLES, ROLES } from '../constants/roles.js';
 import { DISPATCH_STATUS, FG_STATUS } from '../models/Fulfilment.js';
 import { authorize } from '../middleware/authorize.js';
 import { requireIdempotencyKey } from '../middleware/idempotencyKey.js';
@@ -98,3 +99,5 @@ invoiceRoutes.get('/:id', invoiceViewers, validate({ params: idParams }), async 
 
 export const summaryRoutes = Router();
 summaryRoutes.get('/fulfilment', staff, async (req, res) => sendSuccess(res, await fulfilment.fulfilmentSummary()));
+// What needs the caller's attention (navigation badges, dashboard insights); scoped by role and buyer.
+summaryRoutes.get('/attention', authorize(...ALL_ROLES), async (req, res) => sendSuccess(res, await attentionFor(req.user)));

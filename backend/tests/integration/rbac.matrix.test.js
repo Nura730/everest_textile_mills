@@ -527,6 +527,7 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  { name: 'GET /api/summary/attention', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/summary/attention' }) },
   // ── Cryptographic signatures ──
   { name: 'GET /api/signatures/keys/me', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/signatures/keys/me' }) },
   { name: 'GET /api/signatures/keys/:id', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/signatures/keys/${new mongoose.Types.ObjectId()}` }) },
