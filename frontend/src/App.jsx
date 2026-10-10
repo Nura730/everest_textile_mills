@@ -13,6 +13,7 @@ import Inventory from './pages/Inventory';
 import MachineDetail from './pages/MachineDetail';
 import MachineList from './pages/MachineList';
 import ProductionList from './pages/ProductionList';
+import AuditTrail from './pages/AuditTrail';
 import DispatchPage from './pages/DispatchPage';
 import Invoices from './pages/Invoices';
 import QcQueue from './pages/QcQueue';
@@ -46,6 +47,7 @@ const LIVE_PAGES = {
   '/quality': <QcQueue />,
   '/dispatch': <DispatchPage />,
   '/invoices': <Invoices />,
+  '/audit': <AuditTrail />,
   '/rolls': <RollList />,
   '/users': <Users />,
 };

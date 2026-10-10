@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart2,
   Box,
+  ShieldCheck,
   Receipt,
   ScrollText,
   Building2,
@@ -89,6 +90,7 @@ export const LIVE_NAV = [
   { to: '/quality', label: 'Quality control', icon: ClipboardCheck, roles: [ROLES.QC_INSPECTOR, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/rolls', label: 'Rolls', icon: ScrollText, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/audit', label: 'Audit trail', icon: ShieldCheck, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
 ];
 

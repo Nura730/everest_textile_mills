@@ -196,6 +196,14 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media print { .erp-sidebar, .erp-header, .modal-footer { display: none !important; } }
 
+.buyer-stage-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; }
+.buyer-stage { display: flex; gap: 10px; align-items: flex-start; color: var(--color-gray-500); }
+.buyer-stage.done { color: var(--color-gray-900); }
+.buyer-stage.current { color: var(--color-gray-900); font-weight: 600; }
+.buyer-stage-label { font-size: 0.875rem; }
+.delivery-warning { background: var(--color-error-light); color: var(--color-error-dark); }
+.audit-change { font-size: 0.75rem; word-break: break-word; }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */
