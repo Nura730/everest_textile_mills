@@ -121,6 +121,8 @@ describe('CLI wrappers', () => {
     const { code, output } = await runScript('scripts/seed-dev-users.js', {
       NODE_ENV: 'production',
       BCRYPT_ROUNDS: '10',
+      SIGNING_RSA_BITS: '3072',
+      SIGNING_KEY_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
       SEED_PASSWORD,
     });
     expect(code).toBe(1);

@@ -527,6 +527,27 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  // ── Cryptographic signatures ──
+  { name: 'GET /api/signatures/keys/me', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/signatures/keys/me' }) },
+  { name: 'GET /api/signatures/keys/:id', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/signatures/keys/${new mongoose.Types.ObjectId()}` }) },
+  {
+    name: 'POST /api/signatures/keys/:id/rotate',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/signatures/keys/${(await createTestUser({ role: ROLES.QC_INSPECTOR }))._id}/rotate`, body: {} }),
+  },
+  {
+    name: 'GET /api/signatures/:id/verify',
+    method: 'get',
+    allowed: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN],
+    build: async () => {
+      const { insertedId } = await mongoose.connection.collection('signatures').insertOne({
+        signerId: new mongoose.Types.ObjectId(), signerName: 'Matrix', signerRole: 'QC_INSPECTOR', entityType: 'QC_INSPECTION', entityId: new mongoose.Types.ObjectId(),
+        statement: 'Matrix statement', contentHash: 'x', signatureImage: null, signedAt: new Date(),
+      });
+      return { path: `/api/signatures/${insertedId}/verify` };
+    },
+  },
   // ── Phase 17: intelligence ──
   { name: 'GET /api/intelligence/overview', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: '/api/intelligence/overview' }) },
   { name: 'GET /api/intelligence/orders/:id', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: `/api/intelligence/orders/${(await newOrder())._id}` }) },

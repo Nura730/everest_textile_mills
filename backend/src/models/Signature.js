@@ -5,10 +5,12 @@ import { appendOnly } from './plugins/appendOnly.js';
 const { Schema } = mongoose;
 
 /**
- * A person formally taking responsibility for one business event (instruction.md §11): QC approval
- * of a roll, or final dispatch. Stores the exact statement agreed to, a SHA-256 hash of the canonical
- * signed record (so a later change to the record is detectable), and the drawn signature image.
- * One signature per event; append-only.
+ * A signed approval of one business event: a QC inspection (pass, rework or reject) or a final
+ * dispatch. Since the cryptographic upgrade each signature holds the canonical signed payload, its
+ * SHA-256 hash, an RSA-PSS/SHA-256 signature made with the signer's own key (keyId), and a one-time
+ * nonce. The drawn image, when present, is only a handwritten acknowledgment, not cryptographic proof.
+ * Older signatures (before the upgrade) have only contentHash + image. One signature per event;
+ * append-only.
  */
 const signatureSchema = new Schema(
   {
@@ -19,13 +21,22 @@ const signatureSchema = new Schema(
     entityId: { type: Schema.Types.ObjectId, required: true },
     statement: { type: String, required: true },
     contentHash: { type: String, required: true },
-    signatureImage: { type: String, required: true },
+    signatureImage: { type: String, default: null }, // optional handwritten acknowledgment
+    // Cryptographic signature (absent on records made before the upgrade)
+    algorithm: { type: String, default: null },
+    keyId: { type: String, default: null },
+    payload: { type: String, default: null }, // canonical JSON that was signed
+    payloadHash: { type: String, default: null }, // SHA-256 hex of payload
+    signatureValue: { type: String, default: null }, // base64
+    nonce: { type: String, default: null },
     signedAt: { type: Date, default: () => new Date() },
   },
   { versionKey: false },
 );
 
 signatureSchema.index({ entityType: 1, entityId: 1 }, { unique: true });
+// One signed approval per nonce: a captured request cannot be replayed into a second signature.
+signatureSchema.index({ nonce: 1 }, { unique: true, partialFilterExpression: { nonce: { $type: 'string' } } });
 signatureSchema.plugin(appendOnly, { collectionLabel: 'signatures' });
 
 export function toPublicSignature(signature, { includeImage = false } = {}) {
@@ -38,7 +49,12 @@ export function toPublicSignature(signature, { includeImage = false } = {}) {
     statement: signature.statement,
     contentHash: signature.contentHash,
     signedAt: signature.signedAt,
-    ...(includeImage ? { signatureImage: signature.signatureImage } : {}),
+    algorithm: signature.algorithm ?? null,
+    keyId: signature.keyId ?? null,
+    payloadHash: signature.payloadHash ?? null,
+    cryptographic: Boolean(signature.signatureValue),
+    hasHandwrittenAcknowledgment: Boolean(signature.signatureImage),
+    ...(includeImage && signature.signatureImage ? { signatureImage: signature.signatureImage } : {}),
   };
 }
 

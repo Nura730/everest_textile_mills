@@ -11,6 +11,7 @@ import { QcInspection } from '../../src/models/QcInspection.js';
 import { RateCard } from '../../src/models/RateCard.js';
 import { Roll } from '../../src/models/Roll.js';
 import { SyncEvent } from '../../src/models/SyncEvent.js';
+import { SigningKey } from '../../src/models/SigningKey.js';
 import { Signature } from '../../src/models/Signature.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 
@@ -48,6 +49,7 @@ export async function ensureInventoryCollections() {
     Invoice.init(),
     RateCard.init(),
     SyncEvent.init(),
+    SigningKey.init(),
   ]);
 }
 
@@ -71,6 +73,7 @@ export async function clearInventory() {
     Invoice.deleteMany({}),
     RateCard.collection.deleteMany({}),
     SyncEvent.collection.deleteMany({}),
+    SigningKey.deleteMany({}),
   ]);
 }
 

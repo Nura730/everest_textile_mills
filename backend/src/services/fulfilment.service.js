@@ -25,7 +25,7 @@ import { searchAcross } from '../utils/search.js';
 import { cmToMetres } from '../utils/units.js';
 import { executeIdempotent } from './idempotency.service.js';
 import { onRollInspected, onRollPassed } from './quality.service.js';
-import { createSignature } from './signature.service.js';
+import { dispatchRecord, ensureSigningKey, signApproval, toSignatureMeta } from './signing.service.js';
 
 /*
  * Phases 11 and 12: finished goods, dispatch and invoicing.
@@ -194,8 +194,13 @@ function loadDispatch(id, session) {
   return Dispatch.findById(id).session(session ?? null).lean();
 }
 
-/** Confirm (sign) a prepared dispatch: the goods leave the factory. */
-export function confirmDispatch(id, { signature, vehicleNumber }, context) {
+/**
+ * Confirm a prepared dispatch: the goods leave the factory. The store keeper accepts the statement and
+ * the server signs the dispatch record (rolls, quantity, vehicle) with the store keeper's own RSA key,
+ * verifying it before commit; a failed signature leaves the dispatch PREPARED.
+ */
+export async function confirmDispatch(id, { signature, vehicleNumber }, context) {
+  if (signature) await ensureSigningKey(context.actor);
   return executeIdempotent({ context, operation: 'DISPATCH_CONFIRM', request: { id, vehicleNumber, signed: Boolean(signature) } }, async (session) => {
     const preview = await loadDispatch(id, session);
     if (!preview) throw notFound('Dispatch');
@@ -208,16 +213,19 @@ export function confirmDispatch(id, { signature, vehicleNumber }, context) {
     }
     if (!signature) {
       throw new AppError('SIGNATURE_REQUIRED', 'Final dispatch must be signed by the store keeper', {
-        details: { statement: SIGNATURE_STATEMENTS.DISPATCH(dispatch.dispatchNumber) },
+        details: { statement: SIGNATURE_STATEMENTS.DISPATCH(dispatch.dispatchNumber), failedStage: 'PAYLOAD_PREPARED' },
       });
     }
-    const signed = await createSignature(
+    const { signature: signed, signing } = await signApproval(
       {
+        approvalType: 'DISPATCH_CONFIRM',
         entityType: SIGNATURE_ENTITY.DISPATCH,
         entityId: dispatch._id,
         statement: SIGNATURE_STATEMENTS.DISPATCH(dispatch.dispatchNumber),
-        record: { dispatchNumber: dispatch.dispatchNumber, orderNumber: dispatch.orderNumber, rolls: dispatch.lines.map((l) => l.rollNumber).sort(), totalLengthCm: dispatch.totalLengthCm },
+        // Signed as it will be stored: with the vehicle given now, or the one from preparation.
+        record: dispatchRecord({ ...dispatch, vehicleNumber: vehicleNumber ?? dispatch.vehicleNumber ?? null }),
         image: signature.image,
+        nonce: `DISPATCH_CONFIRM:${context.idempotencyKey}`,
       },
       context,
       session,
@@ -234,7 +242,7 @@ export function confirmDispatch(id, { signature, vehicleNumber }, context) {
       { returnDocument: 'after', session, lean: true },
     );
     await recordAudit(
-      { action: 'DISPATCH_CONFIRMED', entityType: 'Dispatch', entityId: dispatch._id, orderId: dispatch.orderId, before: { status: dispatch.status }, after: { status: DISPATCH_STATUS.CONFIRMED, signed: true } },
+      { action: 'DISPATCH_CONFIRMED', entityType: 'Dispatch', entityId: dispatch._id, orderId: dispatch.orderId, before: { status: dispatch.status }, after: { status: DISPATCH_STATUS.CONFIRMED, signed: true, signatureId: String(signed._id), keyId: signing.keyId } },
       context,
       session,
     );
@@ -244,7 +252,7 @@ export function confirmDispatch(id, { signature, vehicleNumber }, context) {
     if (left === 0 && order.status === ORDER_STATUS.READY_FOR_DISPATCH) {
       order = await moveOrder(order, ORDER_STATUS.DISPATCHED, context, session, `Dispatch ${dispatch.dispatchNumber} confirmed`);
     }
-    return { statusCode: 200, body: { dispatch: toPublicDispatch(updated), orderStatus: order.status } };
+    return { statusCode: 200, body: { dispatch: toPublicDispatch(updated), orderStatus: order.status, signature: { ...toSignatureMeta(signed), verified: true, stages: signing.stages } } };
   });
 }
 

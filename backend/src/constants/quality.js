@@ -21,6 +21,11 @@ export const SIGNATURE_ENTITY = Object.freeze({ QC_INSPECTION: 'QC_INSPECTION', 
 
 /** The exact sentences a signer agrees to (stored with the signature). */
 export const SIGNATURE_STATEMENTS = Object.freeze({
-  QC_INSPECTION: (rollNumber) => `I confirm that roll ${rollNumber} has passed inspection.`,
+  QC_INSPECTION: (rollNumber, result = 'PASS') =>
+    ({
+      PASS: `I confirm that roll ${rollNumber} has passed inspection.`,
+      REWORK: `I confirm that roll ${rollNumber} needs rework for the defects recorded.`,
+      REJECT: `I confirm that roll ${rollNumber} is rejected for the defects recorded.`,
+    })[result],
   DISPATCH: (dispatchNumber) => `I confirm that the finished goods in dispatch ${dispatchNumber} have been dispatched.`,
 });

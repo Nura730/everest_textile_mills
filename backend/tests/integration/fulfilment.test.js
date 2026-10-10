@@ -69,7 +69,7 @@ afterAll(async () => {
 const post = (actor, path, body = {}, key = newKey()) => request(app).post(path).set('Authorization', bearer(actor)).set('Idempotency-Key', key).send(body);
 const get = (actor, path) => request(app).get(path).set('Authorization', bearer(actor));
 const pass = (r) => post(qc, `/api/rolls/${r._id}/inspections`, { result: 'PASS', signature: SIGNED });
-const reject = (r) => post(qc, `/api/rolls/${r._id}/inspections`, { result: 'REJECT', defects: [{ type: 'HOLES', severity: 'CRITICAL' }] });
+const reject = (r) => post(qc, `/api/rolls/${r._id}/inspections`, { result: 'REJECT', defects: [{ type: 'HOLES', severity: 'CRITICAL' }], signature: SIGNED });
 const orderStatus = async () => (await Order.findById(order._id).lean()).status;
 const fgOf = async (r) => FinishedGood.findOne({ rollId: r._id }).lean();
 
@@ -97,7 +97,7 @@ describe('finished goods and readiness', () => {
     const a = await roll(250_000);
     const b = await roll(250_000);
     await pass(a);
-    await post(qc, `/api/rolls/${b._id}/inspections`, { result: 'REWORK', defects: [{ type: 'STAINS', severity: 'MINOR' }] });
+    await post(qc, `/api/rolls/${b._id}/inspections`, { result: 'REWORK', defects: [{ type: 'STAINS', severity: 'MINOR' }], signature: SIGNED });
     expect(await orderStatus()).toBe('PRODUCTION_COMPLETED');
   });
 

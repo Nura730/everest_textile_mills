@@ -31,6 +31,14 @@ const envSchema = z
       .default('8h'),
     // ~250ms per hash at 12. Tests use 4 for speed; production must not go below 10.
     BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+    // Key-encryption key for the per-user RSA signing keys (32 random bytes, base64). Without it the
+    // server cannot sign approvals (QC, dispatch) and refuses them; required in production.
+    SIGNING_KEY_ENCRYPTION_KEY: z
+      .string()
+      .refine((value) => Buffer.from(value, 'base64').length === 32, { error: 'must be 32 random bytes, base64-encoded (see .env.example)' })
+      .optional(),
+    // RSA modulus for newly generated signing keys. 3072 by default (NIST SP 800-57: beyond 2030).
+    SIGNING_RSA_BITS: z.coerce.number().int().refine((bits) => [2048, 3072, 4096].includes(bits), { error: 'must be 2048, 3072 or 4096' }).default(3072),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.BCRYPT_ROUNDS < MIN_PRODUCTION_BCRYPT_ROUNDS) {
@@ -39,6 +47,12 @@ const envSchema = z
         path: ['BCRYPT_ROUNDS'],
         message: `must be at least ${MIN_PRODUCTION_BCRYPT_ROUNDS} in production`,
       });
+    }
+    if (env.NODE_ENV === 'production' && !env.SIGNING_KEY_ENCRYPTION_KEY) {
+      ctx.addIssue({ code: 'custom', path: ['SIGNING_KEY_ENCRYPTION_KEY'], message: 'is required in production (approvals are cryptographically signed)' });
+    }
+    if (env.NODE_ENV === 'production' && env.SIGNING_RSA_BITS < 3072) {
+      ctx.addIssue({ code: 'custom', path: ['SIGNING_RSA_BITS'], message: 'must be at least 3072 in production' });
     }
   });
 
@@ -70,6 +84,8 @@ export function parseEnv(source) {
     jwtSecret: env.JWT_SECRET,
     jwtExpiresIn: env.JWT_EXPIRES_IN,
     bcryptRounds: env.BCRYPT_ROUNDS,
+    signingKeyEncryptionKey: env.SIGNING_KEY_ENCRYPTION_KEY ? Buffer.from(env.SIGNING_KEY_ENCRYPTION_KEY, 'base64') : null,
+    signingRsaBits: env.SIGNING_RSA_BITS,
   });
 }
 
