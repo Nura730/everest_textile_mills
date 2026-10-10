@@ -162,6 +162,7 @@ function ModuleStatus({ role }) {
         <li><CheckCircle2 size={14} aria-hidden="true" /> Machines: registry, maintenance, problems and downtime</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Production runs and roll output</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Roll traceability and quality control (signed passes)</li>
+        <li><CheckCircle2 size={14} aria-hidden="true" /> Finished goods, signed dispatch and invoices</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
         {previews.map((item) => (
           <li key={item.to} className="module-preview">

@@ -192,6 +192,10 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .defect-row { display: grid; grid-template-columns: 1.3fr 0.8fr 2fr auto; gap: 8px; margin-top: 8px; }
 @media (max-width: 600px) { .defect-row { grid-template-columns: 1fr 1fr; } }
 
+.invoice-sheet { display: flex; flex-direction: column; gap: 14px; }
+.invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media print { .erp-sidebar, .erp-header, .modal-footer { display: none !important; } }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */

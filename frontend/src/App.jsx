@@ -13,6 +13,8 @@ import Inventory from './pages/Inventory';
 import MachineDetail from './pages/MachineDetail';
 import MachineList from './pages/MachineList';
 import ProductionList from './pages/ProductionList';
+import DispatchPage from './pages/DispatchPage';
+import Invoices from './pages/Invoices';
 import QcQueue from './pages/QcQueue';
 import RollDetail from './pages/RollDetail';
 import RollList from './pages/RollList';
@@ -42,6 +44,8 @@ const LIVE_PAGES = {
   '/machines': <MachineList />,
   '/production': <ProductionList />,
   '/quality': <QcQueue />,
+  '/dispatch': <DispatchPage />,
+  '/invoices': <Invoices />,
   '/rolls': <RollList />,
   '/users': <Users />,
 };
@@ -50,7 +54,7 @@ const PREVIEW_PAGES = {
   '/floor-map': <Machines />,
   '/production-board': <Production />,
   '/quality-board': <QualityControl />,
-  '/dispatch': <Dispatch />,
+  '/dispatch-board': <Dispatch />,
   '/bom': <BOM />,
   '/ledger': <StockLedger />,
   '/reports': <Reports />,

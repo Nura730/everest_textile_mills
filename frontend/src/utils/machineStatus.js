@@ -34,3 +34,5 @@ export const DEFECT_LABELS = {
   WEAVE_FAULT: 'Weave fault',
   OTHER: 'Other',
 };
+
+export const DISPATCH_STATUS_LABELS = { PREPARED: 'Prepared', CONFIRMED: 'Dispatched', CANCELLED: 'Cancelled' };

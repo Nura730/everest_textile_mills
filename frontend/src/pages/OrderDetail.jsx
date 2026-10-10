@@ -8,6 +8,7 @@ import { ROLES, can } from '../auth/roles.js';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { ReservationPanel, ReserveModal } from '../components/orders/Reservation.jsx';
 import { OrderRunsPanel } from '../components/production/OrderRuns.jsx';
+import { OrderFulfilmentPanel } from '../components/fulfilment/Fulfilment.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -364,9 +365,21 @@ export default function OrderDetail() {
           <div className="next-step">
             <Info size={16} aria-hidden="true" />
             <div>
-              <strong>Production completed.</strong> Next: quality inspection of the rolls, then finished goods and dispatch
-              (later phases).
+              <strong>Production completed.</strong> QC inspects every roll; passed rolls become finished goods. The order is
+              ready for dispatch once no roll is waiting for QC or rework.
             </div>
+          </div>
+        )}
+        {current.status === 'READY_FOR_DISPATCH' && (
+          <div className="next-step">
+            <Info size={16} aria-hidden="true" />
+            <div><strong>Ready for dispatch.</strong> The store prepares the dispatch from the finished rolls and confirms it with a signature.</div>
+          </div>
+        )}
+        {current.status === 'DISPATCHED' && (
+          <div className="next-step">
+            <Info size={16} aria-hidden="true" />
+            <div><strong>Dispatched.</strong> The invoice is issued next.</div>
           </div>
         )}
       </div>
@@ -383,6 +396,9 @@ export default function OrderDetail() {
             <LoadingState label="Checking feasibility…" />
           )}
         </div>
+      )}
+      {['READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && (
+        <OrderFulfilmentPanel order={current} showInvoices={user.role === ROLES.ADMIN || user.role === ROLES.BUYER} />
       )}
       {showsRuns && <OrderRunsPanel order={current} canPlan={can.runProduction(user.role)} onChanged={order.reload} />}
       {showsYarn && <ReservationPanel order={current} canMove={can.issueMaterial(user.role)} onChanged={order.reload} />}

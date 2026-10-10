@@ -137,3 +137,19 @@ export const qcApi = {
   inspections: (query) => apiRequest("/qc/inspections", { query }),
   summary: () => apiRequest("/qc/summary"),
 };
+
+// Phases 11-12: finished goods, dispatch and invoices.
+export const fulfilmentApi = {
+  finishedGoods: (query) => apiRequest("/finished-goods", { query }),
+  moveGood: (id, location, idempotencyKey) =>
+    apiRequest(`/finished-goods/${id}/location`, { method: "PATCH", body: { location }, idempotencyKey }),
+  dispatches: (query) => apiRequest("/dispatches", { query }),
+  dispatch: (id) => apiRequest(`/dispatches/${id}`),
+  prepare: (body, idempotencyKey) => apiRequest("/dispatches", { method: "POST", body, idempotencyKey }),
+  confirm: (id, body, idempotencyKey) => apiRequest(`/dispatches/${id}/confirm`, { method: "POST", body, idempotencyKey }),
+  cancel: (id, reason, idempotencyKey) => apiRequest(`/dispatches/${id}/cancel`, { method: "POST", body: { reason }, idempotencyKey }),
+  invoice: (id, idempotencyKey) => apiRequest(`/dispatches/${id}/invoice`, { method: "POST", body: {}, idempotencyKey }),
+  invoices: (query) => apiRequest("/invoices", { query }),
+  getInvoice: (id) => apiRequest(`/invoices/${id}`),
+  summary: () => apiRequest("/summary/fulfilment"),
+};
