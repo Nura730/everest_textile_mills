@@ -196,6 +196,38 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media print { .erp-sidebar, .erp-header, .modal-footer { display: none !important; } }
 
+.buyer-stage-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; }
+.buyer-stage { display: flex; gap: 10px; align-items: flex-start; color: var(--color-gray-500); }
+.buyer-stage.done { color: var(--color-gray-900); }
+.buyer-stage.current { color: var(--color-gray-900); font-weight: 600; }
+.buyer-stage-label { font-size: 0.875rem; }
+.delivery-warning { background: var(--color-error-light); color: var(--color-error-dark); }
+.audit-change { font-size: 0.75rem; word-break: break-word; }
+
+.plain-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 0.875rem; }
+
+.sync-status { position: relative; }
+.sync-chip { display: inline-flex; align-items: center; gap: 6px; }
+.sync-chip.is-offline { border-color: var(--color-warning, #b45309); color: var(--color-warning, #b45309); }
+.sync-chip.has-problems { border-color: var(--color-error); color: var(--color-error-dark); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-success, #16a34a); }
+.sync-panel { position: absolute; right: 0; top: calc(100% + 6px); width: min(360px, calc(100vw - 32px)); background: var(--color-white, #fff); border: 1px solid var(--color-gray-200); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 12px; z-index: 50; }
+.sync-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sync-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; max-height: 320px; overflow-y: auto; }
+.sync-item { display: flex; justify-content: space-between; gap: 8px; padding: 8px; border-radius: 6px; background: var(--color-gray-50); font-size: 0.8125rem; }
+.sync-item.conflict, .sync-item.rejected { background: var(--color-error-light); }
+.sync-message { margin-top: 4px; color: var(--color-error-dark); }
+
+.risk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.risk-row { border: 1px solid var(--color-gray-200); border-left-width: 4px; border-radius: 6px; padding: 10px 12px; }
+.risk-row.level-late { border-left-color: var(--color-error); }
+.risk-row.level-at_risk { border-left-color: var(--color-gray-900); }
+.risk-row-head { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.risk-order { flex: 1; min-width: 0; font-size: 0.875rem; }
+.risk-estimate { margin-top: 4px; }
+.risk-detail { margin: 8px 0; }
+.risk-heading { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-gray-500); margin-top: 8px; }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */

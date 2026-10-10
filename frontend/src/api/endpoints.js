@@ -153,3 +153,25 @@ export const fulfilmentApi = {
   getInvoice: (id) => apiRequest(`/invoices/${id}`),
   summary: () => apiRequest("/summary/fulfilment"),
 };
+
+// Phase 13: audit center.
+export const auditApi = {
+  list: (query) => apiRequest("/audit", { query }),
+  actions: () => apiRequest("/audit/actions"),
+  correct: (id, note) => apiRequest(`/audit/${id}/corrections`, { method: "POST", body: { note } }),
+};
+
+// Phase 14: costing (owner only).
+export const costingApi = {
+  summary: () => apiRequest("/costing/summary"),
+  overview: () => apiRequest("/costing/overview"),
+  order: (id) => apiRequest(`/costing/orders/${id}`),
+  rates: () => apiRequest("/costing/rates"),
+  saveRates: (body) => apiRequest("/costing/rates", { method: "POST", body }),
+};
+
+// Phase 17: delivery risk and recommendations (admin, floor, store).
+export const intelligenceApi = {
+  overview: () => apiRequest("/intelligence/overview"),
+  order: (id) => apiRequest(`/intelligence/orders/${id}`),
+};

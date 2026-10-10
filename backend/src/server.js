@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { EnvValidationError, getConfig } from './config/env.js';
 import { getLogger } from './config/logger.js';
+import { attachRealtime } from './realtime/socket.js';
 
 // Requests still in flight get this long to finish before we force the exit.
 const SHUTDOWN_TIMEOUT_MS = 10000;
@@ -45,6 +46,8 @@ async function main() {
   const server = app.listen(config.port, () => {
     logger.info({ port: config.port, env: config.nodeEnv }, 'Everest backend listening');
   });
+  // Live updates share the HTTP port (Phase 16).
+  const realtime = attachRealtime(server, { corsOrigins: config.corsOrigins, logger });
   server.on('error', (err) => {
     logger.fatal({ err }, 'HTTP server error (is the port already in use?)');
     process.exit(1);
@@ -61,6 +64,7 @@ async function main() {
       process.exit(1);
     }, SHUTDOWN_TIMEOUT_MS).unref();
 
+    await realtime.close();
     server.close(async (err) => {
       await disconnectDatabase();
       logger.info('Shutdown complete');

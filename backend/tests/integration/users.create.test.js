@@ -2,6 +2,7 @@ import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ALL_ROLES, ROLES } from '../../src/constants/roles.js';
+import { AuditLog } from '../../src/models/AuditLog.js';
 import { User } from '../../src/models/User.js';
 import { verifyPassword } from '../../src/services/password.service.js';
 import { bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -29,6 +30,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await User.deleteMany({});
+  // Account changes are audited (Phase 13); the trail is cleared around the append-only model.
+  await AuditLog.collection.deleteMany({});
 });
 
 afterAll(async () => {

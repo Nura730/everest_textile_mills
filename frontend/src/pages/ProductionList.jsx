@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import { machinesApi, productionApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { RunStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { PlanRunModal } from '../components/production/PlanRunModal.jsx';
@@ -34,6 +35,7 @@ export default function ProductionList() {
   const [planning, setPlanning] = useState(false);
   const { filters, set, clear, query, active, page, setPage } = useFilters(NO_FILTERS);
   const runs = useApiQuery(() => productionApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page]);
+  useLive(liveMatch.actions('RUN_', 'ROLL_'), runs.reload);
   // The machine filter needs the machine list, which only machine viewers may read.
   const machineViewer = can.operateMachines(user.role) || user.role === 'QC_INSPECTOR';
   const machines = useApiQuery(() => (machineViewer ? machinesApi.list({ limit: 100 }) : Promise.resolve({ data: { machines: [] } })), [machineViewer]);

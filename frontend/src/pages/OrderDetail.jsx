@@ -4,11 +4,15 @@ import { Ban, CheckCircle2, Info, MinusCircle, PackageCheck, Pencil, ShieldCheck
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { ordersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLES, can } from '../auth/roles.js';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { ReservationPanel, ReserveModal } from '../components/orders/Reservation.jsx';
 import { OrderRunsPanel } from '../components/production/OrderRuns.jsx';
 import { OrderFulfilmentPanel } from '../components/fulfilment/Fulfilment.jsx';
+import { BuyerTimeline } from '../components/orders/BuyerTimeline.jsx';
+import { OrderCostPanel } from '../components/costing/CostSheet.jsx';
+import { OrderRiskPanel } from '../components/insights/RiskPanel.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -205,6 +209,7 @@ export default function OrderDetail() {
   const { user } = useAuth();
   const toast = useToast();
   const order = useApiQuery(() => ordersApi.get(id), [id]);
+  useLive(liveMatch.order(id), order.reload);
   // Live feasibility only while the order awaits a decision, and only for planning roles (it shows
   // stock levels). Once confirmed, the snapshot stored on the order is shown instead.
   const checkLive = order.data?.order.status === 'ORDER_CREATED' && can.viewFeasibility(user.role);
@@ -397,6 +402,9 @@ export default function OrderDetail() {
           )}
         </div>
       )}
+      {can.viewInsights(user.role) && ['CONFIRMED', 'MATERIAL_RESERVED', 'IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'READY_FOR_DISPATCH'].includes(current.status) && <OrderRiskPanel orderId={current.id} refreshKey={current.updatedAt} />}
+      {user.role === ROLES.ADMIN && ['IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && <OrderCostPanel orderId={current.id} refreshKey={current.updatedAt} />}
+      {user.role === ROLES.BUYER && !['ORDER_CREATED', 'CANCELLED', 'REJECTED'].includes(current.status) && <BuyerTimeline order={current} />}
       {['READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && (
         <OrderFulfilmentPanel order={current} showInvoices={user.role === ROLES.ADMIN || user.role === ROLES.BUYER} />
       )}

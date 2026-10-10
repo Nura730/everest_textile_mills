@@ -21,6 +21,11 @@ beforeAll(async () => {
   await AuditLog.createCollection();
 });
 
+// Start every test from an empty trail: other suites' business actions also write audit entries.
+beforeEach(async () => {
+  await AuditLog.collection.deleteMany({});
+});
+
 afterEach(async () => {
   // Test cleanup goes around the model on purpose: the model itself refuses deletes.
   await AuditLog.collection.deleteMany({});

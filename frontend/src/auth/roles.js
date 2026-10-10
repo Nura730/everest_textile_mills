@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart2,
   Box,
+  ShieldCheck,
   Receipt,
   ScrollText,
   Building2,
@@ -66,6 +67,7 @@ export const can = {
   // Phases 11-12: the store dispatches (signed); the owner invoices; buyers read their own invoices.
   dispatchGoods: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
   issueInvoice: (role) => role === ROLES.ADMIN,
+  viewInsights: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   viewFeasibility: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   manageBuyers: (role) => role === ROLES.ADMIN,
   manageProducts: (role) => role === ROLES.ADMIN,
@@ -89,6 +91,9 @@ export const LIVE_NAV = [
   { to: '/quality', label: 'Quality control', icon: ClipboardCheck, roles: [ROLES.QC_INSPECTOR, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/rolls', label: 'Rolls', icon: ScrollText, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/insights', label: 'Insights', icon: TrendingUp, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
+  { to: '/costing', label: 'Costing', icon: BarChart2, roles: [ROLES.ADMIN] },
+  { to: '/audit', label: 'Audit trail', icon: ShieldCheck, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
 ];
 
@@ -103,8 +108,6 @@ export const PREVIEW_NAV = [
   { to: '/dispatch-board', label: 'Dispatch board', icon: Truck, roles: [ROLES.ADMIN, ROLES.STORE_KEEPER], phase: 'Sample board; live dispatch is under Dispatch' },
   { to: '/bom', label: 'BOM', icon: Layers, roles: [ROLES.ADMIN], phase: 'Superseded by the Fabric Catalog' },
   { to: '/ledger', label: 'Stock Ledger', icon: History, roles: [ROLES.ADMIN], phase: 'Live per-lot ledger is in Yarn Inventory' },
-  { to: '/reports', label: 'Reports', icon: BarChart2, roles: [ROLES.ADMIN], phase: 'Phase 14 — Costing' },
-  { to: '/analytics', label: 'Analytics', icon: TrendingUp, roles: [ROLES.ADMIN], phase: 'Phase 17 — Intelligence' },
   { to: '/settings', label: 'Settings', icon: Settings, roles: [ROLES.ADMIN], phase: 'Not scheduled' },
 ];
 

@@ -1,6 +1,7 @@
 import { LogOut, Menu } from "lucide-react";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { ROLE_LABELS } from "../auth/roles.js";
+import { SyncStatus } from "../offline/SyncStatus.jsx";
 
 function initials(name) {
   return name
@@ -30,6 +31,7 @@ export default function Header({ onMenu, menuOpen }) {
       </div>
 
       <div className="erp-header-right">
+        <SyncStatus />
         <div className="erp-user-profile-btn" style={{ cursor: "default" }}>
           <div className="erp-user-info">
             <span className="erp-user-code">{ROLE_LABELS[user.role]}</span>

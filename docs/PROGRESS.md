@@ -1,6 +1,6 @@
 # Backend progress
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 ## Branch policy
 
@@ -22,15 +22,18 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 | 4 | Material reservation (reserve, issue, return, release) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 845 |
 | 7 | Machines (registry, maintenance, problems, downtime; D4 confirmed) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 941 |
 | 8 | Production runs and roll output (D3 single stage) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1019 |
-| 9 | Roll traceability (rolls are recorded since Phase 8; traceability views, labels) | ⏳ Next | | | |
-| 10 | QC | Not started | | | |
-| 11 | Finished goods | Not started | | | |
-| 12 | Dispatch | Not started | | | |
-| 13 | Audit trail (query API; entries already written since Phase 3) | Not started | | | |
-| 14 | Costing | Not started | | | |
-| 15 | Offline sync | Not started | | | |
-| 16 | Realtime | Not started | | | |
-| 17 | Intelligence | Not started | | | |
+| 9 | Roll traceability (trace view: order, run, machine, yarn lots, QC) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | with 10 |
+| 10 | QC (signed inspections, rework, rejection; append-only) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | with 12 |
+| 11 | Finished goods (created on QC pass, locations) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | with 12 |
+| 12 | Dispatch (signed) and invoices (GST 5%) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1149 |
+| 13 | Audit center (role visibility, corrections) and buyer timeline | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1183 |
+| 14 | Costing (actual material, run hours × versioned rate card, profit) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1220 |
+| 15 | Offline sync (event replay, outcomes, device queue) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | with 16 |
+| 16 | Realtime (Socket.IO from the audit change stream) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1242 |
+| 17 | Intelligence (rules-based delivery risk, recommendations) | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 1262 |
+
+All 17 phases are implemented. Feature notes: `docs/features/`. E2E (throwaway DB, through the Vite
+proxy): Phases 13/14/17 25 checks, Phases 15/16 17 checks.
 
 ## Phase 3 — what is done
 

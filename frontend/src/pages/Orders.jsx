@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import { buyersApi, ordersApi, productsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { useLive } from '../realtime/realtimeBus.js';
 import { ROLES, can } from '../auth/roles.js';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
 import { FilterBar, FilterCheckbox, FilterDate, FilterSelect, SearchInput } from '../components/ui/Filters.jsx';
@@ -31,6 +32,7 @@ export default function Orders() {
   const buyers = useApiQuery(() => (isAdmin ? buyersApi.list({ limit: 100 }) : Promise.resolve({ data: { buyers: [] } })), [isAdmin]);
 
   const orders = useApiQuery(() => ordersApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page]);
+  useLive((entry) => Boolean(entry.orderId) || entry.entityType === 'Order', orders.reload);
   const list = orders.data?.orders ?? [];
   const total = orders.meta?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));

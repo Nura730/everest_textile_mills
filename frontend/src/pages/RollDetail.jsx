@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { newIdempotencyKey } from '../api/client.js';
 import { rollsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { runOrQueue } from '../offline/syncManager.js';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { QcResultBadge, RollStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { InspectRollModal } from '../components/quality/InspectRollModal.jsx';
@@ -29,6 +31,7 @@ export default function RollDetail() {
   const { user } = useAuth();
   const toast = useToast();
   const trace = useApiQuery(() => rollsApi.trace(id), [id]);
+  useLive(liveMatch.entity(id), trace.reload);
   const [inspecting, setInspecting] = useState(false);
   const [reworking, setReworking] = useState(null);
 
@@ -47,8 +50,12 @@ export default function RollDetail() {
   async function confirmRework() {
     setReworking({ ...reworking, busy: true });
     try {
-      await rollsApi.reworkDone(roll.id, null, reworking.key);
-      toast.success(`Roll ${roll.rollNumber} is back in the QC queue.`);
+      const sent = await runOrQueue(
+        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: roll.id }, label: `Rework finished on ${roll.rollNumber}`, userId: user.id },
+        (k) => rollsApi.reworkDone(roll.id, null, k),
+      );
+      if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
+      else toast.success(`Roll ${roll.rollNumber} is back in the QC queue.`);
     } catch (error) {
       toast.error(error, { title: 'Not returned to QC' });
     }

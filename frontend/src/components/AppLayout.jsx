@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useApp } from '../context/AppContext';
+import { RealtimeProvider } from '../realtime/RealtimeProvider.jsx';
 import Header from './Header';
 import Sidebar from './Sidebar';
 import ToastContainer from './ToastContainer';
@@ -22,6 +23,7 @@ export default function AppLayout() {
   }, [user, roles, setCurrentRole]);
 
   return (
+    <RealtimeProvider>
     <div className="erp-app-container">
       <Header onMenu={() => setMobileOpen((open) => !open)} menuOpen={mobileOpen} />
       <div className="erp-body-layout">
@@ -38,5 +40,6 @@ export default function AppLayout() {
       {/* Global Toast Notification System */}
       <ToastContainer />
     </div>
+    </RealtimeProvider>
   );
 }

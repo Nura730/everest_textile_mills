@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../../api/client.js';
 import { rollsApi } from '../../api/endpoints.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
+import { runOrQueue } from '../../offline/syncManager.js';
 import { formatNumber } from '../../utils/format.js';
 import { DEFECT_LABELS, QC_RESULT_LABELS } from '../../utils/machineStatus.js';
 import { Field, Modal } from '../ui/Modal.jsx';
@@ -17,6 +19,7 @@ const titleCase = (v) => v.charAt(0) + v.slice(1).toLowerCase();
  */
 export function InspectRollModal({ roll, onClose, onDone }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [result, setResult] = useState('PASS');
   const [defects, setDefects] = useState([]);
   const [notes, setNotes] = useState('');
@@ -48,7 +51,15 @@ export function InspectRollModal({ roll, onClose, onDone }) {
     };
     setBusy(true);
     try {
-      await rollsApi.inspect(roll.id, body, key);
+      const sent = await runOrQueue(
+        { key, type: 'QC_INSPECT', payload: { rollId: roll.id, ...body }, label: `QC ${result.toLowerCase()} for ${roll.rollNumber}`, userId: user.id },
+        (k) => rollsApi.inspect(roll.id, body, k),
+      );
+      if (sent.queued) {
+        toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
+        onDone();
+        return;
+      }
       toast.success(
         result === 'PASS' ? `Roll ${roll.rollNumber} passed and signed.` : result === 'REWORK' ? `Roll ${roll.rollNumber} sent to rework.` : `Roll ${roll.rollNumber} rejected. It can never become stock.`,
       );

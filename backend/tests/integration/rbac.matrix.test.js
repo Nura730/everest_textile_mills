@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ALL_ROLES, ROLES } from '../../src/constants/roles.js';
 import { resetLoginRateLimits } from '../../src/middleware/rateLimit.js';
+import { AuditLog } from '../../src/models/AuditLog.js';
 import { Machine } from '../../src/models/Machine.js';
 import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
@@ -516,6 +518,47 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  // ── Phase 17: intelligence ──
+  { name: 'GET /api/intelligence/overview', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: '/api/intelligence/overview' }) },
+  { name: 'GET /api/intelligence/orders/:id', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: `/api/intelligence/orders/${(await newOrder())._id}` }) },
+  // ── Phase 15: offline sync ──
+  {
+    name: 'POST /api/sync/events',
+    method: 'post',
+    allowed: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN],
+    build: async () => ({
+      path: '/api/sync/events',
+      body: { deviceId: 'matrix-device-01', events: [{ eventId: randomUUID(), type: 'RUN_RESUME', payload: { runId: new mongoose.Types.ObjectId().toString() }, recordedAt: new Date().toISOString() }] },
+    }),
+  },
+  { name: 'GET /api/sync/events', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/sync/events' }) },
+  // ── Phase 14: costing (owner only) ──
+  { name: 'GET /api/costing/summary', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/costing/summary' }) },
+  { name: 'GET /api/costing/overview', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/costing/overview' }) },
+  { name: 'GET /api/costing/orders/:id', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/costing/orders/${(await newOrder())._id}` }) },
+  { name: 'GET /api/costing/rates', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/costing/rates' }) },
+  {
+    name: 'POST /api/costing/rates',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({
+      path: '/api/costing/rates',
+      body: { labourPaisePerHour: 12_000, machinePaisePerHour: { SPINNING: 1, WEAVING: 1, DYEING: 1, FINISHING: 1 }, reworkPaisePerRoll: 0, overheadBasisPoints: 800, workingHoursPerDay: 16 },
+    }),
+  },
+  // ── Phase 13 and buyer portal ──
+  { name: 'GET /api/audit', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/audit' }) },
+  { name: 'GET /api/audit/actions', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/audit/actions' }) },
+  {
+    name: 'POST /api/audit/:id/corrections',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const { insertedId } = await AuditLog.collection.insertOne({ action: 'STOCK_ADJUSTED', actorId: new mongoose.Types.ObjectId(), actorRole: 'ADMIN', entityType: 'YarnLot', entityId: new mongoose.Types.ObjectId(), source: 'ONLINE', at: new Date() });
+      return { path: `/api/audit/${insertedId}/corrections`, body: { note: 'Matrix correction' } };
+    },
+  },
+  { name: 'GET /api/orders/:id/timeline', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: `/api/orders/${(await newOrder())._id}/timeline` }) },
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',

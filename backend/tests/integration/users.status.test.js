@@ -2,6 +2,7 @@ import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ALL_ROLES, ROLES } from '../../src/constants/roles.js';
+import { AuditLog } from '../../src/models/AuditLog.js';
 import { User } from '../../src/models/User.js';
 import { setUserStatus } from '../../src/services/user.service.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -21,6 +22,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await User.deleteMany({});
+  // Account changes are audited (Phase 13); the trail is cleared around the append-only model.
+  await AuditLog.collection.deleteMany({});
 });
 
 afterAll(async () => {
@@ -142,8 +145,9 @@ describe('setUserStatus service: last-admin rule', () => {
   it('serialises concurrent service calls so exactly one admin remains', async () => {
     const otherAdmin = await createTestUser({ role: ROLES.ADMIN });
     const results = await Promise.allSettled([
-      setUserStatus(String(otherAdmin._id), false, { id: String(admin._id) }),
-      setUserStatus(String(admin._id), false, { id: String(otherAdmin._id) }),
+      // Real actors always carry their role (the audit entry records it).
+      setUserStatus(String(otherAdmin._id), false, { id: String(admin._id), role: ROLES.ADMIN }),
+      setUserStatus(String(admin._id), false, { id: String(otherAdmin._id), role: ROLES.ADMIN }),
     ]);
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);

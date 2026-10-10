@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { ALL_ROLES, ROLES } from "../constants/roles.js";
 import * as orderController from "../controllers/order.controller.js";
+import { getTimeline } from "../services/portal.service.js";
+import { sendSuccess } from "../utils/apiResponse.js";
 import { authorize } from "../middleware/authorize.js";
 import { requireIdempotencyKey } from "../middleware/idempotencyKey.js";
 import { validate } from "../middleware/validate.js";
@@ -59,6 +61,12 @@ router.patch(
   requireIdempotencyKey,
   validate({ params: orderIdParamsSchema, body: updateOrderBodySchema }),
   orderController.updateOrder,
+);
+router.get(
+  "/:id/timeline",
+  authorize(...ALL_ROLES),
+  validate({ params: orderIdParamsSchema }),
+  async (req, res) => sendSuccess(res, { timeline: await getTimeline(req.validated.params.id, req.user) }),
 );
 router.get(
   "/:id/feasibility",

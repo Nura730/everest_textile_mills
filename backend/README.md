@@ -189,6 +189,13 @@ Notes:
 | `GET /api/dispatches`, `GET /api/dispatches/:id` | ✓ | ✓ | ✓ | ✓ own | ✓ |
 | `POST /api/dispatches/:id/invoice` | | | | | ✓ |
 | `GET /api/invoices`, `GET /api/invoices/:id` | | | | ✓ own | ✓ |
+| `GET /api/audit` | ✓ (inventory) | ✓ (production) | ✓ (QC) | ✓ own milestones | ✓ all |
+| `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
+| `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
+| `GET /api/costing/*`, `POST /api/costing/rates` | | | | | ✓ |
+| `POST /api/sync/events` | | ✓ | ✓ | | ✓ |
+| `GET /api/intelligence/overview`, `GET /api/intelligence/orders/:id` | ✓ | ✓ | | | ✓ |
+| `GET /api/sync/events` | ✓ own | ✓ own | ✓ own | ✓ own | ✓ all |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -937,6 +944,117 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
+
+## Intelligence (Phase 17)
+
+Rules, not a model: every verdict lists its factors and the numbers behind them.
+
+- Remaining = ordered − produced + rejected (rejected rolls are made again).
+- Production days = remaining ÷ rated speed of the machines on the order's open runs (machines DOWN or
+  in MAINTENANCE count as zero) ÷ `workingHoursPerDay` (rate card, default 16), rounded up; with no run
+  yet, the fastest AVAILABLE machine of the fabric's type is assumed.
+- Days needed = production days + 1 (QC and dispatch; 0 once READY_FOR_DISPATCH).
+- `LATE` if days needed > days left (or overdue); `AT_RISK` if slack ≤ 1 day, no estimate, or a HIGH
+  factor (machine stopped, material short, no machine, overdue); otherwise `ON_TRACK`. `score` 0-100.
+- Factors: `PRODUCTION_TIME`, `REMAKE`, `MACHINE_STOPPED`, `MATERIAL_SHORT`, `QUALITY` (>10% of ≥3 rolls
+  rejected), `NO_MACHINE`, `OVERDUE`. Recommendations: `FIX_MACHINE`, `RESUME_RUN`, `BUY_YARN` /
+  `RESERVE_YARN`, `PLAN_RUN`, `ADD_MACHINE` (with days saved), `CHECK_QUALITY`, `INSPECT`, `DISPATCH`,
+  `TALK_TO_BUYER`.
+
+`GET /api/intelligence/overview` → `{ orders: [{ order, risk }] (riskiest first), counts, machines:
+[machines with ≥3 problems in 30 days + maintenance advice], assumptions }`. `GET
+/api/intelligence/orders/:id` → `{ order, risk }` (`risk: null` for closed orders). Buyers get only
+`expectedDelivery.status` and a plain message on their order timeline.
+
+## Offline sync (Phase 15)
+
+`POST /api/sync/events` (FLOOR_MANAGER, QC_INSPECTOR, ADMIN):
+
+```json
+{ "deviceId": "web-…", "events": [ { "eventId": "<uuid>", "type": "ROLL_RECORD", "payload": { "runId": "…", "lengthMetres": 120 }, "recordedAt": "2026-10-11T09:30:00+05:30" } ] }
+```
+
+1-25 events per batch (the 100 KB body limit applies; a QC signature is sent in its own batch). Events are
+applied in `recordedAt` order, each through the same service as the online route, with `source: OFFLINE`
+and `eventId` as the idempotency key. The device uses the SAME uuid as the Idempotency-Key of its online
+attempt, so an action whose response was lost is replayed, not applied twice.
+
+| type | payload | roles |
+|---|---|---|
+| `RUN_PAUSE` | `{ runId, reason }` | FLOOR_MANAGER, ADMIN |
+| `RUN_RESUME` | `{ runId }` | FLOOR_MANAGER, ADMIN |
+| `ROLL_RECORD` | `{ runId, lengthMetres, weightKg? }` | FLOOR_MANAGER, ADMIN |
+| `MACHINE_PROBLEM_REPORT` | `{ machineId, category, severity, description, … }` | FLOOR_MANAGER, ADMIN |
+| `QC_INSPECT` | `{ rollId, result, defects?, notes?, signature? }` | QC_INSPECTOR, ADMIN |
+| `REWORK_DONE` | `{ rollId, note? }` | FLOOR_MANAGER, ADMIN |
+
+Response `{ results: [{ eventId, type, outcome, originalOutcome?, result, error }], counts }`. Outcomes:
+`APPLIED`; `DUPLICATE` (eventId seen before, `originalOutcome` returned); `CONFLICT` (a 409 business rule:
+the record changed while offline); `REJECTED` (validation, role, not found); `RETRY` (server error, not
+stored, send again). Decided outcomes are stored append-only in `syncEvents`. `GET /api/sync/events`
+(`outcome`, `deviceId`, paging) lists the caller's history (admin: everyone's). Audit entries keep server
+time; the device time is in the sync log.
+
+## Realtime (Phase 16)
+
+Socket.IO on the API port (`/socket.io`). Connect with `auth: { token: <JWT> }`; invalid, expired or revoked
+tokens are refused, and connected sockets are re-checked every minute. Event `activity` carries one audit
+entry in exactly the audit-center shape for the socket's role (see Phase 13), pushed from a MongoDB change
+stream on the audit log, so only committed changes are announced. Rooms: `role:<ROLE>`, `user:<id>`,
+`buyer:<buyerId>`. Requires a replica set (Atlas or the test in-memory replica set).
+
+## Costing and profitability (Phase 14)
+
+Owner-only. `GET /api/costing/orders/:id` returns the cost sheet of one order:
+
+| Figure | Source |
+|---|---|
+| Material | Net yarn issued to the order (ISSUE − RETURN ledger rows) × each lot's `costPerKgPaise` |
+| Labour | Each run's RUNNING hours (from its status history; pauses excluded) × `labourPaisePerHour` |
+| Machine | Same hours × `machinePaisePerHour[machine type]` |
+| Rework | Rework rounds on the order's rolls × `reworkPaisePerRoll` |
+| Overhead | `overheadBasisPoints` of material + labour + machine + rework |
+| Waste | Share of material + labour + machine that went into rejected rolls (shown, already included) |
+| Revenue | Sum of invoice subtotals (ex-GST); before any invoice, the order value as `EXPECTED` |
+
+Also `profitPaise`, `marginPercent`, `costPerMetrePaise` (per good metre), per-lot and per-run detail, the
+assumptions list, and the rate-card version used (the one in force when production started).
+
+`GET /api/costing/summary` — every order from IN_PRODUCTION on, with totals split into invoiced and in
+progress. `GET /api/costing/overview` — owner dashboard counts (orders by status, machines by status, yarn
+stock, QC, fulfilment, invoiced revenue). `GET /api/costing/rates` — current, history, defaults.
+`POST /api/costing/rates` — `{ labourPaisePerHour, machinePaisePerHour: { SPINNING, WEAVING, DYEING,
+FINISHING }, reworkPaisePerRoll, overheadBasisPoints, workingHoursPerDay, note? }` → `201`, a new append-only
+version (audited `RATE_CARD_SAVED`).
+
+Default rates (assumptions until the owner saves their own): labour ₹120/h; machines ₹80 spinning, ₹60
+weaving, ₹150 dyeing, ₹70 finishing per hour; rework ₹250 per round; overhead 8%; 16 working hours/day.
+
+## Audit center and buyer timeline (Phase 13, buyer portal)
+
+`GET /api/audit` — query: `actorId`, `actorRole`, `entityType` (admin only), `orderId`, `machineId`, `action`,
+`from`/`to` (Indian calendar days), paging. Newest first. What each role sees (instruction.md §13):
+
+| Role | Actions | Before/after |
+|---|---|---|
+| ADMIN | All | Full, with actor ids and names |
+| STORE_KEEPER | `MATERIAL_*`, `STOCK_ADJUSTED`, `FINISHED_GOOD_*`, `DISPATCH_*`, ready/dispatched orders | Money fields removed |
+| FLOOR_MANAGER | `MACHINE_*`, `RUN_*`, `ROLL_*`, material issue/return/reserve, `QC_REWORK` | Money fields removed |
+| QC_INSPECTOR | `QC_*`, `ROLL_*`, `RUN_*`, `MACHINE_PROBLEM_*`, `FINISHED_GOOD_CREATED`, `ORDER_*` | Money fields removed |
+| BUYER | Milestones of own orders only (placed, confirmed, material reserved, production started/finished, roll passed, ready, dispatched, invoiced, cancelled/rejected) | None: `{ id, action, label, orderId, at }` |
+
+Money fields = keys containing `paise`, `cost`, `price`, `amount`. A hidden action or another company's order
+returns an empty list, not an error.
+
+`POST /api/audit/:id/corrections` (ADMIN) `{ note }` → `201` with a new `AUDIT_CORRECTION` entry whose
+`correctsAuditId` points at the original; the original is never changed. `GET /api/audit/actions` (ADMIN)
+lists recorded action names. Account changes are audited: `USER_CREATED`, `USER_STATUS_CHANGED`.
+
+`GET /api/orders/:id/timeline` (owning buyer or staff): `{ timeline: { status, closed, stages: [{ key, label,
+state: done|current|upcoming, at, detail }], progress: { orderedMetres, producedMetres, producedPercent,
+qcPassedMetres, rollsAwaitingQc, dispatchedMetres }, expectedDelivery: { requiredBy, status, message } } }`.
+Stages: confirmed, material reserved, production, quality check, ready, dispatched, invoiced. No machines,
+lots, costs or people. `expectedDelivery.status` comes from the risk engine (Phase 17).
 
 ## Finished goods, dispatch and invoices (Phases 11-12)
 

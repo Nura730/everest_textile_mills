@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { newIdempotencyKey } from '../api/client.js';
 import { fulfilmentApi, ordersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { ConfirmDispatchModal, DispatchStatusBadge, InvoiceView, PrepareDispatchModal } from '../components/fulfilment/Fulfilment.jsx';
 import { DISPATCH_STATUS_LABELS } from '../utils/machineStatus.js';
@@ -28,6 +29,7 @@ export default function DispatchPage() {
   const dispatches = useApiQuery(() => fulfilmentApi.dispatches({ ...dispatchFilters.query, limit: 100 }), [dispatchFilters.query]);
   const stockFilters = useFilters({ q: '', status: 'IN_STOCK' });
   const stock = useApiQuery(() => fulfilmentApi.finishedGoods({ ...stockFilters.query, limit: 100 }), [stockFilters.query]);
+  useLive(liveMatch.actions('FINISHED_GOOD_', 'DISPATCH_', 'ORDER_READY', 'ORDER_DISPATCHED', 'QC_PASSED'), () => { ready.reload(); dispatches.reload(); stock.reload(); });
   const [modal, setModal] = useState(null); // { type, order | dispatch | good, key, busy, reason, text }
   const store = can.dispatchGoods(user.role);
   const reload = () => {

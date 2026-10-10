@@ -24,6 +24,11 @@ export class ApiError extends Error {
 let getToken = () => null;
 let onUnauthorized = () => {};
 
+/** The signed-in session's token, for the live-updates connection (Phase 16). */
+export function currentToken() {
+  return getToken();
+}
+
 /** Wired by AuthProvider: where the token lives, and what to do when the server rejects it. */
 export function configureApi({ tokenGetter, unauthorizedHandler }) {
   getToken = tokenGetter;
