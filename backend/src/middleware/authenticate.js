@@ -23,12 +23,19 @@ export async function authenticate(req, res, next) {
 
   const { userId, tokenVersion } = verifyAccessToken(match[1]);
 
-  const user = await User.findById(userId).select('name email role isActive tokenVersion').lean();
+  const user = await User.findById(userId).select('name email role isActive tokenVersion buyerId').lean();
   // Same response for all three cases so a token holder learns nothing about the account.
   if (!user || !user.isActive || user.tokenVersion !== tokenVersion) throw unauthenticated();
 
-  // Frozen so no later middleware can accidentally (or deliberately) change the role.
-  req.user = Object.freeze({ id: String(user._id), role: user.role, name: user.name, email: user.email });
+  // Frozen so no later middleware can accidentally (or deliberately) change the role or company.
+  // buyerId (from the DB, like the role) is what ownership checks compare against.
+  req.user = Object.freeze({
+    id: String(user._id),
+    role: user.role,
+    name: user.name,
+    email: user.email,
+    buyerId: user.buyerId ? String(user.buyerId) : null,
+  });
   // Every later log line for this request (including the error handler's) carries userId.
   req.log = req.log?.child({ userId: req.user.id }) ?? req.log;
   return next();

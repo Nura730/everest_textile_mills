@@ -114,7 +114,7 @@ describe('User model', () => {
   });
 
   describe('toPublicUser', () => {
-    const PUBLIC_KEYS = ['createdAt', 'email', 'id', 'isActive', 'lastLoginAt', 'name', 'role'];
+    const PUBLIC_KEYS = ['buyerId', 'createdAt', 'email', 'id', 'isActive', 'lastLoginAt', 'name', 'role'];
 
     it('returns only allowlisted fields from a hash-loaded document', async () => {
       await User.create(userData());

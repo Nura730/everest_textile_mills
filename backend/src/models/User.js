@@ -26,6 +26,10 @@ const userSchema = new Schema(
     lastLoginAt: { type: Date, default: null },
     // Who granted this access. null for accounts created by the seed/bootstrap scripts.
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    // The buyer COMPANY a BUYER account belongs to (ownership checks). Required for role BUYER,
+    // enforced when accounts are created (user.service), not here: accounts created before this
+    // field existed stay valid and simply fail closed (no orders visible) until linked.
+    buyerId: { type: Schema.Types.ObjectId, ref: 'Buyer', default: null },
   },
   {
     timestamps: true,
@@ -55,6 +59,7 @@ export function toPublicUser(user) {
     email: user.email,
     role: user.role,
     isActive: user.isActive,
+    buyerId: user.buyerId ? String(user.buyerId) : null,
     lastLoginAt: user.lastLoginAt ?? null,
     createdAt: user.createdAt,
   };

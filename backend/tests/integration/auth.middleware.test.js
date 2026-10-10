@@ -69,7 +69,7 @@ describe('authenticate', () => {
     const res = await request(app).get('/whoami').set('Authorization', bearer(user));
 
     expect(res.status).toBe(200);
-    expect(res.body.user).toEqual({ id: String(user._id), role: 'QC_INSPECTOR', name: user.name, email: user.email });
+    expect(res.body.user).toEqual({ id: String(user._id), role: 'QC_INSPECTOR', name: user.name, email: user.email, buyerId: null });
     expect(res.body.frozen).toBe(true);
   });
 

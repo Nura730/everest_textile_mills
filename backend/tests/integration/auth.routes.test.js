@@ -51,6 +51,7 @@ describe('POST /api/auth/login', () => {
           email: user.email,
           role: 'STORE_KEEPER',
           isActive: true,
+          buyerId: null,
           lastLoginAt: expect.any(String),
           createdAt: expect.any(String),
         },

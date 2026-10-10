@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ROLES } from '../constants/roles.js';
 import { User, toPublicUser } from '../models/User.js';
+import { findBuyerById } from '../repositories/catalog.repository.js';
 import { AppError } from '../utils/AppError.js';
 import { hashPassword } from './password.service.js';
 
@@ -10,12 +11,27 @@ import { hashPassword } from './password.service.js';
  * A duplicate email is rejected by the unique index (409 DUPLICATE_RESOURCE), which is
  * race-safe: two simultaneous requests cannot both pass a "does it exist?" pre-check.
  */
-export async function createUser({ name, email, password, role }, actor) {
+export async function createUser({ name, email, password, role, buyerId }, actor) {
+  // A BUYER account must belong to an existing, active buyer company (validated as present by
+  // the request schema). Without it, ownership checks would have nothing to compare against.
+  if (role === ROLES.BUYER) {
+    const buyer = await findBuyerById(buyerId);
+    if (!buyer) {
+      throw new AppError('VALIDATION_ERROR', 'Request validation failed', {
+        details: [{ location: 'body', path: 'buyerId', message: 'does not exist' }],
+      });
+    }
+    if (!buyer.isActive) {
+      throw new AppError('BUYER_INACTIVE', 'This buyer company is inactive');
+    }
+  }
+
   const user = await User.create({
     name,
     email,
     passwordHash: await hashPassword(password),
     role,
+    buyerId: role === ROLES.BUYER ? buyerId : null,
     createdBy: actor.id,
   });
   return toPublicUser(user);

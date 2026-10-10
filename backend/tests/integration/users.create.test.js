@@ -80,6 +80,7 @@ describe('POST /api/users — behaviour', () => {
       email: 'meena@everest.test',
       role: 'QC_INSPECTOR',
       isActive: true,
+      buyerId: null,
       lastLoginAt: null,
       createdAt: expect.any(String),
     });
