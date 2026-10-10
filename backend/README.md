@@ -180,6 +180,10 @@ Notes:
 | `POST /api/machines/:id/maintenance/start`, `/maintenance/end`, `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
 | `GET /api/production-runs`, `GET /api/production-runs/:id` | ✓ | ✓ | ✓ | | ✓ |
 | `POST /api/production-runs`, `/:id/start`, `/pause`, `/resume`, `/complete`, `/cancel`, `/rolls` | | ✓ | | | ✓ |
+| `GET /api/rolls`, `GET /api/rolls/:id` | ✓ | ✓ | ✓ | | ✓ |
+| `POST /api/rolls/:id/inspections` | | | ✓ | | ✓ |
+| `POST /api/rolls/:id/rework-done` | | ✓ | | | ✓ |
+| `GET /api/qc/inspections`, `GET /api/qc/summary` | | ✓ | ✓ | | ✓ |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -929,6 +933,28 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
 
+## Rolls and quality control (Phases 9-10)
+
+```
+QC_PENDING ──PASS (signed)──▶ QC_PASSED
+    │──REWORK──▶ IN_REWORK ──rework done──▶ QC_PENDING   (next attempt; history kept)
+    └──REJECT──▶ REJECTED   (terminal: never becomes stock)
+```
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/rolls` | Query: `status`, `orderId`, `machineId`, `runId`, `q` (roll/order/run number, machine code), `page`, `limit`. `status=QC_PENDING` is the QC queue, oldest first |
+| `GET /api/rolls/:id` | Trace: `{ roll, order, run, machine, yarnLots: [{ lotNumber, supplierName, receivedAt, issuedToOrderKg }], inspections, qcSignature }`. The signature image is included for QC and admin |
+| `POST /api/rolls/:id/inspections` (QC_INSPECTOR, ADMIN; Idempotency-Key) | `{ result: PASS\|REWORK\|REJECT, defects: [{ type, severity: MINOR\|MAJOR\|CRITICAL, notes? }], notes?, signature? }`. Roll must be `QC_PENDING` (409). REWORK/REJECT need ≥ 1 defect (400). PASS needs `signature: { accepted: true, image: <PNG data URL ≤ 60 kB> }` (else 400 `SIGNATURE_REQUIRED`, `details.statement`). `201` with `{ roll, inspection }` |
+| `POST /api/rolls/:id/rework-done` (FLOOR_MANAGER, ADMIN; Idempotency-Key) | `{ note? }`. `IN_REWORK → QC_PENDING`, `reworkCount + 1` |
+| `GET /api/qc/inspections` | Query: `orderId`, `machineId`, `result`, paging. Newest first |
+| `GET /api/qc/summary` | `{ rolls: { <status>: { rolls, metres } }, inspections: { PASS, REWORK, REJECT } }` |
+
+Defect types: `COLOUR_MISMATCH`, `BROKEN_ENDS`, `BROKEN_PICKS`, `STAINS`, `HOLES`, `WIDTH_VARIATION`,
+`GSM_VARIATION`, `WEAVE_FAULT`, `OTHER`. Inspections and signatures are append-only. A signature stores the
+exact statement ("I confirm that roll … has passed inspection."), the signer, the image and a SHA-256 hash
+of the canonical signed record. Audit: `QC_PASSED`, `QC_REWORK`, `QC_REJECTED`, `ROLL_REWORK_DONE`.
+
 ## Production runs (Phase 8)
 
 One order on one machine of the fabric's type (D3: single stage). An order can be split across runs.
@@ -1087,6 +1113,7 @@ the current factory state. No `422` is used anywhere.
 | `YARN_NOT_ISSUED` | 409 | Starting a run before any of the order's yarn is on the floor | Ask the store to issue yarn |
 | `NO_OUTPUT_RECORDED` | 409 | Completing a run without a roll | Record rolls first |
 | `QUANTITY_EXCEEDS_ORDER` | 409 | Planning more than is left of the order; `details.remainingMetres` | Lower the target |
+| `SIGNATURE_REQUIRED` | 400 | A QC pass (or dispatch) without the signature; `details.statement` | Ask the person to accept the statement and sign |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
