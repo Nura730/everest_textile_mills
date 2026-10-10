@@ -189,6 +189,9 @@ Notes:
 | `GET /api/dispatches`, `GET /api/dispatches/:id` | ✓ | ✓ | ✓ | ✓ own | ✓ |
 | `POST /api/dispatches/:id/invoice` | | | | | ✓ |
 | `GET /api/invoices`, `GET /api/invoices/:id` | | | | ✓ own | ✓ |
+| `GET /api/audit` | ✓ (inventory) | ✓ (production) | ✓ (QC) | ✓ own milestones | ✓ all |
+| `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
+| `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -937,6 +940,32 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
+
+## Audit center and buyer timeline (Phase 13, buyer portal)
+
+`GET /api/audit` — query: `actorId`, `actorRole`, `entityType` (admin only), `orderId`, `machineId`, `action`,
+`from`/`to` (Indian calendar days), paging. Newest first. What each role sees (instruction.md §13):
+
+| Role | Actions | Before/after |
+|---|---|---|
+| ADMIN | All | Full, with actor ids and names |
+| STORE_KEEPER | `MATERIAL_*`, `STOCK_ADJUSTED`, `FINISHED_GOOD_*`, `DISPATCH_*`, ready/dispatched orders | Money fields removed |
+| FLOOR_MANAGER | `MACHINE_*`, `RUN_*`, `ROLL_*`, material issue/return/reserve, `QC_REWORK` | Money fields removed |
+| QC_INSPECTOR | `QC_*`, `ROLL_*`, `RUN_*`, `MACHINE_PROBLEM_*`, `FINISHED_GOOD_CREATED`, `ORDER_*` | Money fields removed |
+| BUYER | Milestones of own orders only (placed, confirmed, material reserved, production started/finished, roll passed, ready, dispatched, invoiced, cancelled/rejected) | None: `{ id, action, label, orderId, at }` |
+
+Money fields = keys containing `paise`, `cost`, `price`, `amount`. A hidden action or another company's order
+returns an empty list, not an error.
+
+`POST /api/audit/:id/corrections` (ADMIN) `{ note }` → `201` with a new `AUDIT_CORRECTION` entry whose
+`correctsAuditId` points at the original; the original is never changed. `GET /api/audit/actions` (ADMIN)
+lists recorded action names. Account changes are audited: `USER_CREATED`, `USER_STATUS_CHANGED`.
+
+`GET /api/orders/:id/timeline` (owning buyer or staff): `{ timeline: { status, closed, stages: [{ key, label,
+state: done|current|upcoming, at, detail }], progress: { orderedMetres, producedMetres, producedPercent,
+qcPassedMetres, rollsAwaitingQc, dispatchedMetres }, expectedDelivery: { requiredBy, status, message } } }`.
+Stages: confirmed, material reserved, production, quality check, ready, dispatched, invoiced. No machines,
+lots, costs or people. `expectedDelivery.status` comes from the risk engine (Phase 17).
 
 ## Finished goods, dispatch and invoices (Phases 11-12)
 
