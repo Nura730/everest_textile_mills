@@ -193,6 +193,8 @@ Notes:
 | `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
 | `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
 | `GET /api/costing/*`, `POST /api/costing/rates` | | | | | ✓ |
+| `POST /api/sync/events` | | ✓ | ✓ | | ✓ |
+| `GET /api/sync/events` | ✓ own | ✓ own | ✓ own | ✓ own | ✓ all |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
@@ -941,6 +943,43 @@ as `feasibility` (the snapshot it was confirmed on, same shape as above), `confi
 
 Two confirmations competing for the same yarn at the same moment cannot both succeed: they serialise on
 a lock per material and colour, and the second one sees the first as committed.
+
+## Offline sync (Phase 15)
+
+`POST /api/sync/events` (FLOOR_MANAGER, QC_INSPECTOR, ADMIN):
+
+```json
+{ "deviceId": "web-…", "events": [ { "eventId": "<uuid>", "type": "ROLL_RECORD", "payload": { "runId": "…", "lengthMetres": 120 }, "recordedAt": "2026-10-11T09:30:00+05:30" } ] }
+```
+
+1-25 events per batch (the 100 KB body limit applies; a QC signature is sent in its own batch). Events are
+applied in `recordedAt` order, each through the same service as the online route, with `source: OFFLINE`
+and `eventId` as the idempotency key. The device uses the SAME uuid as the Idempotency-Key of its online
+attempt, so an action whose response was lost is replayed, not applied twice.
+
+| type | payload | roles |
+|---|---|---|
+| `RUN_PAUSE` | `{ runId, reason }` | FLOOR_MANAGER, ADMIN |
+| `RUN_RESUME` | `{ runId }` | FLOOR_MANAGER, ADMIN |
+| `ROLL_RECORD` | `{ runId, lengthMetres, weightKg? }` | FLOOR_MANAGER, ADMIN |
+| `MACHINE_PROBLEM_REPORT` | `{ machineId, category, severity, description, … }` | FLOOR_MANAGER, ADMIN |
+| `QC_INSPECT` | `{ rollId, result, defects?, notes?, signature? }` | QC_INSPECTOR, ADMIN |
+| `REWORK_DONE` | `{ rollId, note? }` | FLOOR_MANAGER, ADMIN |
+
+Response `{ results: [{ eventId, type, outcome, originalOutcome?, result, error }], counts }`. Outcomes:
+`APPLIED`; `DUPLICATE` (eventId seen before, `originalOutcome` returned); `CONFLICT` (a 409 business rule:
+the record changed while offline); `REJECTED` (validation, role, not found); `RETRY` (server error, not
+stored, send again). Decided outcomes are stored append-only in `syncEvents`. `GET /api/sync/events`
+(`outcome`, `deviceId`, paging) lists the caller's history (admin: everyone's). Audit entries keep server
+time; the device time is in the sync log.
+
+## Realtime (Phase 16)
+
+Socket.IO on the API port (`/socket.io`). Connect with `auth: { token: <JWT> }`; invalid, expired or revoked
+tokens are refused, and connected sockets are re-checked every minute. Event `activity` carries one audit
+entry in exactly the audit-center shape for the socket's role (see Phase 13), pushed from a MongoDB change
+stream on the audit log, so only committed changes are announced. Rooms: `role:<ROLE>`, `user:<id>`,
+`buyer:<buyerId>`. Requires a replica set (Atlas or the test in-memory replica set).
 
 ## Costing and profitability (Phase 14)
 
