@@ -6,6 +6,8 @@ import { resetLoginRateLimits } from '../../src/middleware/rateLimit.js';
 import { Machine } from '../../src/models/Machine.js';
 import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
+import { Order } from '../../src/models/Order.js';
+import { ProductionRun } from '../../src/models/ProductionRun.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -73,6 +75,24 @@ async function openProblem() {
     problem: { category: 'OTHER', severity: 'LOW', description: 'Matrix problem' }, actorId: MATRIX_ACTOR, actorRole: 'FLOOR_MANAGER',
   });
   return { machine, event };
+}
+
+const PRODUCTION_VIEWERS = [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN];
+const FLOOR = [ROLES.FLOOR_MANAGER, ROLES.ADMIN];
+
+/** A run in `status` on its own machine, for a reserved order with yarn on the floor. */
+async function runIn(status, { rollCount = 0 } = {}) {
+  const { order } = await reservedOrder({ issuedGrams: 100_000 });
+  const machineStatus = { PLANNED: 'ASSIGNED', RUNNING: 'RUNNING', PAUSED: 'PAUSED' }[status] ?? 'AVAILABLE';
+  const machine = await newMachine({ status: machineStatus });
+  seq += 1;
+  const run = await ProductionRun.create({
+    runNumber: `RUN-MTX-${seq}`, orderId: order._id, orderNumber: order.orderNumber, machineId: machine._id, machineCode: machine.code,
+    targetCm: 100_000, producedCm: rollCount * 1000, rollCount, status, supervisorId: MATRIX_ACTOR,
+  });
+  await Machine.updateOne({ _id: machine._id }, { $set: { currentRunId: run._id } });
+  if (status !== 'PLANNED') await Order.updateOne({ _id: order._id }, { $set: { status: 'IN_PRODUCTION' } });
+  return run;
 }
 
 const MATRIX = [
@@ -360,6 +380,32 @@ const MATRIX = [
       return { path: `/api/machines/${machine._id}/problems/${event._id}/resolve`, body: { resolution: 'Matrix fix' }, headers: { 'Idempotency-Key': newKey() } };
     },
   },
+  // ── Phase 8: production runs ──
+  { name: 'GET /api/production-runs', method: 'get', allowed: PRODUCTION_VIEWERS, build: async () => ({ path: '/api/production-runs' }) },
+  {
+    name: 'POST /api/production-runs',
+    method: 'post',
+    allowed: FLOOR,
+    build: async () => {
+      const { order } = await reservedOrder({ issuedGrams: 100_000 });
+      const machine = await newMachine();
+      return { path: '/api/production-runs', body: { orderId: String(order._id), machineId: String(machine._id), targetMetres: 100 }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
+  { name: 'GET /api/production-runs/:id', method: 'get', allowed: PRODUCTION_VIEWERS, build: async () => ({ path: `/api/production-runs/${(await runIn('PLANNED'))._id}` }) },
+  ...[
+    ['start', 'PLANNED', {}],
+    ['pause', 'RUNNING', { reason: 'Matrix pause' }],
+    ['resume', 'PAUSED', {}],
+    ['complete', 'RUNNING', {}, { rollCount: 1 }],
+    ['cancel', 'PLANNED', { reason: 'Matrix cancel' }],
+    ['rolls', 'RUNNING', { lengthMetres: 10 }],
+  ].map(([action, status, body, opts]) => ({
+    name: `POST /api/production-runs/:id/${action}`,
+    method: 'post',
+    allowed: FLOOR,
+    build: async () => ({ path: `/api/production-runs/${(await runIn(status, opts))._id}/${action}`, body, headers: { 'Idempotency-Key': newKey() } }),
+  })),
   // ── Phase 6: feasibility and confirmation ──
   {
     name: 'GET /api/orders/:id/feasibility',

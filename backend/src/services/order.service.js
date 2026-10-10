@@ -27,6 +27,7 @@ import { claimYarnCommitmentLock } from "../repositories/locks.repository.js";
 import { assessOrderFeasibility } from "./feasibility.service.js";
 import { executeIdempotent } from "./idempotency.service.js";
 import { releaseOrderReservations } from "./material.service.js";
+import { cancelPlannedRunsForOrder } from "./production.service.js";
 
 /**
  * Integer-only order maths.
@@ -267,6 +268,7 @@ function changeStatus(orderId, actionName, { reason }, context) {
       // Cancelling a reserved order gives back the yarn not yet issued (same transaction).
       if (order.status === ORDER_STATUS.MATERIAL_RESERVED) {
         await releaseOrderReservations(order, { reason }, context, session);
+        await cancelPlannedRunsForOrder(order, { reason }, context, session);
       }
 
       const updated = await transitionStatusGuarded(

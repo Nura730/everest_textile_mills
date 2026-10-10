@@ -5,6 +5,7 @@ import buyerRoutes from './buyer.routes.js';
 import healthRoutes from './health.routes.js';
 import inventoryRoutes from './inventory.routes.js';
 import machineRoutes from './machine.routes.js';
+import productionRoutes from './production.routes.js';
 import orderRoutes from './order.routes.js';
 import productRoutes from './product.routes.js';
 import userRoutes from './user.routes.js';
@@ -31,5 +32,6 @@ router.use('/buyers', buyerRoutes);
 router.use('/products', productRoutes);
 router.use('/orders', orderRoutes);
 router.use('/machines', machineRoutes);
+router.use('/production-runs', productionRoutes);
 
 export default router;

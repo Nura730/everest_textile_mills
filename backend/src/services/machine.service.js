@@ -6,7 +6,9 @@ import {
 } from '../constants/machines.js';
 import { toPublicMachine } from '../models/Machine.js';
 import { toPublicMachineEvent } from '../models/MachineEvent.js';
+import { RUN_STATUS } from '../constants/production.js';
 import { claimLock } from '../repositories/locks.repository.js';
+import { transitionRunGuarded } from '../repositories/production.repository.js';
 import {
   appendMachineEvent,
   findCriticalProblemsWithResolution,
@@ -224,6 +226,16 @@ export const reportProblem = (id, { category, severity, description, estimatedDo
         to = MACHINE_STATUS.PAUSED;
       }
       if (to !== machine.status) await moveStatus(machine, to, set, session);
+      // A stopped machine stops its run: the run is paused too (resumed by a person after repair).
+      if (machine.status === MACHINE_STATUS.RUNNING && to !== MACHINE_STATUS.RUNNING && machine.currentRunId) {
+        await transitionRunGuarded(
+          machine.currentRunId,
+          [RUN_STATUS.RUNNING],
+          RUN_STATUS.PAUSED,
+          { from: RUN_STATUS.RUNNING, to: RUN_STATUS.PAUSED, at: new Date(), by: context.actor.id, byRole: context.actor.role, reason: `Machine problem (${severity}): ${description}` },
+          session,
+        );
+      }
 
       const event = await appendMachineEvent(
         {

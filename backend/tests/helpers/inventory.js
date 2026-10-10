@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { AuditLog } from '../../src/models/AuditLog.js';
 import { IdempotencyRecord } from '../../src/models/IdempotencyRecord.js';
 import { InventoryTransaction } from '../../src/models/InventoryTransaction.js';
+import { Machine } from '../../src/models/Machine.js';
+import { MachineEvent } from '../../src/models/MachineEvent.js';
 import { MaterialReservation } from '../../src/models/MaterialReservation.js';
+import { ProductionRun } from '../../src/models/ProductionRun.js';
+import { Roll } from '../../src/models/Roll.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 
 export const newKey = () => randomUUID();
@@ -28,6 +32,10 @@ export async function ensureInventoryCollections() {
     InventoryTransaction.createCollection(),
     AuditLog.createCollection(),
     MaterialReservation.createCollection(),
+    Machine.init(),
+    MachineEvent.init(),
+    ProductionRun.init(),
+    Roll.init(),
   ]);
 }
 
@@ -39,6 +47,11 @@ export async function clearInventory() {
     InventoryTransaction.collection.deleteMany({}),
     AuditLog.collection.deleteMany({}),
     MaterialReservation.deleteMany({}),
+    // Production data (seed:dev also creates machines), so no suite leaks it into the next.
+    Machine.deleteMany({}),
+    MachineEvent.collection.deleteMany({}),
+    ProductionRun.deleteMany({}),
+    Roll.deleteMany({}),
   ]);
 }
 

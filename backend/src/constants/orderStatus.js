@@ -34,7 +34,8 @@ export const DELIVERY_PENDING_STATUSES = Object.freeze([
  * Phase 6: ORDER_CREATED → CONFIRMED (only after a passing feasibility check), and a confirmed
  * order can still be cancelled.
  * Phase 4: CONFIRMED → MATERIAL_RESERVED (yarn reserved), and a reserved order can be cancelled,
- * which releases the yarn not yet issued. Production (Phase 8) adds MATERIAL_RESERVED → IN_PRODUCTION.
+ * which releases the yarn not yet issued (and cancels its planned runs).
+ * Phase 8: MATERIAL_RESERVED → IN_PRODUCTION (first run starts) → PRODUCTION_COMPLETED.
  */
 const ALLOWED_TRANSITIONS = Object.freeze({
   [ORDER_STATUS.ORDER_CREATED]: Object.freeze([
@@ -43,7 +44,9 @@ const ALLOWED_TRANSITIONS = Object.freeze({
     ORDER_STATUS.REJECTED,
   ]),
   [ORDER_STATUS.CONFIRMED]: Object.freeze([ORDER_STATUS.MATERIAL_RESERVED, ORDER_STATUS.CANCELLED]),
-  [ORDER_STATUS.MATERIAL_RESERVED]: Object.freeze([ORDER_STATUS.CANCELLED]),
+  [ORDER_STATUS.MATERIAL_RESERVED]: Object.freeze([ORDER_STATUS.IN_PRODUCTION, ORDER_STATUS.CANCELLED]),
+  // Phase 8: the first run start; production is done when no run is open and output covers the order.
+  [ORDER_STATUS.IN_PRODUCTION]: Object.freeze([ORDER_STATUS.PRODUCTION_COMPLETED]),
 });
 
 export function allowedNextStatuses(from) {
