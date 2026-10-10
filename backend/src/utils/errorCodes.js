@@ -18,6 +18,11 @@ export const ERROR_CODES = Object.freeze({
   IDEMPOTENCY_KEY_REUSED: 409,
   // Inventory
   INSUFFICIENT_STOCK: 409,
+  // Lifecycles: the requested status change is not allowed from the current status.
+  INVALID_STATE_TRANSITION: 409,
+  // Orders
+  BUYER_INACTIVE: 409,
+  PRODUCT_INACTIVE: 409,
   // Users
   CANNOT_DEACTIVATE_SELF: 409,
   LAST_ACTIVE_ADMIN: 409,
