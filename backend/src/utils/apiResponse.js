@@ -12,6 +12,15 @@ export function sendSuccess(res, data, { status = 200, meta } = {}) {
 }
 
 /**
+ * Sends the result of executeIdempotent(). A replay is marked with a header so the client (and
+ * anyone reading logs) can tell "this happened just now" from "this already happened earlier".
+ */
+export function sendIdempotent(res, { statusCode, body, replayed }) {
+  if (replayed) res.set('Idempotent-Replayed', 'true');
+  return sendSuccess(res, body, { status: statusCode });
+}
+
+/**
  * Error envelope: { success: false, error: { code, message, details?, requestId } }
  * Expects an AppError (or anything with code/status/message); the error handler normalizes first.
  */
