@@ -14,6 +14,54 @@ import {
 
 const AppContext = createContext(null);
 
+const defaultNotifications = [
+  {
+    id: 'notif-1',
+    type: 'SUCCESS',
+    title: 'Work Order WO-1006 Completed',
+    message: '5,704 meters of Bamboo Blend Jersey completed and transferred to QC.',
+    timestamp: '10 mins ago',
+    unread: true,
+    link: '/production',
+  },
+  {
+    id: 'notif-2',
+    type: 'WARNING',
+    title: 'Machine Idle Warning',
+    message: 'Machine W-03 (Rapier Loom A-03) has been idle for 18 minutes awaiting beam creeling.',
+    timestamp: '24 mins ago',
+    unread: true,
+    link: '/machines',
+  },
+  {
+    id: 'notif-3',
+    type: 'CRITICAL',
+    title: 'Order Deadline Risk',
+    message: 'Order #ORD-2410-001 (12,000m Twill) is at high risk of missing deadline. QC inspection pending.',
+    timestamp: '1 hour ago',
+    unread: true,
+    link: '/orders',
+  },
+  {
+    id: 'notif-4',
+    type: 'INFO',
+    title: 'Inventory Synchronization Completed',
+    message: 'Inventory check completed. All warehouse buffer stocks verified and recorded.',
+    timestamp: '2 hours ago',
+    unread: false,
+    link: '/inventory',
+  },
+  {
+    id: 'notif-5',
+    type: 'CRITICAL',
+    title: 'Machine Breakdown Detected',
+    message: 'Dobby Loom C-05 (WV-16) halted due to warp stop motion trigger on harness shaft #4.',
+    timestamp: '3 hours ago',
+    unread: true,
+    link: '/machines',
+  },
+];
+
 export function AppProvider({ children }) {
   const [currentRole, setCurrentRole] = useState(userRoles[0]); // ADMIN_OWNER
   const [orders, setOrders] = useState(initialOrders);
@@ -26,6 +74,53 @@ export function AppProvider({ children }) {
   const [alerts, setAlerts] = useState(initialAlerts);
   const [isOffline, setIsOffline] = useState(false);
   const [pendingSyncQueue, setPendingSyncQueue] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const [notifications, setNotifications] = useState(defaultNotifications);
+
+  // Global Toast Dispatcher
+  const addToast = ({ type = 'info', title, message, duration = 4000 }) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newToast = { id, type, title, message, timestamp: Date.now() };
+    setToasts((prev) => [...prev, newToast]);
+
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, duration);
+    }
+    return id;
+  };
+
+  const removeToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const toast = useMemo(
+    () => ({
+      success: (message, title = 'Success') => addToast({ type: 'success', title, message }),
+      error: (message, title = 'Error') => addToast({ type: 'error', title, message }),
+      warning: (message, title = 'Warning') => addToast({ type: 'warning', title, message }),
+      info: (message, title = 'Information') => addToast({ type: 'info', title, message }),
+    }),
+    []
+  );
+
+  // Notification management
+  const markNotificationAsRead = (id) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
+    );
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    toast.info('All notifications marked as read.');
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    toast.info('Notification history cleared.');
+  };
 
   // Append-only audit logger
   const logAudit = (action, details, orderId = '—', entityId = '—') => {
@@ -186,7 +281,31 @@ export function AppProvider({ children }) {
       orderId
     );
 
+    // Global toast and notification
+    toast.success(`Manufacturing Order ${orderId} created successfully for ${newOrder.customer}.`, 'MO Created');
+    setNotifications((prev) => [
+      {
+        id: `notif-${Date.now()}`,
+        type: 'SUCCESS',
+        title: `New MO Created: ${orderId}`,
+        message: `${newOrder.customer} — ${Number(newOrder.quantity).toLocaleString()}m ${newOrder.fabric} reserved.`,
+        timestamp: 'Just now',
+        unread: true,
+        link: '/orders',
+      },
+      ...prev,
+    ]);
+
     return created;
+  };
+
+  // Cancel manufacturing order with audit & confirmation
+  const cancelOrder = (orderId, reason = 'Operator cancellation') => {
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, status: 'Cancelled', state: 'CANCELLED' } : o))
+    );
+    logAudit('ORDER_CANCELLED', `Order ${orderId} cancelled. Reason: ${reason}`, orderId, orderId);
+    toast.warning(`Order ${orderId} has been cancelled.`, 'Order Cancelled');
   };
 
   // Report machine problem (Floor Manager)
@@ -400,12 +519,16 @@ export function AppProvider({ children }) {
 
   // Sync offline queue when back online
   const triggerSync = () => {
-    if (pendingSyncQueue.length > 0) {
+    const count = pendingSyncQueue.length;
+    if (count > 0) {
       setPendingSyncQueue([]);
       logAudit(
         'OFFLINE_QUEUE_SYNCED',
-        `Successfully synced ${pendingSyncQueue.length} offline transactions with central Mongo backend. Idempotency verified.`
+        `Successfully synced ${count} offline transactions with central Mongo backend. Idempotency verified.`
       );
+      toast.success(`Successfully synced ${count} offline transactions with Central ERP.`, 'Sync Complete');
+    } else {
+      toast.info('All transactions are already synchronized.', 'Live Synced');
     }
     setIsOffline(false);
   };
@@ -429,11 +552,20 @@ export function AppProvider({ children }) {
       triggerSync,
       checkFeasibility,
       createOrder,
+      cancelOrder,
       reportMachineProblem,
       resolveMachineProblem,
       submitQCInspection,
       reserveYarn,
       confirmDispatch,
+      toasts,
+      addToast,
+      removeToast,
+      toast,
+      notifications,
+      markNotificationAsRead,
+      markAllNotificationsAsRead,
+      clearAllNotifications,
     }),
     [
       currentRole,
@@ -447,6 +579,9 @@ export function AppProvider({ children }) {
       alerts,
       isOffline,
       pendingSyncQueue,
+      toasts,
+      toast,
+      notifications,
     ]
   );
 

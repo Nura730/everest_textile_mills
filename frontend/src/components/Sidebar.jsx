@@ -17,14 +17,11 @@ import {
 import { useApp } from '../context/AppContext';
 
 export default function Sidebar({ collapsed, onToggle }) {
-  const { machines, inventory, orders, currentRole } = useApp();
+  const { machines, inventory, orders } = useApp();
 
-  const errorMachinesCount = machines.filter((m) => m.error).length;
-  const shortageCount = inventory.filter((i) => i.shortage).length;
-  const qcFailedOrders = orders.filter((o) => o.status === 'Failed QC').length;
-
-  const isFloorMapAuthorized =
-    currentRole && (currentRole.id === 'ADMIN_OWNER' || currentRole.id === 'FLOOR_MANAGER');
+  const errorMachinesCount = machines ? machines.filter((m) => m.error).length : 0;
+  const shortageCount = inventory ? inventory.filter((i) => i.shortage).length : 0;
+  const qcFailedOrders = orders ? orders.filter((o) => o.status === 'Failed QC').length : 0;
 
   const menuItems = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -32,21 +29,17 @@ export default function Sidebar({ collapsed, onToggle }) {
       to: '/orders',
       label: 'Manufacturing Orders',
       icon: TrendingUp,
-      badge: qcFailedOrders > 0 ? `${qcFailedOrders} alert` : undefined,
+      badge: qcFailedOrders > 0 ? `${qcFailedOrders}` : undefined,
       isErrorBadge: qcFailedOrders > 0,
     },
     { to: '/production', label: 'Work Orders', icon: ClipboardList },
-    ...(isFloorMapAuthorized
-      ? [
-          {
-            to: '/machines',
-            label: 'Factory Floor Map',
-            icon: Sliders,
-            badge: errorMachinesCount > 0 ? `${errorMachinesCount}` : undefined,
-            isErrorBadge: errorMachinesCount > 0,
-          },
-        ]
-      : []),
+    {
+      to: '/machines',
+      label: 'Work Centers',
+      icon: Sliders,
+      badge: errorMachinesCount > 0 ? `${errorMachinesCount}` : undefined,
+      isErrorBadge: errorMachinesCount > 0,
+    },
     {
       to: '/inventory',
       label: 'Inventory',
@@ -63,14 +56,16 @@ export default function Sidebar({ collapsed, onToggle }) {
   ];
 
   return (
-    <aside className={`erp-sidebar ${collapsed ? 'collapsed' : ''}`}>
+    <aside className={`erp-sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Main Navigation">
       {/* Sidebar Top: "Menu" + collapse toggle `<` */}
       <div className="erp-sidebar-header">
         {!collapsed && <span className="erp-sidebar-title">Menu</span>}
         <button
+          type="button"
           className="erp-sidebar-toggle-btn"
           onClick={onToggle}
           title={collapsed ? 'Expand Menu' : 'Collapse Menu'}
+          aria-label={collapsed ? 'Expand Menu' : 'Collapse Menu'}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>

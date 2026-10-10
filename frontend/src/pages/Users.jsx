@@ -1,8 +1,9 @@
-import { Users as UsersIcon, Shield, CheckCircle, ArrowRight } from 'lucide-react';
+import { Users as UsersIcon, Shield, CheckCircle, ArrowRight, Download } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function Users() {
-  const { currentRole, setCurrentRole, roles } = useApp();
+  const { currentRole, setCurrentRole, roles, toast } = useApp();
 
   const userDirectory = [
     {
@@ -52,6 +53,19 @@ export default function Users() {
     },
   ];
 
+  const handleExportCSV = () => {
+    exportToCSV('Everest_Textile_User_Directory.csv', userDirectory, [
+      { key: 'id', label: 'User ID' },
+      { key: 'name', label: 'Full Name' },
+      { key: 'role', label: 'Role Key' },
+      { key: 'email', label: 'Email Address' },
+      { key: 'title', label: 'Designation' },
+      { key: 'permissions', label: 'Permissions' },
+      { key: 'status', label: 'Account Status' },
+    ]);
+    toast.info(`Exported ${userDirectory.length} users to CSV.`, 'CSV Exported');
+  };
+
   return (
     <div className="erp-page-container">
       <div className="erp-page-header">
@@ -60,6 +74,12 @@ export default function Users() {
           <p className="erp-page-subtitle">
             Section 2: Primary factory personas, role-specific visibility boundaries, and permissions
           </p>
+        </div>
+        <div className="erp-page-actions">
+          <button className="erp-btn-outline" onClick={handleExportCSV} title="Export personnel directory as CSV">
+            <Download size={16} />
+            <span>Export Directory</span>
+          </button>
         </div>
       </div>
 
@@ -85,7 +105,10 @@ export default function Users() {
               <div
                 key={r.id}
                 className={`role-select-card ${isSelected ? 'selected' : ''}`}
-                onClick={() => setCurrentRole(r)}
+                onClick={() => {
+                  setCurrentRole(r);
+                  toast.info(`Switched active persona to ${r.name} (${r.id}).`, 'Persona Activated');
+                }}
               >
                 <div className="role-card-avatar">{r.avatar}</div>
                 <div className="role-card-name">{r.name}</div>

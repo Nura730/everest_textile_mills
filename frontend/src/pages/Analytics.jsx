@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart,
   Bar,
@@ -9,10 +10,24 @@ import {
   LineChart,
   Line,
 } from 'recharts';
-import { TrendingUp, Activity, CheckCircle, ShieldAlert, Cpu } from 'lucide-react';
+import { TrendingUp, Activity, CheckCircle, ShieldAlert, Cpu, Download } from 'lucide-react';
 import { defectTrendData, machineUtilizationData, weeklyOutputData } from '../data/mockData';
+import { useApp } from '../context/AppContext';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function Analytics() {
+  const navigate = useNavigate();
+  const { toast } = useApp();
+
+  const handleExportCSV = () => {
+    exportToCSV('Everest_Textile_Machine_Uptime_Analytics.csv', machineUtilizationData, [
+      { key: 'name', label: 'Machine Name' },
+      { key: 'utilization', label: 'Uptime %' },
+      { key: 'status', label: 'Current State' },
+    ]);
+    toast.info('Exported machine utilization analytics to CSV.', 'CSV Exported');
+  };
+
   return (
     <div className="erp-page-container">
       <div className="erp-page-header">
@@ -22,11 +37,21 @@ export default function Analytics() {
             Long-term production efficiency, quality defect trends, and fleet uptime metrics
           </p>
         </div>
+        <div className="erp-page-actions">
+          <button className="erp-btn-outline" onClick={handleExportCSV} title="Export machine uptime metrics as CSV">
+            <Download size={16} />
+            <span>Export Analytics</span>
+          </button>
+        </div>
       </div>
 
       {/* Top Cards */}
       <div className="erp-tall-kpi-grid" style={{ marginBottom: 20 }}>
-        <div className="erp-tall-kpi-card">
+        <div
+          className="erp-tall-kpi-card"
+          onClick={() => navigate('/quality')}
+          title="Click to view Defect Logs & QC Roll Inspections"
+        >
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Average Defect Rate</span>
             <Activity size={16} className="tall-kpi-icon" />
@@ -35,7 +60,11 @@ export default function Analytics() {
           <div className="tall-kpi-change">-0.3% vs previous month (Improving)</div>
         </div>
 
-        <div className="erp-tall-kpi-card">
+        <div
+          className="erp-tall-kpi-card"
+          onClick={() => navigate('/machines')}
+          title="Click to view Factory Floor Fleet Status"
+        >
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Fleet Overall Equipment Effectiveness (OEE)</span>
             <Cpu size={16} className="tall-kpi-icon" />
@@ -44,7 +73,11 @@ export default function Analytics() {
           <div className="tall-kpi-change">+2.4% year-to-date</div>
         </div>
 
-        <div className="erp-tall-kpi-card">
+        <div
+          className="erp-tall-kpi-card"
+          onClick={() => navigate('/quality')}
+          title="Click to view Pass Yield Certifications"
+        >
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">First-Time Pass Yield</span>
             <CheckCircle size={16} className="tall-kpi-icon" />
@@ -53,7 +86,11 @@ export default function Analytics() {
           <div className="tall-kpi-subtext">Rolls passing on first inspection</div>
         </div>
 
-        <div className="erp-tall-kpi-card">
+        <div
+          className="erp-tall-kpi-card"
+          onClick={() => navigate('/machines')}
+          title="Click to view Maintenance & MTBF Diagnostics"
+        >
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Mean Time Between Failures</span>
             <Activity size={16} className="tall-kpi-icon" />

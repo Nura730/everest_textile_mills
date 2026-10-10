@@ -1,27 +1,41 @@
-import { useState } from 'react';
-import { Package, Search, Plus, AlertTriangle, Download, ArrowUpDown, BookmarkPlus, X, CheckCircle2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import {
+  Package,
+  Search,
+  Plus,
+  AlertTriangle,
+  Download,
+  BookmarkPlus,
+  X,
+  CheckCircle2,
+  Boxes,
+  ArrowUpDown,
+} from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { exportToCSV } from '../utils/csvExport';
 
 const categoryFilters = ['All', 'Yarn', 'Fiber', 'Dye', 'Chemical', 'Parts'];
 
 export default function Inventory() {
-  const { inventory, reserveYarn, orders } = useApp();
+  const { inventory, reserveYarn, orders, toast } = useApp();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [reservingItem, setReservingItem] = useState(null);
   const [reserveAmount, setReserveAmount] = useState(250);
   const [reserveOrderId, setReserveOrderId] = useState(orders[0]?.id || 'ORD-2410-001');
 
-  const filtered = inventory.filter((item) => {
-    const matchesFilter = activeFilter === 'All' || item.category === activeFilter;
-    const matchesSearch =
-      !searchTerm ||
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.color.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.supplier.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
+  const filtered = useMemo(() => {
+    return inventory.filter((item) => {
+      const matchesFilter = activeFilter === 'All' || item.category === activeFilter;
+      const matchesSearch =
+        !searchTerm ||
+        item.name.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        item.id.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        item.color.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        item.supplier.toLowerCase().includes(searchTerm.toLowerCase().trim());
+      return matchesFilter && matchesSearch;
+    });
+  }, [inventory, activeFilter, searchTerm]);
 
   const shortageCount = inventory.filter((i) => i.shortage).length;
 
@@ -29,7 +43,30 @@ export default function Inventory() {
     e.preventDefault();
     if (reservingItem) {
       reserveYarn(reservingItem.id, reserveAmount, reserveOrderId);
+      toast.success(
+        `Reserved ${reserveAmount.toLocaleString()} ${reservingItem.unit} of ${reservingItem.name} for ${reserveOrderId}.`,
+        'Material Reserved'
+      );
       setReservingItem(null);
+    }
+  };
+
+  const handleExportStock = () => {
+    const success = exportToCSV('inventory_stock_balance', inventory, [
+      { key: 'id', label: 'Item SKU' },
+      { key: 'name', label: 'Material Specification' },
+      { key: 'category', label: 'Category' },
+      { key: 'color', label: 'Shade / Color' },
+      { key: 'totalStock', label: 'Physical Total' },
+      { key: 'reservedStock', label: 'Reserved Stock' },
+      { key: 'availableStock', label: 'Available Stock' },
+      { key: 'unit', label: 'Unit' },
+      { key: 'supplier', label: 'Supplier' },
+      { key: 'lotNumber', label: 'Lot Batch' },
+      { key: 'location', label: 'Storage Bin' },
+    ]);
+    if (success) {
+      toast.success('Inventory stock report exported to CSV successfully.', 'Export Complete');
     }
   };
 
@@ -39,11 +76,11 @@ export default function Inventory() {
         <div className="erp-page-header-text">
           <h1 className="erp-page-title">Raw Material Inventory</h1>
           <p className="erp-page-subtitle">
-            Section 6: Yarn Lot Tracking, E-Commerce Style Reservation, Available vs Reserved Stock
+            Yarn Lot Tracking, E-Commerce Style Reservation, Available vs Reserved Stock
           </p>
         </div>
         <div className="erp-page-actions">
-          <button className="erp-btn-outline">
+          <button type="button" className="erp-btn-outline" onClick={handleExportStock} title="Export stock table to CSV">
             <Download size={16} />
             <span>Export Stock</span>
           </button>
@@ -54,14 +91,14 @@ export default function Inventory() {
       {shortageCount > 0 && (
         <div className="erp-alert-box">
           <div className="erp-alert-icon">
-            <AlertTriangle size={20} />
+            <AlertTriangle size={20} className="text-warning" />
           </div>
           <div className="erp-alert-content">
             <div className="erp-alert-title">
-              Critical Inventory Buffer Deficit: {shortageCount} Materials Under Threshold
+              Buffer Deficit Warning: {shortageCount} Materials Under Safety Stock Limit
             </div>
             <div className="erp-alert-desc">
-              Viscose Staple Fiber, Reactive Black Dye, and Bamboo Viscose Yarn have fallen below safety limits.
+              Materials highlighted below have fallen below the mandatory mill replenishment buffer. Reorder requisitions recommended.
             </div>
           </div>
         </div>
@@ -81,7 +118,7 @@ export default function Inventory() {
         <div className="erp-tall-kpi-card">
           <div className="tall-kpi-header">
             <span className="tall-kpi-label">Yarn Stock (Total)</span>
-            <Package size={16} className="tall-kpi-icon" />
+            <Boxes size={16} className="tall-kpi-icon" />
           </div>
           <div className="tall-kpi-value">16,375 kg</div>
           <div className="tall-kpi-subtext">Cumulative physical yarn</div>
@@ -110,12 +147,13 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters and Search Bar */}
       <div className="erp-filter-bar">
         <div className="filter-chips-row">
           {categoryFilters.map((filter) => (
             <button
               key={filter}
+              type="button"
               className={`erp-filter-chip ${activeFilter === filter ? 'active' : ''}`}
               onClick={() => setActiveFilter(filter)}
             >
@@ -131,10 +169,19 @@ export default function Inventory() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          {searchTerm && (
+            <button
+              type="button"
+              className="search-clear-btn"
+              onClick={() => setSearchTerm('')}
+            >
+              ×
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table with Visual Stock Indicators (Section 11) */}
       <div className="erp-card">
         <div className="erp-table-wrapper">
           <table className="erp-data-table">
@@ -144,96 +191,122 @@ export default function Inventory() {
                 <th>Material Specification</th>
                 <th>Category</th>
                 <th>Color / Shade</th>
-                <th>Total Physical</th>
+                <th style={{ minWidth: 200 }}>Stock Availability Bar</th>
                 <th>Reserved Stock</th>
                 <th>Available Stock</th>
                 <th>Supplier & Lot</th>
                 <th>Storage Bin</th>
-                <th>Action</th>
+                <th style={{ textAlign: 'right' }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => (
-                <tr key={item.id}>
-                  <td className="table-primary-cell">{item.id}</td>
-                  <td>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <div className="text-xs text-secondary">
-                        Min Buffer: {item.minStock.toLocaleString()} {item.unit}
+              {filtered.map((item) => {
+                const availPercent = item.totalStock > 0 ? Math.round((item.availableStock / item.totalStock) * 100) : 0;
+                const isLow = item.shortage;
+
+                return (
+                  <tr key={item.id}>
+                    <td className="table-primary-cell font-mono">{item.id}</td>
+                    <td>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <div className="text-xs text-secondary">
+                          Min Safety Buffer: {item.minStock.toLocaleString()} {item.unit}
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="erp-status-badge outline">{item.category}</span>
-                  </td>
-                  <td>{item.color}</td>
-                  <td>
-                    {item.totalStock.toLocaleString()} {item.unit}
-                  </td>
-                  <td>
-                    <span style={{ color: 'var(--color-gray-700)', fontWeight: 500 }}>
-                      {item.reservedStock.toLocaleString()} {item.unit}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color: item.shortage ? 'var(--color-error)' : 'var(--color-black)',
-                      }}
-                    >
-                      {item.availableStock.toLocaleString()} {item.unit}
-                    </span>
-                    {item.shortage && (
-                      <span className="erp-status-badge error" style={{ marginLeft: 6, fontSize: 10 }}>
-                        Shortage
+                    </td>
+                    <td>
+                      <span className="erp-status-badge outline">{item.category}</span>
+                    </td>
+                    <td>{item.color}</td>
+
+                    {/* Section 11 Visual Stock Indicator */}
+                    <td>
+                      <div className="visual-stock-bar-wrap">
+                        <div className="stock-label-split">
+                          <span className="text-xs">
+                            Available: <strong>{item.availableStock.toLocaleString()} {item.unit}</strong>
+                          </span>
+                          <span className="text-xs text-secondary">
+                            Total: {item.totalStock.toLocaleString()} {item.unit}
+                          </span>
+                        </div>
+                        <div className="stock-ratio-progress">
+                          <div
+                            className={`stock-ratio-fill ${isLow ? 'low' : ''}`}
+                            style={{ width: `${Math.min(100, Math.max(0, availPercent))}%` }}
+                          />
+                        </div>
+                        <div className="stock-reserved-caption">
+                          Reserved: {item.reservedStock.toLocaleString()} {item.unit} ({100 - availPercent}%)
+                        </div>
+                      </div>
+                    </td>
+
+                    <td>
+                      <span style={{ color: 'var(--color-gray-700)', fontWeight: 500 }}>
+                        {item.reservedStock.toLocaleString()} {item.unit}
                       </span>
-                    )}
-                  </td>
-                  <td>
-                    <div>
-                      <div style={{ fontSize: 12 }}>{item.supplier}</div>
-                      <div className="text-xs text-secondary" style={{ fontFamily: 'monospace' }}>
-                        {item.lotNumber}
+                    </td>
+                    <td>
+                      <div>
+                        <strong style={{ color: isLow ? 'var(--color-error)' : 'var(--color-gray-900)' }}>
+                          {item.availableStock.toLocaleString()} {item.unit}
+                        </strong>
+                        {isLow && (
+                          <div className="erp-status-badge error" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
+                            <AlertTriangle size={11} />
+                            <span>LOW STOCK</span>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 12, color: 'var(--color-gray-600)' }}>{item.location}</td>
-                  <td>
-                    {item.category === 'Yarn' && (
-                      <button
-                        className="erp-btn-sm erp-btn-outline"
-                        onClick={() => {
-                          setReservingItem(item);
-                          setReserveAmount(Math.min(item.availableStock, 500));
-                        }}
-                        disabled={item.availableStock <= 0}
-                      >
-                        <BookmarkPlus size={13} />
-                        <span>Reserve</span>
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <div>
+                        <div style={{ fontSize: 12 }}>{item.supplier}</div>
+                        <div className="text-xs text-secondary font-mono">
+                          {item.lotNumber}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--color-gray-600)' }}>{item.location}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {item.category === 'Yarn' && (
+                        <button
+                          type="button"
+                          className="erp-btn-sm erp-btn-outline"
+                          onClick={() => {
+                            setReservingItem(item);
+                            setReserveAmount(Math.min(item.availableStock, 500));
+                          }}
+                          disabled={item.availableStock <= 0}
+                          title="Reserve material for production order"
+                        >
+                          <BookmarkPlus size={13} style={{ marginRight: 3 }} />
+                          <span>Reserve</span>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* MODAL: E-Commerce Style Yarn Reservation (Store Keeper Section 2 & 6) */}
+      {/* MODAL: Yarn Reservation */}
       {reservingItem && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box">
+        <div className="erp-modal-overlay" onClick={() => setReservingItem(null)}>
+          <div className="erp-modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h3 className="modal-title">E-Commerce Material Selection & Reservation</h3>
+                <h3 className="modal-title">Material Reservation Allocation</h3>
                 <p className="modal-subtitle">
-                  Section 6: {reservingItem.name} ({reservingItem.color}) • Lot {reservingItem.lotNumber}
+                  {reservingItem.name} ({reservingItem.color}) • Lot {reservingItem.lotNumber}
                 </p>
               </div>
-              <button className="modal-close-btn" onClick={() => setReservingItem(null)}>
+              <button type="button" className="modal-close-btn" onClick={() => setReservingItem(null)}>
                 <X size={18} />
               </button>
             </div>
@@ -242,7 +315,7 @@ export default function Inventory() {
               <div className="modal-body">
                 <div className="reservation-metric-banner">
                   <div className="reserve-stat">
-                    <span className="text-xs text-secondary">Total Stock</span>
+                    <span className="text-xs text-secondary">Total Physical</span>
                     <strong>
                       {reservingItem.totalStock} {reservingItem.unit}
                     </strong>
@@ -254,7 +327,7 @@ export default function Inventory() {
                     </strong>
                   </div>
                   <div className="reserve-stat highlight">
-                    <span className="text-xs text-secondary">Available Stock</span>
+                    <span className="text-xs text-secondary">Available to Allocate</span>
                     <strong style={{ fontSize: 18 }}>
                       {reservingItem.availableStock} {reservingItem.unit}
                     </strong>
