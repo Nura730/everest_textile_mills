@@ -169,3 +169,9 @@ export const costingApi = {
   rates: () => apiRequest("/costing/rates"),
   saveRates: (body) => apiRequest("/costing/rates", { method: "POST", body }),
 };
+
+// Phase 17: delivery risk and recommendations (admin, floor, store).
+export const intelligenceApi = {
+  overview: () => apiRequest("/intelligence/overview"),
+  order: (id) => apiRequest(`/intelligence/orders/${id}`),
+};

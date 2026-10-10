@@ -218,6 +218,16 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .sync-item.conflict, .sync-item.rejected { background: var(--color-error-light); }
 .sync-message { margin-top: 4px; color: var(--color-error-dark); }
 
+.risk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.risk-row { border: 1px solid var(--color-gray-200); border-left-width: 4px; border-radius: 6px; padding: 10px 12px; }
+.risk-row.level-late { border-left-color: var(--color-error); }
+.risk-row.level-at_risk { border-left-color: var(--color-gray-900); }
+.risk-row-head { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.risk-order { flex: 1; min-width: 0; font-size: 0.875rem; }
+.risk-estimate { margin-top: 4px; }
+.risk-detail { margin: 8px 0; }
+.risk-heading { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-gray-500); margin-top: 8px; }
+
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 
 /* ── Status history ────────────────────────────────────────────────────────── */

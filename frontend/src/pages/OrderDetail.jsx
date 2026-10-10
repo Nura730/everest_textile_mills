@@ -12,6 +12,7 @@ import { OrderRunsPanel } from '../components/production/OrderRuns.jsx';
 import { OrderFulfilmentPanel } from '../components/fulfilment/Fulfilment.jsx';
 import { BuyerTimeline } from '../components/orders/BuyerTimeline.jsx';
 import { OrderCostPanel } from '../components/costing/CostSheet.jsx';
+import { OrderRiskPanel } from '../components/insights/RiskPanel.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -401,6 +402,7 @@ export default function OrderDetail() {
           )}
         </div>
       )}
+      {can.viewInsights(user.role) && ['CONFIRMED', 'MATERIAL_RESERVED', 'IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'READY_FOR_DISPATCH'].includes(current.status) && <OrderRiskPanel orderId={current.id} refreshKey={current.updatedAt} />}
       {user.role === ROLES.ADMIN && ['IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && <OrderCostPanel orderId={current.id} refreshKey={current.updatedAt} />}
       {user.role === ROLES.BUYER && !['ORDER_CREATED', 'CANCELLED', 'REJECTED'].includes(current.status) && <BuyerTimeline order={current} />}
       {['READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && (

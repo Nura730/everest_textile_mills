@@ -15,6 +15,7 @@ import MachineList from './pages/MachineList';
 import ProductionList from './pages/ProductionList';
 import AuditTrail from './pages/AuditTrail';
 import Costing from './pages/Costing';
+import Insights from './pages/Insights';
 import DispatchPage from './pages/DispatchPage';
 import Invoices from './pages/Invoices';
 import QcQueue from './pages/QcQueue';
@@ -27,7 +28,6 @@ import Orders from './pages/Orders';
 import Products from './pages/Products';
 import Users from './pages/Users';
 // Preview screens (sample data from context/AppContext; backend modules are planned phases)
-import Analytics from './pages/Analytics';
 import BOM from './pages/BOM';
 import Dispatch from './pages/Dispatch';
 import Machines from './pages/Machines';
@@ -49,6 +49,7 @@ const LIVE_PAGES = {
   '/invoices': <Invoices />,
   '/audit': <AuditTrail />,
   '/costing': <Costing />,
+  '/insights': <Insights />,
   '/rolls': <RollList />,
   '/users': <Users />,
 };
@@ -60,7 +61,6 @@ const PREVIEW_PAGES = {
   '/dispatch-board': <Dispatch />,
   '/bom': <BOM />,
   '/ledger': <StockLedger />,
-  '/analytics': <Analytics />,
   '/settings': <Settings />,
 };
 
