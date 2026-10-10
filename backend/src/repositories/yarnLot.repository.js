@@ -1,0 +1,72 @@
+import { YarnLot } from '../models/YarnLot.js';
+
+/*
+ * Data access for yarn lots. Services decide WHAT should happen (business rules); this layer
+ * knows HOW to do it safely in MongoDB. In particular every balance change is a single guarded
+ * atomic update: the check and the write happen in one operation, so two concurrent requests can
+ * never both pass a check that only one of them should pass.
+ */
+
+export async function insertLot(data, session) {
+  const [lot] = await YarnLot.create([data], { session });
+  return lot;
+}
+
+export function findLotById(id, { session } = {}) {
+  return YarnLot.findById(id).session(session ?? null).lean();
+}
+
+export async function findLotsPage({ material, colour, includeDepleted }, { page, limit }) {
+  const filter = {};
+  if (material) filter.material = material;
+  if (colour) filter.colour = colour;
+  if (!includeDepleted) filter.totalGrams = { $gt: 0 };
+
+  const [lots, total] = await Promise.all([
+    YarnLot.find(filter)
+      // Oldest first: the store should use (and reserve) older lots first (FIFO).
+      .sort({ material: 1, colour: 1, receivedAt: 1, _id: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    YarnLot.countDocuments(filter),
+  ]);
+  return { lots, total };
+}
+
+/**
+ * total += deltaGrams, but only if the result stays >= reservedGrams (and therefore >= 0).
+ * Returns the updated lot, or null when the guard failed (or the lot does not exist).
+ */
+export function incrementTotalGuarded(lotId, deltaGrams, session) {
+  return YarnLot.findOneAndUpdate(
+    { _id: lotId, $expr: { $gte: [{ $add: ['$totalGrams', deltaGrams] }, '$reservedGrams'] } },
+    { $inc: { totalGrams: deltaGrams } },
+    { returnDocument: 'after', session, lean: true },
+  );
+}
+
+/** Stock by material and colour: the store keeper's catalog view (Cotton → Navy → 1,250 kg). */
+export function summarizeByMaterialAndColour({ material, includeDepleted }) {
+  const match = {};
+  if (material) match.material = material;
+  if (!includeDepleted) match.totalGrams = { $gt: 0 };
+
+  return YarnLot.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: { material: '$material', colour: '$colour' },
+        lots: { $sum: 1 },
+        totalGrams: { $sum: '$totalGrams' },
+        reservedGrams: { $sum: '$reservedGrams' },
+        oldestReceivedAt: { $min: '$receivedAt' },
+      },
+    },
+    { $sort: { '_id.material': 1, '_id.colour': 1 } },
+  ]);
+}
+
+export function findAllLotBalances() {
+  return YarnLot.find({}, { lotNumber: 1, totalGrams: 1, reservedGrams: 1 }).lean();
+}
