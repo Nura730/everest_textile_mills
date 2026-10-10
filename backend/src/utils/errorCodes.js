@@ -8,6 +8,8 @@ export const ERROR_CODES = Object.freeze({
   UNAUTHENTICATED: 401,
   // Only for a genuinely signed token past its exp; forged tokens get UNAUTHENTICATED.
   TOKEN_EXPIRED: 401,
+  // Login only. One code for unknown email, wrong password and deactivated account.
+  INVALID_CREDENTIALS: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
