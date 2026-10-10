@@ -17,10 +17,11 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 | — | Domain model (`docs/DATABASE.md`) | ✅ Done (D1, D2, D5 confirmed; D3, D4, D6–D8 pending) | `feature/backend` | via `feature/backend` | — |
 | 3 | Yarn inventory | ✅ Done, on `feature/backend` | `feature/backend` | via `feature/backend` | 439 |
 | 5 | Buyers, catalog, orders (+ ownership) — built before 4 (D5) | ✅ Done, merged to `main` | `feature/backend` | via `feature/backend` | 621 |
-| 6 | Feasibility (material + deadline) and confirmation — built before 4 | 🟡 Implemented, **uncommitted** | `feature/backend` | — | 671 |
-| 4 | Material reservation | ⏳ Next | | | |
-| 7 | Machines | Not started | | | |
-| 8 | Production runs | Not started | | | |
+| 6 | Feasibility (material + deadline) and confirmation — built before 4 | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 671 |
+| — | Audit fixes; list filters and edit actions | ✅ Done, pushed | `feature/backend` | via `feature/backend` | 783 |
+| 4 | Material reservation (reserve, issue, return, release) | 🟡 Implemented, **uncommitted** | `feature/backend` | — | 845 |
+| 7 | Machines (registry, maintenance, problems, downtime; D4 confirmed) | 🟡 Implemented, **uncommitted** | `feature/backend` | — | 941 |
+| 8 | Production runs | ⏳ Next | | | |
 | 9 | Roll traceability | Not started | | | |
 | 10 | QC | Not started | | | |
 | 11 | Finished goods | Not started | | | |
@@ -52,7 +53,7 @@ merged into `feature/backend`; those two branches are kept (not deleted) but are
 - `seed:dev` adds buyer `BUY-DEV` (linked to buyer@) and two products.
 - Docs: `docs/features/phase-05-orders.md`, `docs/learning/phase-05-orders.md`, README contract, DATABASE.md.
 
-## Phase 6 — what is done (uncommitted)
+## Phase 6 — what is done
 
 Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE.md` lifecycle;
 `instruction.md` §25 lists feasibility before reservation).
@@ -68,16 +69,37 @@ Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE
 - Frontend: feasibility card and Confirm button on order detail.
 - Docs: `docs/features/phase-06-feasibility.md`, `docs/learning/phase-06-feasibility.md`, README contract, DATABASE.md.
 
+## Phase 4 — what is done (uncommitted)
+
+- `materialReservations` (per order, per lot): reserved / issued / returned / released counters, guarded.
+- `POST /orders/:id/reserve` (FIFO or store keeper's chosen lots; whole requirement or nothing;
+  `CONFIRMED → MATERIAL_RESERVED`), `GET /orders/:id/reservations`, `POST /orders/:id/issue`,
+  `POST /orders/:id/return`; cancelling a reserved order releases unissued yarn in the same transaction.
+- Ledger rows `RESERVATION`, `ISSUE`, `RETURN`, `RESERVATION_RELEASE` carry `orderId`; ledger filter by order.
+- Frontend: Reserve yarn modal, yarn panel with issue/return, store and floor dashboard queues.
+- Docs: `docs/features/phase-04-reservation.md`, README contract, DATABASE.md.
+
+## Phase 7 — what is done (uncommitted)
+
+- `machines` (registry; code/type locked; retire, never delete) and append-only `machineEvents`.
+- States per D4 (no IDLE). Maintenance start/end; problems by category and severity; CRITICAL takes a
+  machine DOWN and resolving the last critical problem returns it where it was (RUNNING → PAUSED).
+- Per-machine lock: concurrent actions on one machine cannot leave it in a wrong state.
+- Downtime from critical problems; history with filters; `seed:dev` adds five demo machines.
+- Frontend: live Machines list and detail (report/resolve problems, maintenance, admin edit/retire);
+  the sample Factory Floor Map moved to `/floor-map` (still labelled preview); floor dashboard KPI.
+- Docs: `docs/features/phase-07-machines.md`, README contract, DATABASE.md (D4 confirmed).
+
 ## Next
 
-1. Owner reviews and commits Phase 6.
-2. Phase 4 — material reservation for confirmed orders (reserve → `MATERIAL_RESERVED`, release on
-   cancel, issue, return) on the existing ledger.
-3. Phase 7 — machines; then add the machine-capacity check to feasibility.
+1. Owner reviews and commits Phases 4 and 7.
+2. Phase 8 — production runs: assign an order to a machine (`ASSIGNED`), start/pause/resume/complete
+   (`MATERIAL_RESERVED → IN_PRODUCTION`), output recording, issuing yarn against runs, and the
+   machine-capacity part of feasibility (needs runs for workload).
 
 ## Open decisions / process issues
 
-- **D3, D4, D6, D7, D8** (`docs/DATABASE.md` §7) still need confirmation (D7 is already built as proposed).
+- **D3, D6, D7, D8** (`docs/DATABASE.md` §7) still need confirmation (D7 is already built as proposed). D4 confirmed.
 - **Integration:** the team merges `feature/backend` into `main` through PRs (as with PRs #3–#24).
   `develop` is not used in practice and is still at Phase 1.
 - **PRs must be opened by hand**: `gh` is not installed.
@@ -91,7 +113,7 @@ Built before Phase 4 because reservation starts from `CONFIRMED` (`docs/DATABASE
 - Audit events for login and user management are specified but not emitted until Phase 13.
 - Existing BUYER accounts without `buyerId` see no orders until linked; there is no admin "link an
   existing user to a company" endpoint yet (`seed:dev` links `buyer@everest.local`).
-- Orders cannot progress past `CONFIRMED` until Phase 4 (reservation).
+- Orders cannot progress past `MATERIAL_RESERVED` until Phase 8 (production runs).
 - Feasibility does not assess machine capacity yet; the admin dashboard's yarn-demand view counts only
   `ORDER_CREATED` orders, not confirmed ones.
 - SIGTERM graceful-shutdown test is skipped on Windows.

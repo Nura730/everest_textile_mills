@@ -103,8 +103,13 @@ FIFO selection.
 proves it. An ADMIN endpoint reports any lot where they disagree.
 Indexes: `{ yarnLotId: 1, createdAt: 1 }`, `{ orderId: 1 }`, `{ runId: 1 }`.
 
-### materialReservations *(Phase 4)*
-`orderId`, `yarnLotId`, `reservedGrams`, `issuedGrams`, `releasedGrams`, `status`, `createdBy`, timestamps.
+### materialReservations *(Phase 4, built)*
+`orderId`, `yarnLotId`, `lotNumber` (snapshot), `reservedGrams`, `issuedGrams`, `returnedGrams`,
+`releasedGrams`, `status`, `createdBy`, timestamps. One document per lot an order draws from.
+`open = reserved − issued − released` (still held in the lot's `reservedGrams`);
+`onFloor = issued − returned`. Counters only grow, each change appends a ledger row (with `orderId`
+and `reservationId`), and updates are guarded so `open ≥ 0` and `returned ≤ issued` always hold.
+Indexes: `{ orderId: 1, createdAt: 1 }`, `{ yarnLotId: 1 }`.
 ```
 ACTIVE ──issue part──▶ PARTIALLY_ISSUED ──issue rest──▶ FULLY_ISSUED
   │                         │
@@ -128,8 +133,10 @@ both apply. Indexes: `{ orderNumber: 1 }` unique; `{ buyerId: 1, createdAt: -1 }
 `{ status: 1, requiredBy: 1 }` (work queue by deadline); `{ createdAt: -1 }` (staff list).
 Transitions implemented in Phase 5: `ORDER_CREATED → CANCELLED` (owning BUYER or ADMIN) and
 `ORDER_CREATED → REJECTED` (ADMIN), both with a reason. Phase 6: `ORDER_CREATED → CONFIRMED` (ADMIN,
-only when the feasibility check passes) and `CONFIRMED → CANCELLED` (owning BUYER or ADMIN; nothing
-to release yet because reservations arrive in Phase 4).
+only when the feasibility check passes) and `CONFIRMED → CANCELLED` (owning BUYER or ADMIN).
+Phase 4: `CONFIRMED → MATERIAL_RESERVED` (STORE_KEEPER or ADMIN reserves the whole requirement) and
+`MATERIAL_RESERVED → CANCELLED` (owning BUYER or ADMIN; releases the yarn not yet issued in the same
+transaction).
 
 ```
 ORDER_CREATED ──confirm (runs feasibility)──▶ CONFIRMED ──reserve yarn──▶ MATERIAL_RESERVED
@@ -141,7 +148,7 @@ PRODUCTION_COMPLETED ──enough passed rolls──▶ READY_FOR_DISPATCH ─�
 ```
 Buyer timeline (Phase 11) is a **view** over this status plus progress, not a separate state.
 
-### machines *(Phase 7)*
+### machines *(Phase 7, built)*
 `code` (**unique**, e.g. `W-03`), `name`, `type` (`SPINNING|WEAVING|DYEING|FINISHING`),
 `ratedCmPerHour`, `status`, `currentRunId?`, `openProblemId?`, `version`, timestamps.
 
@@ -153,8 +160,13 @@ RUNNING/PAUSED/ASSIGNED/AVAILABLE ──critical problem──▶ DOWN ──res
 AVAILABLE ──schedule maintenance──▶ MAINTENANCE ──finish──▶ AVAILABLE
 ```
 A machine in `DOWN` or `MAINTENANCE` can never start a run.
+Built in Phase 7: `ratedCmPerHour` (API: m/h), `location`, `statusBeforeDown` (where a critical problem
+took it from; repair returns it there, `RUNNING` coming back as `PAUSED`), `statusChangedAt`,
+`isActive` (retired, never deleted). Edits use the `updatedAt` stale check instead of `version`.
+Every status change claims a per-machine lock (`locks/machine:<id>`) so concurrent actions on one
+machine apply one after the other. `ASSIGNED`, `RUNNING` and `PAUSED` are entered by runs (Phase 8).
 
-### machineEvents *(Phase 7)* — append-only
+### machineEvents *(Phase 7, built)* — append-only
 `machineId`, `runId?`, `type` (`STATUS_CHANGED|PROBLEM_REPORTED|PROBLEM_RESOLVED|MAINTENANCE_STARTED|MAINTENANCE_ENDED`),
 `fromStatus`, `toStatus`, `problem` (`category: MECHANICAL|ELECTRICAL|MATERIAL|QUALITY|OTHER`,
 `severity: LOW|MEDIUM|CRITICAL`, `description`, `estimatedDowntimeMinutes`), `resolvesEventId?`,
@@ -292,7 +304,7 @@ These are not covered by the agreed defaults and change what we would defend to 
 | D1 ✅ confirmed | **Single-line orders** | One product per order ("5,000 m Navy Cotton"). Multi-line is future work | `items[]` with per-line feasibility, production and dispatch — roughly doubles Phases 5–12 |
 | D2 ✅ confirmed | **Fabric catalog** (`products`) with `yarnGramsPerMetre` | Buyer picks a catalog product; yarn requirement is derived | Admin types the yarn requirement per order |
 | D3 | **Single-stage production** | A run on one machine (type from the product) produces finished fabric rolls; spinning/dyeing are machine types but not chained stages | Multi-stage routing (spin → weave → dye) with WIP between stages |
-| D4 | **Machine states**: `AVAILABLE, ASSIGNED, RUNNING, PAUSED, DOWN, MAINTENANCE` | **No `IDLE`**: it is indistinguishable from `AVAILABLE` in our model | Keep `IDLE` meaning "assigned but waiting" (= our `ASSIGNED`) |
+| D4 ✅ confirmed | **Machine states**: `AVAILABLE, ASSIGNED, RUNNING, PAUSED, DOWN, MAINTENANCE` | **No `IDLE`**: it is indistinguishable from `AVAILABLE` in our model | Keep `IDLE` meaning "assigned but waiting" (= our `ASSIGNED`) |
 | D5 ✅ confirmed | **Phase order** | Orders (Phase 5) **before** reservation (Phase 4): a reservation is always *for an order*. This matches `instruction.md` §25 (orders → feasibility → reservation) | Keep order and stub orders inside Phase 4 |
 | D6 | **Labour cost** | Hourly rate × production-run hours from `costRates`; no attendance/wage module | Build attendance and wages (in the problem statement, not in the phase list) |
 | D7 | **Stock adjustments** | ADMIN only, reason required, cannot reduce a lot below its reserved grams | Store Keeper may adjust; Admin reviews |
