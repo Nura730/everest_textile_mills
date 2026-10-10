@@ -172,6 +172,9 @@ Notes:
 | `POST /api/orders/:id/reject` | | | | | ✓ |
 | `GET /api/orders/:id/feasibility` | ✓ | ✓ | | | ✓ |
 | `POST /api/orders/:id/confirm` | | | | | ✓ |
+| `PATCH /api/orders/:id` | | | | ✓ own, while `ORDER_CREATED` | ✓ while `ORDER_CREATED` |
+| `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
+| `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -333,7 +336,8 @@ Any other field (`isActive`, `passwordHash`, …) is rejected with 400.
 
 ### `GET /api/users` — ADMIN
 
-Query: `role` (optional), `isActive=true|false` (optional), `page` (default 1), `limit` (1–100, default 50).
+Query: `role` (optional), `isActive=true|false` (optional), `q` (name or email contains, case-insensitive,
+≤ 100 chars), `page` (default 1), `limit` (1–100, default 50). Filters combine.
 Newest first.
 
 ```bash
@@ -467,6 +471,9 @@ Query: `material`, `colour` (case-insensitive), `includeDepleted=true|false` (de
 
 ### `GET /api/yarn-lots/:id/transactions` — the ledger behind a lot (newest first)
 
+Query: `type` (one of the movement types below), `from` / `to` (`YYYY-MM-DD`, Indian calendar days,
+inclusive; `to` before `from` is a 400), `page`, `limit`.
+
 ```json
 {
   "success": true,
@@ -575,7 +582,28 @@ Then create the buyer's login with `POST /api/users` and `"role": "BUYER", "buye
 
 ### `GET /api/buyers`, `GET /api/buyers/:id` (ADMIN)
 
-Query: `isActive=true|false`, `page`, `limit`. Sorted by name. `404` for an unknown id.
+Query: `isActive=true|false`, `q` (code or name contains), `page`, `limit`. Sorted by name. `404` for an unknown id.
+
+### `PATCH /api/buyers/:id` — edit contact details (ADMIN)
+
+Body: `expectedUpdatedAt` (required: the `updatedAt` you loaded) plus at least one of `name`,
+`contactName`, `email`, `phone`, `address` (same rules as creation; the optional four accept `null` to
+clear). `code` is the company's identifier and is **not editable**; any other field is a 400.
+`200` with the buyer. Existing orders keep the company name they were placed with.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad field, unknown/protected field, nothing to change, missing `expectedUpdatedAt` |
+| 404 | `NOT_FOUND` | Unknown buyer |
+| 409 | `CONFLICT` (`details.reason: "STALE_EDIT"`) | Someone else changed the buyer after you loaded it: reload and retry |
+
+Saving values that are already stored changes nothing and returns `200` (so a retried save succeeds).
+Each real change writes a `BUYER_UPDATED` audit entry with only the changed fields in `before`/`after`.
+
+### `PATCH /api/buyers/:id/status` — activate / deactivate (ADMIN)
+
+Body: `{ "isActive": false }`. An inactive company cannot place orders (`409 BUYER_INACTIVE`); its existing
+orders, users and history are unchanged. Same status again: no-op `200`. Audited as `BUYER_STATUS_CHANGED`.
 
 ### Product object
 
@@ -637,8 +665,25 @@ curl -s -X POST http://localhost:4000/api/products -H "Authorization: Bearer $TO
 
 ### `GET /api/products`, `GET /api/products/:id` (all roles)
 
-Query: `material`, `colour`, `page`, `limit`; `includeInactive=true` works for ADMIN only — everyone
-else always gets active products, and an inactive product's detail is `404` for them.
+Query: `material`, `colour`, `weave`, `q` (code or name contains), `page`, `limit`. For ADMIN only:
+`includeInactive=true` lists active and retired, `isActive=true|false` lists one status. Everyone else
+always gets active products whatever they send, and an inactive product's detail is `404` for them.
+
+### `PATCH /api/products/:id` — edit a fabric (ADMIN)
+
+Body: `expectedUpdatedAt` plus at least one of `name`, `pricePerMetrePaise` (integer ≥ 1),
+`yarnGramsPerMetre` (integer, at least gsm × width / 100 of the **stored** fabric). `code`, `material`,
+`colour`, `weave`, `widthCm`, `gsm` and `machineType` define the fabric and are **not editable** (400): a
+different fabric is a new product. Changes apply to orders placed from now on; existing orders keep the
+price and yarn figure copied onto them. Same errors and no-op rule as buyer edits; audited as
+`PRODUCT_UPDATED`.
+
+### `PATCH /api/products/:id/status` — retire / reactivate (ADMIN)
+
+Body: `{ "isActive": false }`. A retired product cannot be ordered (`409 PRODUCT_INACTIVE`) and cannot take
+a quantity change on an open order; existing orders continue. Audited as `PRODUCT_STATUS_CHANGED`.
+
+Buyer and product objects include `updatedAt` (send it back as `expectedUpdatedAt` when editing).
 
 ### Order object
 
@@ -744,7 +789,18 @@ Anything else — `status`, `orderNumber`, prices, `buyerId` from a buyer — is
 
 ### `GET /api/orders` (all roles; BUYER sees own only)
 
-Query: `status`, `productId`, `buyerId` (ignored for buyers), `page`, `limit`. Newest first.
+Query (all optional, all combine):
+
+| Param | Meaning |
+|---|---|
+| `status` | One status |
+| `productId`, `buyerId` | Exact match (`buyerId` is ignored for buyers: they always get their own company) |
+| `requiredFrom`, `requiredTo` | Required-by date range, `YYYY-MM-DD`, inclusive (`to` before `from` is a 400) |
+| `overdue=true` | Required-by date **before today (India)** and a delivery still pending: status is not `CANCELLED`, `REJECTED`, `DISPATCHED` or `INVOICED`. Due today is not overdue. With a closed `status` it matches nothing |
+| `q` | Order number, buyer code/name or product code/name contains (case-insensitive, literal, ≤ 100 chars) |
+| `page`, `limit` | Paging over the filtered result; `meta.total` is the filtered count |
+
+Newest first.
 
 ```json
 { "success": true, "data": { "orders": [ { …Order… } ] }, "meta": { "page": 1, "limit": 10, "total": 1 } }
@@ -753,6 +809,23 @@ Query: `status`, `productId`, `buyerId` (ignored for buyers), `page`, `limit`. N
 ### `GET /api/orders/:id` (all roles; BUYER own only)
 
 Another company's order returns **404 `NOT_FOUND`** (exactly like a missing order), never 403.
+
+### `PATCH /api/orders/:id` — edit an order (owning BUYER, ADMIN; Idempotency-Key)
+
+Only while the order is `ORDER_CREATED` (before confirmation, which was decided on these figures).
+Body: `expectedUpdatedAt` plus at least one of `quantityMetres`, `requiredBy`, `buyerNotes` (same rules as
+creation; `buyerNotes: null` clears). Product, buyer, price, totals, yarn, status and order number are
+**not accepted** (400). Changing the quantity recalculates `requiredYarnKg` and `orderValuePaise` on the
+server from the order's **own** price snapshot. Status history is unchanged; the edit is audited as
+`ORDER_UPDATED` with before/after.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Bad/protected field, past or too-distant date, nothing to change, missing key |
+| 404 | `NOT_FOUND` | Unknown order, or another company's order (for a buyer) |
+| 409 | `ORDER_NOT_EDITABLE` | The order is past `ORDER_CREATED` (`details.status`): cancel and place a new order instead |
+| 409 | `PRODUCT_INACTIVE` / `BUYER_INACTIVE` | A quantity change on a retired product / inactive company (notes and date still allowed) |
+| 409 | `CONFLICT` (`STALE_EDIT`) | The order changed after you loaded it |
 
 ### `POST /api/orders/:id/cancel` (owning BUYER, ADMIN; Idempotency-Key)
 
@@ -875,6 +948,7 @@ the current factory state. No `422` is used anywhere.
 | `BUYER_INACTIVE` | 409 | The buyer company is inactive | Show `message` |
 | `PRODUCT_INACTIVE` | 409 | The product is no longer sold | Refresh the catalog |
 | `ORDER_NOT_FEASIBLE` | 409 | Confirmation refused: the feasibility check failed; `details.feasibility` | Show the failing checks, refresh the feasibility |
+| `ORDER_NOT_EDITABLE` | 409 | Edit refused: the order is past `ORDER_CREATED`; `details.status` | Reload the order; offer cancel instead |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds `JSON_BODY_LIMIT` | Reduce payload |
 | `TOO_MANY_REQUESTS` | 429 | Login rate limit | Wait `details.retryAfterSeconds` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Generic error + `requestId` |
