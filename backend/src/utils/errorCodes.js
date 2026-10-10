@@ -6,6 +6,8 @@ export const ERROR_CODES = Object.freeze({
   VALIDATION_ERROR: 400,
   INVALID_JSON: 400,
   UNAUTHENTICATED: 401,
+  // Only for a genuinely signed token past its exp; forged tokens get UNAUTHENTICATED.
+  TOKEN_EXPIRED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
