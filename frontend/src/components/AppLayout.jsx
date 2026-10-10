@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { useApp } from '../context/AppContext';
 import Header from './Header';
 import Sidebar from './Sidebar';
+import ToastContainer from './ToastContainer';
 
 // The preview screens (sample data) read the role from the legacy AppContext. Keep it in step with
 // the real signed-in role so those screens apply the same role rules as the rest of the app.
@@ -33,6 +34,9 @@ export default function AppLayout() {
           </div>
         </main>
       </div>
+
+      {/* Global Toast Notification System */}
+      <ToastContainer />
     </div>
   );
 }

@@ -20,7 +20,7 @@ const sections = [
 ];
 
 export default function Settings() {
-  const { isOffline, setIsOffline, pendingSyncQueue, triggerSync } = useApp();
+  const { isOffline, setIsOffline, pendingSyncQueue, triggerSync, toast } = useApp();
   const [activeSection, setActiveSection] = useState('general');
   const [millName, setMillName] = useState('Everest Textile Mills');
   const [savedNotice, setSavedNotice] = useState(false);
@@ -28,6 +28,7 @@ export default function Settings() {
   const handleSave = (e) => {
     e.preventDefault();
     setSavedNotice(true);
+    toast.success('Mill configuration and parameters saved successfully.', 'Settings Saved');
     setTimeout(() => setSavedNotice(false), 3000);
   };
 

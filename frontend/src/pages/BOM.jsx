@@ -1,8 +1,11 @@
-import { useState } from 'react';
-import { Layers, Plus, Search, Filter, Cpu, DollarSign, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Search, Download } from 'lucide-react';
 import { boms } from '../data/mockData';
+import { useApp } from '../context/AppContext';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function BOM() {
+  const { toast } = useApp();
   const [recipes, setRecipes] = useState(boms);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLoom, setSelectedLoom] = useState('All');
@@ -21,6 +24,14 @@ export default function BOM() {
     standardCostPerMeter: 65,
   });
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setShowAddModal(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const filtered = recipes.filter((r) => {
     const matchesSearch =
       r.fabric.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -37,6 +48,24 @@ export default function BOM() {
     };
     setRecipes([...recipes, created]);
     setShowAddModal(false);
+    toast.success(`BOM Recipe ${created.id} created for ${created.fabric}.`, 'BOM Saved');
+  };
+
+  const handleExportCSV = () => {
+    exportToCSV('Everest_Textile_BOM_Catalog.csv', filtered, [
+      { key: 'id', label: 'BOM ID' },
+      { key: 'fabric', label: 'Fabric Name' },
+      { key: 'yarn', label: 'Primary Yarn' },
+      { key: 'yarnPerMeter', label: 'Consumption Ratio (kg/m)' },
+      { key: 'loomType', label: 'Compatible Loom' },
+      { key: 'warpCount', label: 'Warp Count' },
+      { key: 'weftCount', label: 'Weft Count' },
+      { key: 'endsPerInch', label: 'Ends Per Inch' },
+      { key: 'picksPerInch', label: 'Picks Per Inch' },
+      { key: 'standardSpeed', label: 'Speed' },
+      { key: 'standardCostPerMeter', label: 'Base Cost (INR)' },
+    ]);
+    toast.info(`Exported ${filtered.length} BOM recipes to CSV.`, 'CSV Exported');
   };
 
   return (
@@ -49,6 +78,10 @@ export default function BOM() {
           </p>
         </div>
         <div className="erp-page-actions">
+          <button className="erp-btn-outline" onClick={handleExportCSV} title="Export recipes as CSV">
+            <Download size={16} />
+            <span>Export Catalog</span>
+          </button>
           <button className="erp-btn-primary" onClick={() => setShowAddModal(true)}>
             <Plus size={16} />
             <span>Create BOM Recipe</span>
@@ -129,8 +162,15 @@ export default function BOM() {
 
       {/* Modal to Add BOM */}
       {showAddModal && (
-        <div className="erp-modal-overlay">
-          <div className="erp-modal-box">
+        <div
+          className="erp-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddModal(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="erp-modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Define New Fabric Recipe (BOM)</h3>
               <button className="modal-close-btn" onClick={() => setShowAddModal(false)}>

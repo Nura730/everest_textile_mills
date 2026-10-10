@@ -1,6 +1,19 @@
-import { useState } from 'react';
-import { Play, Pause, StopCircle, AlertCircle, Clock, User, Gauge, Plus } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import {
+  Play,
+  Pause,
+  StopCircle,
+  AlertCircle,
+  Clock,
+  User,
+  Gauge,
+  Plus,
+  Download,
+  Search,
+  CheckCircle2,
+} from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { exportToCSV } from '../utils/csvExport';
 
 const initialWorkOrders = [
   {
@@ -92,31 +105,68 @@ const initialWorkOrders = [
 const statusFilters = ['All', 'Running', 'Completed', 'Halted'];
 
 export default function Production() {
+  const { toast } = useApp();
   const [runs, setRuns] = useState(initialWorkOrders);
   const [activeFilter, setActiveFilter] = useState('All');
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const filtered = runs.filter((run) => {
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Running') return run.status === 'Running';
-    if (activeFilter === 'Completed') return run.status === 'Completed';
-    if (activeFilter === 'Halted') return run.status.startsWith('Halted');
-    return true;
-  });
+  const filtered = useMemo(() => {
+    return runs.filter((run) => {
+      const matchesFilter =
+        activeFilter === 'All' ||
+        (activeFilter === 'Running' && run.status === 'Running') ||
+        (activeFilter === 'Completed' && run.status === 'Completed') ||
+        (activeFilter === 'Halted' && run.status.startsWith('Halted'));
+
+      const matchesSearch =
+        !searchTerm ||
+        run.id.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        run.order.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        run.machine.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        run.fabric.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        run.operator.toLowerCase().includes(searchTerm.toLowerCase().trim());
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [runs, activeFilter, searchTerm]);
 
   const toggleRunStatus = (id) => {
-    setRuns(
-      runs.map((r) => {
+    setRuns((prev) =>
+      prev.map((r) => {
         if (r.id === id) {
           const isRunning = r.status === 'Running';
+          const nextStatus = isRunning ? 'Paused — Shift Handover' : 'Running';
+          toast.info(
+            `Work order ${id} is now ${nextStatus}.`,
+            isRunning ? 'Run Paused' : 'Run Resumed'
+          );
           return {
             ...r,
-            status: isRunning ? 'Paused — Shift Handover' : 'Running',
+            status: nextStatus,
             speed: isRunning ? '0 m/hr' : '40 m/hr',
           };
         }
         return r;
       })
     );
+  };
+
+  const handleExportRuns = () => {
+    const success = exportToCSV('production_work_orders', runs, [
+      { key: 'id', label: 'Work Order' },
+      { key: 'order', label: 'Manufacturing Order' },
+      { key: 'machine', label: 'Work Center Loom' },
+      { key: 'fabric', label: 'Fabric Quality' },
+      { key: 'targetQty', label: 'Target Output' },
+      { key: 'completedQty', label: 'Woven Output' },
+      { key: 'speed', label: 'Speed' },
+      { key: 'shift', label: 'Assigned Shift' },
+      { key: 'operator', label: 'Master Operator' },
+      { key: 'status', label: 'Execution Status' },
+    ]);
+    if (success) {
+      toast.success('Work orders exported to CSV file successfully.', 'Export Complete');
+    }
   };
 
   const runningCount = runs.filter((r) => r.status === 'Running').length;
@@ -128,8 +178,14 @@ export default function Production() {
         <div className="erp-page-header-text">
           <h1 className="erp-page-title">Work Orders & Batch Execution</h1>
           <p className="erp-page-subtitle">
-            Section 7: Active loom runs, batch speeds, shift assignments, and floor progress monitoring
+            Active loom runs, batch speeds, shift assignments, and floor progress monitoring
           </p>
+        </div>
+        <div className="erp-page-actions">
+          <button type="button" className="erp-btn-outline" onClick={handleExportRuns} title="Export work orders to CSV">
+            <Download size={16} />
+            <span>Export Work Orders</span>
+          </button>
         </div>
       </div>
 
@@ -142,6 +198,15 @@ export default function Production() {
           </div>
           <div className="tall-kpi-value">{runningCount}</div>
           <div className="tall-kpi-subtext">Active shedding lines</div>
+        </div>
+
+        <div className="erp-tall-kpi-card">
+          <div className="tall-kpi-header">
+            <span className="tall-kpi-label">Fleet Run Rate</span>
+            <Gauge size={16} className="tall-kpi-icon" />
+          </div>
+          <div className="tall-kpi-value">36.6 m/h</div>
+          <div className="tall-kpi-change">+4.2% vs target</div>
         </div>
 
         <div className="erp-tall-kpi-card">
@@ -169,18 +234,37 @@ export default function Production() {
         </div>
       </div>
 
-      {/* Filter */}
+      {/* Filter and Search Bar */}
       <div className="erp-filter-bar">
         <div className="filter-chips-row">
           {statusFilters.map((filter) => (
             <button
               key={filter}
+              type="button"
               className={`erp-filter-chip ${activeFilter === filter ? 'active' : ''}`}
               onClick={() => setActiveFilter(filter)}
             >
               {filter}
             </button>
           ))}
+        </div>
+        <div className="erp-search-box">
+          <Search size={16} />
+          <input
+            type="text"
+            placeholder="Search work orders, loom, fabric, operator..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              className="search-clear-btn"
+              onClick={() => setSearchTerm('')}
+            >
+              ×
+            </button>
+          )}
         </div>
       </div>
 
@@ -203,7 +287,7 @@ export default function Production() {
               <div>
                 <div className="machine-card-header">
                   <div>
-                    <span className="machine-id-badge">{run.id}</span>
+                    <span className="machine-id-badge font-mono">{run.id}</span>
                     <h3 className="machine-title">{run.fabric}</h3>
                     <div className="text-xs text-secondary">
                       Order: {run.order} • {run.machine}
@@ -256,6 +340,7 @@ export default function Production() {
               {!isCompleted && !isError && (
                 <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--color-gray-200)' }}>
                   <button
+                    type="button"
                     className="erp-btn-sm erp-btn-outline"
                     onClick={() => toggleRunStatus(run.id)}
                   >
