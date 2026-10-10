@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CheckCircle2, PackagePlus, RefreshCw, Scale, ShieldAlert } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { inventoryApi } from '../api/endpoints.js';
@@ -217,6 +218,7 @@ function LedgerModal({ lot, onClose }) {
               <th scope="col">Movement</th>
               <th scope="col" className="num">Stock Δ</th>
               <th scope="col" className="num">Reserved Δ</th>
+              <th scope="col">Order</th>
               <th scope="col">Reason</th>
             </tr>
           </thead>
@@ -227,6 +229,7 @@ function LedgerModal({ lot, onClose }) {
                 <td>{TX_LABELS[tx.type] ?? tx.type}</td>
                 <td className="num">{tx.deltaTotalKg > 0 ? '+' : ''}{formatNumber(tx.deltaTotalKg, 'kg')}</td>
                 <td className="num">{tx.deltaReservedKg > 0 ? '+' : ''}{formatNumber(tx.deltaReservedKg, 'kg')}</td>
+                <td>{tx.orderId ? <Link to={`/orders/${tx.orderId}`} onClick={onClose}>View order</Link> : '—'}</td>
                 <td>{tx.reason ?? '—'}</td>
               </tr>
             ))}

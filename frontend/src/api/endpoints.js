@@ -43,6 +43,14 @@ export const ordersApi = {
     apiRequest("/orders", { method: "POST", body, idempotencyKey }),
   update: (id, body, idempotencyKey) =>
     apiRequest(`/orders/${id}`, { method: "PATCH", body, idempotencyKey }),
+  // Phase 4: material reservation (store keeper / admin; reservations visible to planning roles).
+  reserve: (id, body, idempotencyKey) =>
+    apiRequest(`/orders/${id}/reserve`, { method: "POST", body, idempotencyKey }),
+  reservations: (id) => apiRequest(`/orders/${id}/reservations`),
+  issue: (id, quantityKg, idempotencyKey) =>
+    apiRequest(`/orders/${id}/issue`, { method: "POST", body: { quantityKg }, idempotencyKey }),
+  returnYarn: (id, body, idempotencyKey) =>
+    apiRequest(`/orders/${id}/return`, { method: "POST", body, idempotencyKey }),
   confirm: (id, idempotencyKey) =>
     apiRequest(`/orders/${id}/confirm`, {
       method: "POST",
@@ -78,4 +86,27 @@ export const inventoryApi = {
     }),
   summary: (query) => apiRequest("/inventory/yarn-summary", { query }),
   reconciliation: () => apiRequest("/inventory/reconciliation"),
+};
+
+// Phase 7: machines. Status actions carry an Idempotency-Key (one per user action).
+export const machinesApi = {
+  list: (query) => apiRequest("/machines", { query }),
+  get: (id) => apiRequest(`/machines/${id}`),
+  events: (id, query) => apiRequest(`/machines/${id}/events`, { query }),
+  create: (body) => apiRequest("/machines", { method: "POST", body }),
+  update: (id, body) => apiRequest(`/machines/${id}`, { method: "PATCH", body }),
+  setActive: (id, isActive) =>
+    apiRequest(`/machines/${id}/active`, { method: "PATCH", body: { isActive } }),
+  startMaintenance: (id, body, idempotencyKey) =>
+    apiRequest(`/machines/${id}/maintenance/start`, { method: "POST", body, idempotencyKey }),
+  endMaintenance: (id, body, idempotencyKey) =>
+    apiRequest(`/machines/${id}/maintenance/end`, { method: "POST", body, idempotencyKey }),
+  reportProblem: (id, body, idempotencyKey) =>
+    apiRequest(`/machines/${id}/problems`, { method: "POST", body, idempotencyKey }),
+  resolveProblem: (id, eventId, resolution, idempotencyKey) =>
+    apiRequest(`/machines/${id}/problems/${eventId}/resolve`, {
+      method: "POST",
+      body: { resolution },
+      idempotencyKey,
+    }),
 };

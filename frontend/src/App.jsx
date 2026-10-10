@@ -10,6 +10,8 @@ import { AppProvider } from './context/AppContext';
 import Buyers from './pages/Buyers';
 import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
+import MachineDetail from './pages/MachineDetail';
+import MachineList from './pages/MachineList';
 import Login from './pages/Login';
 import OrderDetail from './pages/OrderDetail';
 import Orders from './pages/Orders';
@@ -32,11 +34,12 @@ const LIVE_PAGES = {
   '/products': <Products />,
   '/buyers': <Buyers />,
   '/inventory': <Inventory />,
+  '/machines': <MachineList />,
   '/users': <Users />,
 };
 
 const PREVIEW_PAGES = {
-  '/machines': <Machines />,
+  '/floor-map': <Machines />,
   '/production': <Production />,
   '/quality': <QualityControl />,
   '/dispatch': <Dispatch />,
@@ -48,6 +51,7 @@ const PREVIEW_PAGES = {
 };
 
 const ordersRoles = LIVE_NAV.find((item) => item.to === '/orders').roles;
+const machineRoles = LIVE_NAV.find((item) => item.to === '/machines').roles;
 
 function App() {
   return (
@@ -68,6 +72,7 @@ function App() {
                     />
                   ))}
                   <Route path="orders/:id" element={<RequireRole roles={ordersRoles}><OrderDetail /></RequireRole>} />
+                  <Route path="machines/:id" element={<RequireRole roles={machineRoles}><MachineDetail /></RequireRole>} />
                   {PREVIEW_NAV.map((item) => (
                     <Route
                       key={item.to}

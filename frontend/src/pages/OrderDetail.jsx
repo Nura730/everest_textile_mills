@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Ban, CheckCircle2, Info, MinusCircle, Pencil, ShieldCheck, XCircle, XOctagon } from 'lucide-react';
+import { Ban, CheckCircle2, Info, MinusCircle, PackageCheck, Pencil, ShieldCheck, XCircle, XOctagon } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { ordersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES, can } from '../auth/roles.js';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
+import { ReservationPanel, ReserveModal } from '../components/orders/Reservation.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge, StatusHistory } from '../components/ui/OrderStatus.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -211,6 +212,7 @@ export default function OrderDetail() {
   );
   const [action, setAction] = useState(null); // { name, reason, key, busy, error }
   const [editing, setEditing] = useState(false);
+  const [reserving, setReserving] = useState(false);
 
   if (order.error) {
     return (
@@ -225,7 +227,9 @@ export default function OrderDetail() {
 
   const current = order.data.order;
   const isOpen = current.status === 'ORDER_CREATED';
-  const canCancel = (isOpen || current.status === 'CONFIRMED') && can.cancelOrder(user.role);
+  const canCancel = ['ORDER_CREATED', 'CONFIRMED', 'MATERIAL_RESERVED'].includes(current.status) && can.cancelOrder(user.role);
+  const canReserve = current.status === 'CONFIRMED' && can.reserveMaterial(user.role);
+  const showsYarn = can.viewReservations(user.role) && ['MATERIAL_RESERVED', 'IN_PRODUCTION', 'CANCELLED'].includes(current.status);
   const canReject = isOpen && can.rejectOrder(user.role);
   const canConfirm = isOpen && can.confirmOrder(user.role);
   const canEdit = isOpen && can.editOrder(user.role);
@@ -271,6 +275,11 @@ export default function OrderDetail() {
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: user.role === ROLES.BUYER ? 'My orders' : 'Orders', to: '/orders' }, { label: current.orderNumber }]}
         actions={
           <>
+            {canReserve && (
+              <button type="button" className="erp-btn-primary" onClick={() => setReserving(true)}>
+                <PackageCheck size={15} aria-hidden="true" /> Reserve yarn
+              </button>
+            )}
             {canEdit && (
               <button type="button" className="erp-btn-outline" onClick={() => setEditing(true)}>
                 <Pencil size={15} aria-hidden="true" /> Edit
@@ -324,8 +333,19 @@ export default function OrderDetail() {
           <div className="next-step">
             <Info size={16} aria-hidden="true" />
             <div>
-              <strong>Next step: yarn reservation.</strong> Reserving yarn for confirmed orders is the next
-              backend phase. {canCancel && 'A confirmed order can still be cancelled.'}
+              <strong>Next step: yarn reservation.</strong> The store reserves {current.requiredYarnKg !== undefined ? `${formatNumber(current.requiredYarnKg, 'kg')} of ` : ''}
+              {current.product.material.toLowerCase()} · {current.product.colour} yarn for this order, so no other order can use it.
+              {canCancel && ' A confirmed order can still be cancelled.'}
+            </div>
+          </div>
+        )}
+        {current.status === 'MATERIAL_RESERVED' && (
+          <div className="next-step">
+            <Info size={16} aria-hidden="true" />
+            <div>
+              <strong>Yarn reserved.</strong> The store issues it to the floor as production needs it. Production runs
+              on machines are the next backend phase (the Production screen is a preview).
+              {canCancel && ' Cancelling releases the yarn not yet issued.'}
             </div>
           </div>
         )}
@@ -344,6 +364,7 @@ export default function OrderDetail() {
           )}
         </div>
       )}
+      {showsYarn && <ReservationPanel order={current} canMove={can.issueMaterial(user.role)} onChanged={order.reload} />}
       {current.feasibility && (
         <div className="erp-card section-gap">
           <h3 className="card-title">Feasibility at confirmation</h3>
@@ -380,6 +401,16 @@ export default function OrderDetail() {
         </div>
       </div>
 
+      {reserving && (
+        <ReserveModal
+          order={current}
+          onClose={() => setReserving(false)}
+          onDone={() => {
+            setReserving(false);
+            order.reload();
+          }}
+        />
+      )}
       {editing && (
         <EditOrderModal
           order={current}
@@ -402,7 +433,7 @@ export default function OrderDetail() {
             action.name === 'confirm'
               ? `Order ${current.orderNumber} will be confirmed. The server runs the feasibility check again and records the result; the buyer will see the order as confirmed.`
               : action.name === 'cancel'
-                ? `Order ${current.orderNumber} (${formatNumber(current.quantityMetres, 'm')} of ${current.product.name}) will be cancelled. This cannot be undone.`
+                ? `Order ${current.orderNumber} (${formatNumber(current.quantityMetres, 'm')} of ${current.product.name}) will be cancelled. This cannot be undone.${current.status === 'MATERIAL_RESERVED' ? ' Yarn reserved and not yet issued goes back to available stock; yarn already on the floor can be returned afterwards.' : ''}`
                 : `Order ${current.orderNumber} will be rejected and the buyer will see your reason. This cannot be undone.`
           }
           confirmLabel={ACTIONS[action.name].confirmLabel}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, Box, Building2, CheckCircle2, ClipboardList, FlaskConical, Plus, Shirt, Users as UsersIcon } from 'lucide-react';
-import { buyersApi, inventoryApi, ordersApi, productsApi, usersApi } from '../api/endpoints.js';
+import { AlertTriangle, Box, Building2, CheckCircle2, ClipboardList, Factory, FlaskConical, Plus, Shirt, Users as UsersIcon } from 'lucide-react';
+import { buyersApi, inventoryApi, machinesApi, ordersApi, productsApi, usersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { PREVIEW_NAV, ROLES, ROLE_LABELS } from '../auth/roles.js';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
@@ -46,6 +46,9 @@ async function loadPipelineOrders() {
   const pages = await Promise.all(PIPELINE_STATUSES.map((status) => ordersApi.list({ status, limit: 100 })));
   return { data: { orders: pages.flatMap((page) => page.data.orders) } };
 }
+
+/** Orders with yarn already reserved: ready for the floor (and already counted in reserved stock). */
+const loadReservedOrders = () => ordersApi.list({ status: 'MATERIAL_RESERVED', limit: 100 });
 
 const byDeadline = (a, b) => a.requiredBy.localeCompare(b.requiredBy);
 const overdueOrDueSoon = (orders) => orders.filter((order) => isOpenOrder(order) && daysUntil(order.requiredBy) <= 7);
@@ -155,6 +158,8 @@ function ModuleStatus({ role }) {
         <li><CheckCircle2 size={14} aria-hidden="true" /> Sign-in, roles and user accounts</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Buyers, fabric catalog and orders</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Order feasibility check and confirmation</li>
+        <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn reservation, issue to production and returns</li>
+        <li><CheckCircle2 size={14} aria-hidden="true" /> Machines: registry, maintenance, problems and downtime</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
         {previews.map((item) => (
           <li key={item.to} className="module-preview">
@@ -287,6 +292,7 @@ function StoreDashboard() {
     lots: () => inventoryApi.lots({ limit: 1 }),
     open: loadPipelineOrders,
   });
+  // The store's to-do list: confirmed orders whose yarn still has to be reserved.
   if (dash.error) return <ErrorState error={dash.error} onRetry={dash.reload} />;
   if (!dash.data) return <LoadingState label="Loading stock…" />;
   const d = dash.data;
@@ -301,6 +307,14 @@ function StoreDashboard() {
         <Kpi label="Lots in stock" value={d.lots.meta.total} icon={Box} to="/inventory" />
         <Kpi label="Open orders" value={d.open.data.orders.length} sub="New or confirmed: will need yarn" icon={ClipboardList} to="/orders" />
       </div>
+      <Section title="Waiting for yarn reservation" subtitle="Confirmed orders, earliest deadline first. Open one to reserve its yarn.">
+        <OpenOrdersTable
+          orders={d.open.data.orders.filter((order) => order.status === 'CONFIRMED').sort(byDeadline)}
+          showBuyer
+          showYarn
+          emptyText="No confirmed orders are waiting for yarn."
+        />
+      </Section>
       <Section title="Yarn demand vs stock" subtitle="Plan purchases before shortages hit the floor." action={<Link className="erp-btn-primary" to="/inventory">Receive yarn</Link>}>
         <YarnDemand summary={summary} openOrders={d.open.data.orders} />
       </Section>
@@ -311,23 +325,37 @@ function StoreDashboard() {
 function FloorDashboard() {
   const dash = useDashboardData({
     open: loadPipelineOrders,
+    reserved: loadReservedOrders,
     summary: () => inventoryApi.summary(),
+    machines: () => machinesApi.list({ limit: 100 }),
   });
   if (dash.error) return <ErrorState error={dash.error} onRetry={dash.reload} />;
   if (!dash.data) return <LoadingState label="Loading work queue…" />;
-  const open = dash.data.open.data.orders.sort(byDeadline);
+  // The work queue includes orders whose yarn is reserved (ready for production); yarn demand
+  // counts only orders without a reservation, because reserved yarn is already set aside.
+  const pending = dash.data.open.data.orders;
+  const open = [...pending, ...dash.data.reserved.data.orders].sort(byDeadline);
+  const machineCount = (status) => dash.data.machines.data.machines.filter((machine) => machine.status === status).length;
   return (
     <>
       <div className="erp-tall-kpi-grid">
         <Kpi label="Orders in the pipeline" value={open.length} icon={ClipboardList} to="/orders" />
         <Kpi label="Due within 7 days" value={overdueOrDueSoon(open).length} icon={AlertTriangle} alert={overdueOrDueSoon(open).length > 0} />
         <Kpi label="Fabric to weave" value={formatNumber(open.reduce((sum, order) => sum + order.quantityMetres, 0), 'm')} sub="Across open orders" icon={Shirt} />
+        <Kpi
+          label="Machines available"
+          value={`${machineCount('AVAILABLE')} / ${dash.data.machines.data.machines.length}`}
+          sub={`${machineCount('DOWN')} down · ${machineCount('MAINTENANCE')} in maintenance`}
+          icon={Factory}
+          alert={machineCount('DOWN') > 0}
+          to="/machines"
+        />
       </div>
       <Section title="Upcoming work, by deadline" subtitle="Production runs are assigned to machines once the production module is live (preview: Production).">
         <OpenOrdersTable orders={open} showBuyer showYarn emptyText="No orders in the pipeline." />
       </Section>
       <Section title="Yarn on hand">
-        <YarnDemand summary={dash.data.summary.data.summary} openOrders={open} />
+        <YarnDemand summary={dash.data.summary.data.summary} openOrders={pending} />
       </Section>
     </>
   );

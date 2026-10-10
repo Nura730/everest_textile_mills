@@ -3,6 +3,7 @@ import {
   BarChart2,
   Box,
   Building2,
+  Factory,
   ClipboardCheck,
   ClipboardList,
   History,
@@ -47,6 +48,13 @@ export const can = {
   confirmOrder: (role) => role === ROLES.ADMIN,
   // Ownership is checked by the server (a buyer only ever receives their own orders).
   editOrder: (role) => role === ROLES.BUYER || role === ROLES.ADMIN,
+  // Phase 4: the store moves yarn; the floor manager can see where it is.
+  reserveMaterial: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  issueMaterial: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  viewReservations: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
+  // Phase 7: the owner registers machines; the floor manager runs maintenance and reports problems.
+  manageMachines: (role) => role === ROLES.ADMIN,
+  operateMachines: (role) => role === ROLES.FLOOR_MANAGER || role === ROLES.ADMIN,
   viewFeasibility: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   manageBuyers: (role) => role === ROLES.ADMIN,
   manageProducts: (role) => role === ROLES.ADMIN,
@@ -64,6 +72,7 @@ export const LIVE_NAV = [
   { to: '/products', label: 'Fabric Catalog', icon: Shirt, roles: ALL },
   { to: '/buyers', label: 'Buyers', icon: Building2, roles: [ROLES.ADMIN] },
   { to: '/inventory', label: 'Yarn Inventory', icon: Box, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
+  { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
 ];
 
@@ -72,7 +81,7 @@ export const LIVE_NAV = [
  * (docs/PROGRESS.md). They are labelled as previews everywhere so nobody mistakes them for live data.
  */
 export const PREVIEW_NAV = [
-  { to: '/machines', label: 'Factory Floor Map', icon: Sliders, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Phase 7 — Machines' },
+  { to: '/floor-map', label: 'Factory Floor Map', icon: Sliders, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Sample layout; live machines are under Machines' },
   { to: '/production', label: 'Production', icon: Activity, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Phase 8 — Production runs' },
   { to: '/quality', label: 'Quality Control', icon: ClipboardCheck, roles: [ROLES.ADMIN, ROLES.QC_INSPECTOR], phase: 'Phase 10 — QC' },
   { to: '/dispatch', label: 'Dispatch', icon: Truck, roles: [ROLES.ADMIN, ROLES.STORE_KEEPER], phase: 'Phase 12 — Dispatch' },
