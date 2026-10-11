@@ -5,7 +5,7 @@ import {
   statusAfterRepair,
 } from '../constants/machines.js';
 import { toPublicMachine } from '../models/Machine.js';
-import { toPublicMachineEvent } from '../models/MachineEvent.js';
+import { MachineEvent, toPublicMachineEvent } from '../models/MachineEvent.js';
 import { RUN_STATUS } from '../constants/production.js';
 import { claimLock } from '../repositories/locks.repository.js';
 import { transitionRunGuarded } from '../repositories/production.repository.js';
@@ -197,17 +197,48 @@ export const startMaintenance = (id, { note }, context) =>
  * request replays the stored result, so the cost is never recorded twice. Maintenance cost is a
  * machine/factory expense: it is reported separately and never spread over orders (no allocation rule).
  */
-export const endMaintenance = (id, { note, costPaise }, context) =>
-  machineAction({ id, operation: 'MACHINE_MAINTENANCE_END', request: { note, costPaise }, context }, async (machine, session) => {
+export const endMaintenance = (id, { note, costPaise, category, reference }, context) =>
+  machineAction({ id, operation: 'MACHINE_MAINTENANCE_END', request: { note, costPaise, category, reference }, context }, async (machine, session) => {
     if (machine.status !== MACHINE_STATUS.MAINTENANCE) throw invalidTransition(machine, MACHINE_STATUS.AVAILABLE, [MACHINE_STATUS.MAINTENANCE]);
     await moveStatus(machine, MACHINE_STATUS.AVAILABLE, {}, session);
+    // Downtime: from the maintenance start that this ends.
+    const started = await MachineEvent.findOne({ machineId: machine._id, type: 'MAINTENANCE_STARTED' }).sort({ occurredAt: -1 }).session(session).lean();
+    const downtimeMinutes = started ? Math.max(0, Math.round((Date.now() - new Date(started.occurredAt).getTime()) / 60_000)) : null;
     const event = await appendMachineEvent(
-      { ...eventBase(machine, context), type: 'MAINTENANCE_ENDED', fromStatus: machine.status, toStatus: MACHINE_STATUS.AVAILABLE, note: note ?? null, costPaise },
+      {
+        ...eventBase(machine, context), type: 'MAINTENANCE_ENDED', fromStatus: machine.status, toStatus: MACHINE_STATUS.AVAILABLE, note: note ?? null, costPaise,
+        maintenanceCategory: category ?? null, reference: reference ?? null, downtimeMinutes,
+      },
       session,
     );
-    await auditFor('MACHINE_MAINTENANCE_ENDED', machine, { before: { status: machine.status }, after: { status: MACHINE_STATUS.AVAILABLE, note: note ?? null, costPaise } }, context, session);
+    await auditFor('MACHINE_MAINTENANCE_ENDED', machine, { before: { status: machine.status }, after: { status: MACHINE_STATUS.AVAILABLE, note: note ?? null, costPaise, category: category ?? null, downtimeMinutes } }, context, session);
     return { body: { event: toPublicMachineEvent(event) } };
   });
+
+/**
+ * Correct the cost of a finished maintenance (ADMIN), e.g. a bill arrived for a different amount. Nothing
+ * is edited: a MAINTENANCE_COST_CORRECTED event records the new cost and the reason; reports use the
+ * latest correction, so the expense is never counted twice. Works for retired machines too.
+ */
+export function correctMaintenanceCost(id, eventId, { costPaise, reason }, context) {
+  return executeIdempotent({ context, operation: 'MACHINE_MAINTENANCE_COST_CORRECT', request: { id, eventId, costPaise, reason } }, async (session) => {
+    await lockMachine(id, session);
+    const ended = await MachineEvent.findOne({ _id: eventId, machineId: id, type: 'MAINTENANCE_ENDED' }).session(session).lean();
+    if (!ended) throw new AppError('NOT_FOUND', 'Finished maintenance not found on this machine');
+    const latest = await MachineEvent.findOne({ correctsEventId: ended._id, type: 'MAINTENANCE_COST_CORRECTED' }).sort({ occurredAt: -1 }).session(session).lean();
+    const current = latest?.costPaise ?? ended.costPaise ?? 0;
+    if (current === costPaise) {
+      throw new AppError('VALIDATION_ERROR', 'Request validation failed', { details: [{ location: 'body', path: 'costPaise', message: 'is already the recorded cost' }] });
+    }
+    const machine = await findMachineById(id, { session });
+    const event = await appendMachineEvent(
+      { ...eventBase(machine, context), type: 'MAINTENANCE_COST_CORRECTED', correctsEventId: ended._id, costPaise, note: reason },
+      session,
+    );
+    await auditFor('MACHINE_MAINTENANCE_COST_CORRECTED', machine, { before: { costPaise: current }, after: { costPaise, reason, maintenanceEventId: String(ended._id) } }, context, session);
+    return { statusCode: 201, body: { event: toPublicMachineEvent(event) } };
+  });
+}
 
 /**
  * Report a problem. CRITICAL takes the machine DOWN (remembering where it was). LOW/MEDIUM are

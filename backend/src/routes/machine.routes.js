@@ -4,6 +4,9 @@ import * as machineController from '../controllers/machine.controller.js';
 import { authorize } from '../middleware/authorize.js';
 import { requireIdempotencyKey } from '../middleware/idempotencyKey.js';
 import { validate } from '../middleware/validate.js';
+import { correctMaintenanceCost } from '../services/machine.service.js';
+import { sendIdempotent } from '../utils/apiResponse.js';
+import { requestContext } from '../utils/requestContext.js';
 import {
   createMachineBodySchema,
   listMachinesQuerySchema,
@@ -11,6 +14,8 @@ import {
   machineEventsQuerySchema,
   machineIdParamsSchema,
   endMaintenanceBodySchema,
+  maintenanceCostCorrectionBodySchema,
+  maintenanceEventParamsSchema,
   maintenanceBodySchema,
   problemParamsSchema,
   reportProblemBodySchema,
@@ -36,6 +41,14 @@ router.patch('/:id/active', adminOnly, validate({ ...byId, body: machineActiveBo
 router.get('/:id/events', viewers, validate({ ...byId, query: machineEventsQuerySchema }), machineController.getMachineEvents);
 router.post('/:id/maintenance/start', operators, requireIdempotencyKey, validate({ ...byId, body: maintenanceBodySchema }), machineController.startMaintenance);
 router.post('/:id/maintenance/end', operators, requireIdempotencyKey, validate({ ...byId, body: endMaintenanceBodySchema }), machineController.endMaintenance);
+// Correct a finished maintenance's cost (ADMIN; reason required; a new record, the original stays).
+router.post(
+  '/:id/maintenance/:eventId/cost-correction',
+  authorize(ROLES.ADMIN),
+  requireIdempotencyKey,
+  validate({ params: maintenanceEventParamsSchema, body: maintenanceCostCorrectionBodySchema }),
+  async (req, res) => sendIdempotent(res, await correctMaintenanceCost(req.validated.params.id, req.validated.params.eventId, req.validated.body, requestContext(req))),
+);
 router.post('/:id/problems', operators, requireIdempotencyKey, validate({ ...byId, body: reportProblemBodySchema }), machineController.reportProblem);
 router.post(
   '/:id/problems/:eventId/resolve',

@@ -43,4 +43,9 @@ export const MACHINE_EVENT_TYPES = Object.freeze([
   'PROBLEM_RESOLVED',
   'MAINTENANCE_STARTED',
   'MAINTENANCE_ENDED',
+  // A corrected maintenance cost (append-only: the latest correction of an ended maintenance applies).
+  'MAINTENANCE_COST_CORRECTED',
 ]);
+
+// What kind of maintenance was done (optional, recorded when it finishes).
+export const MAINTENANCE_CATEGORIES = Object.freeze(['PREVENTIVE', 'BREAKDOWN_REPAIR', 'PARTS_REPLACEMENT', 'CLEANING', 'OTHER']);

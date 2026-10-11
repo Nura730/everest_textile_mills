@@ -169,14 +169,35 @@ export async function costingSummary() {
  * NOT spread over orders (there is no agreed allocation rule) and NOT inside order profit; it is shown
  * next to it. Optional period: from/to as Indian calendar dates.
  */
-export async function maintenanceExpenses({ from, to } = {}) {
+/**
+ * One cost per finished maintenance (in the period it finished), with the latest correction applied:
+ * [{ eventId, machineId, costPaise }]. The single source for every maintenance figure.
+ */
+export async function effectiveMaintenanceCosts({ start, end } = {}) {
   const match = { type: 'MAINTENANCE_ENDED', costPaise: { $ne: null } };
-  if (from || to) {
-    match.occurredAt = {};
-    if (from) match.occurredAt.$gte = new Date(`${from}T00:00:00.000+05:30`);
-    if (to) match.occurredAt.$lt = new Date(new Date(`${to}T00:00:00.000+05:30`).getTime() + 86_400_000);
+  if (start || end) match.occurredAt = { ...(start ? { $gte: start } : {}), ...(end ? { $lt: end } : {}) };
+  const ended = await MachineEvent.find(match, { machineId: 1, costPaise: 1 }).lean();
+  if (ended.length === 0) return [];
+  const corrections = await MachineEvent.find({ type: 'MAINTENANCE_COST_CORRECTED', correctsEventId: { $in: ended.map((e) => e._id) } }, { correctsEventId: 1, costPaise: 1, occurredAt: 1 })
+    .sort({ occurredAt: 1, _id: 1 })
+    .lean();
+  const latest = new Map(corrections.map((c) => [String(c.correctsEventId), c.costPaise])); // later ones overwrite
+  return ended.map((e) => ({ eventId: String(e._id), machineId: String(e.machineId), costPaise: latest.get(String(e._id)) ?? e.costPaise }));
+}
+
+export async function maintenanceExpenses({ from, to } = {}) {
+  const costs = await effectiveMaintenanceCosts({
+    start: from ? new Date(`${from}T00:00:00.000+05:30`) : undefined,
+    end: to ? new Date(new Date(`${to}T00:00:00.000+05:30`).getTime() + 86_400_000) : undefined,
+  });
+  const grouped = new Map();
+  for (const c of costs) {
+    const g = grouped.get(c.machineId) ?? { _id: c.machineId, totalPaise: 0, jobs: 0 };
+    g.totalPaise += c.costPaise;
+    g.jobs += 1;
+    grouped.set(c.machineId, g);
   }
-  const rows = await MachineEvent.aggregate([{ $match: match }, { $group: { _id: '$machineId', totalPaise: { $sum: '$costPaise' }, jobs: { $sum: 1 } } }]);
+  const rows = [...grouped.values()];
   const machines = await Machine.find({ _id: { $in: rows.map((r) => r._id) } }, { code: 1, name: 1 }).lean();
   const byId = new Map(machines.map((m) => [String(m._id), m]));
   const byMachine = rows

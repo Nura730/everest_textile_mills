@@ -729,6 +729,19 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/payments/receivables', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/payments/receivables' }) },
+  // ── Month-end statement and maintenance cost corrections ──
+  { name: 'GET /api/finance/monthly', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/finance/monthly?month=${todayInIndia().slice(0, 7)}` }) },
+  { name: 'GET /api/finance/trend', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/finance/trend?months=2' }) },
+  {
+    name: 'POST /api/machines/:id/maintenance/:eventId/cost-correction',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const machine = await newMachine();
+      const ended = await MachineEvent.create({ machineId: machine._id, type: 'MAINTENANCE_ENDED', costPaise: 1000, actorId: MATRIX_ACTOR, actorRole: 'ADMIN' });
+      return { path: `/api/machines/${machine._id}/maintenance/${ended._id}/cost-correction`, body: { costPaise: 2000, reason: 'Matrix correction' }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
 ];
 
 const actorFor = (role) => createTestUser({ role, ...(role === ROLES.BUYER ? { buyerId: matrixBuyer._id } : {}) });
