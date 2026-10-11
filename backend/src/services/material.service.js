@@ -203,6 +203,64 @@ export function reserveForOrder(orderId, { allocations }, context) {
   );
 }
 
+/**
+ * Reserve MORE yarn for an order already in production planning (FLOOR_MANAGER or ADMIN), e.g. for a
+ * continuation run or to remake rejected rolls. Oldest lots first, all or nothing, from FREE stock only
+ * (never from yarn reserved for other orders), with a reason; at most one more full requirement per
+ * request so a typo cannot lock up the store. Insufficient stock is refused with the exact shortfall:
+ * the store keeper resolves it by receiving yarn. Same ledger and audit as the first reservation.
+ */
+export function reserveAdditional(orderId, { quantityKg, reason }, context) {
+  return executeIdempotent(
+    { context, operation: 'ORDER_RESERVE_ADDITIONAL', request: { orderId, quantityKg, reason } },
+    async (session) => {
+      const order = await findOrderById(orderId, { session });
+      if (!order) throw notFound();
+      if (!ISSUABLE_STATUSES.includes(order.status)) {
+        throw new AppError('INVALID_STATE_TRANSITION', `More yarn can be reserved only while an order is reserved or in production (this one is ${order.status})`, {
+          details: { status: order.status, allowed: ISSUABLE_STATUSES },
+        });
+      }
+      const grams = kgToGrams(quantityKg);
+      if (grams > order.requiredYarnGrams) {
+        throw new AppError('VALIDATION_ERROR', 'Request validation failed', {
+          details: [{ location: 'body', path: 'quantityKg', message: `at most ${gramsToKg(order.requiredYarnGrams)} kg (one full requirement of the order) per request` }],
+        });
+      }
+      await claimYarnCommitmentLock(order.product, session);
+      const lots = await findAvailableLotsFifo(order.product, { session });
+      const plan = planFifoAllocation(lots, grams);
+      if (!plan) {
+        const availableGrams = lots.reduce((sum, lot) => sum + lot.totalGrams - lot.reservedGrams, 0);
+        throw new AppError('INSUFFICIENT_STOCK', `Only ${gramsToKg(availableGrams)} kg of free ${order.product.material.toLowerCase()} ${order.product.colour} yarn is in stock; ${gramsToKg(grams - availableGrams)} kg more is needed. The store keeper can receive it, then reserve again.`, {
+          details: { requestedKg: quantityKg, availableKg: gramsToKg(availableGrams), shortfallKg: gramsToKg(grams - availableGrams) },
+        });
+      }
+      const reservations = [];
+      for (const { lot, grams: take } of plan) {
+        const updatedLot = await reserveInLotGuarded(lot._id, take, session);
+        if (!updatedLot) {
+          throw new AppError('INSUFFICIENT_STOCK', `Lot ${lot.lotNumber} does not have ${gramsToKg(take)} kg available`, {
+            details: { lotNumber: lot.lotNumber, requestedKg: gramsToKg(take), availableKg: gramsToKg(lot.totalGrams - lot.reservedGrams) },
+          });
+        }
+        const reservation = await insertReservation(
+          { orderId: order._id, yarnLotId: lot._id, lotNumber: lot.lotNumber, reservedGrams: take, createdBy: context.actor.id },
+          session,
+        );
+        await appendLedgerRow('RESERVATION', { lot, reservation, order, deltaTotal: 0, deltaReserved: take, reason }, context, session);
+        reservations.push(reservation);
+      }
+      await recordAudit(
+        { action: 'MATERIAL_RESERVED_ADDITIONAL', entityType: 'Order', entityId: order._id, orderId: order._id, after: { grams, reason, lots: reservationSummary(reservations) } },
+        context,
+        session,
+      );
+      return { statusCode: 200, body: { reservations: reservations.map(toPublicReservation) } };
+    },
+  );
+}
+
 function totals(reservations) {
   const sum = (fn) => gramsToKg(reservations.reduce((acc, r) => acc + fn(r), 0));
   return {

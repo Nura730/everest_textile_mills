@@ -17,6 +17,7 @@ import orderRoutes from './order.routes.js';
 import productRoutes from './product.routes.js';
 import userRoutes from './user.routes.js';
 import yarnLotRoutes from './yarnLot.routes.js';
+import { attendanceRoutes, wageRoutes, workerRoutes } from './workforce.routes.js';
 
 // Every /api resource router is mounted here, so the whole API surface is visible in one file.
 const router = Router();
@@ -51,5 +52,8 @@ router.use('/costing', costingRoutes);
 router.use('/sync', syncRoutes);
 router.use('/intelligence', intelligenceRoutes);
 router.use('/signatures', signatureRoutes);
+router.use('/workers', workerRoutes);
+router.use('/attendance', attendanceRoutes);
+router.use('/wages', wageRoutes);
 
 export default router;

@@ -89,6 +89,30 @@ dispatchRoutes.post(
   validate({ params: idParams, body: z.strictObject({ reason: z.string().trim().min(5).max(500) }) }),
   async (req, res) => sendIdempotent(res, await fulfilment.cancelDispatch(req.validated.params.id, req.validated.body, requestContext(req))),
 );
+// Delivery after dispatch: the owning buyer (or the admin for them) confirms or reports a problem; the admin verifies.
+const deliveryParties = authorize(ROLES.BUYER, ROLES.ADMIN);
+const deliveryNote = (required) => z.strictObject({ note: required ? z.string().trim().min(5).max(1000) : z.string().trim().min(1).max(1000).optional() });
+dispatchRoutes.post(
+  '/:id/delivery/confirm',
+  deliveryParties,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: deliveryNote(false) }),
+  async (req, res) => sendIdempotent(res, await fulfilment.confirmDelivery(req.validated.params.id, req.validated.body, requestContext(req))),
+);
+dispatchRoutes.post(
+  '/:id/delivery/discrepancy',
+  deliveryParties,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: deliveryNote(true) }),
+  async (req, res) => sendIdempotent(res, await fulfilment.reportDiscrepancy(req.validated.params.id, req.validated.body, requestContext(req))),
+);
+dispatchRoutes.post(
+  '/:id/delivery/verify',
+  adminOnly,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: deliveryNote(false) }),
+  async (req, res) => sendIdempotent(res, await fulfilment.verifyDelivery(req.validated.params.id, req.validated.body, requestContext(req))),
+);
 dispatchRoutes.post(
   '/:id/invoice',
   adminOnly,

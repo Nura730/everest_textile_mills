@@ -75,7 +75,7 @@ describe('GET /api/summary/attention', () => {
     expect(keys(data)).toEqual(expect.arrayContaining(['material-shortage', 'dispatch-awaiting-signature']));
     expect(keys(data)).not.toEqual(expect.arrayContaining(['qc-pending']));
     expect(data.badges['/dispatch']).toBe(1);
-    expect(data.alerts.find((a) => a.key === 'material-shortage').action).toBe('Receive the missing yarn.');
+    expect(data.alerts.find((a) => a.key === 'material-shortage').action).toMatch(/^Receive the missing yarn/);
   });
 
   it('the floor manager sees material, rework, machines and paused runs', async () => {
@@ -90,6 +90,18 @@ describe('GET /api/summary/attention', () => {
     const data = await attention(users.admin);
     expect(keys(data)).toEqual(expect.arrayContaining(['orders-to-confirm', 'risk']));
     expect(data.badges['/orders']).toBe(1);
+  });
+
+  it('a NEW order short of yarn is routed to the store keeper (not only to the admin who confirms)', async () => {
+    const data = await attention(users.store);
+    const shortage = data.alerts.find((a) => a.key === 'material-shortage');
+    // fixtures: one new (ORDER_CREATED) and one confirmed order, both with no yarn in stock
+    expect(shortage.title).toBe('2 order(s) blocked by a yarn shortage');
+    expect(shortage.affected).toHaveLength(2);
+    const admin = (await attention(users.admin)).alerts.find((a) => a.key === 'material-shortage');
+    expect(admin.action).toMatch(/store keeper resolves it/);
+    // the floor is not asked to reserve a NEW order (it is not confirmed yet)
+    expect((await attention(users.floor)).alerts.find((a) => a.key === 'ready-to-reserve')).toBeUndefined();
   });
 
   it('a buyer sees only their own orders, in plain words; another buyer sees nothing of them', async () => {

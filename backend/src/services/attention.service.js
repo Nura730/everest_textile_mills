@@ -2,7 +2,7 @@ import { MACHINE_STATUS } from '../constants/machines.js';
 import { ORDER_STATUS } from '../constants/orderStatus.js';
 import { ROLL_STATUS, RUN_STATUS } from '../constants/production.js';
 import { ROLES } from '../constants/roles.js';
-import { DISPATCH_STATUS, Dispatch } from '../models/Fulfilment.js';
+import { DELIVERY_STATUS, DISPATCH_STATUS, Dispatch } from '../models/Fulfilment.js';
 import { Machine } from '../models/Machine.js';
 import { Order } from '../models/Order.js';
 import { ProductionRun } from '../models/ProductionRun.js';
@@ -32,9 +32,9 @@ const SEES = {
 };
 const sees = (role, what) => SEES[what].includes(role);
 
-/** Shortfalls of confirmed (not yet reserved) orders: they block production until yarn is there. */
+/** Shortfalls of orders that still need yarn (new or confirmed): they block confirmation or production. */
 async function materialShortages() {
-  const confirmed = await Order.find({ status: ORDER_STATUS.CONFIRMED }).sort({ requiredBy: 1 }).limit(100).lean();
+  const confirmed = await Order.find({ status: { $in: [ORDER_STATUS.ORDER_CREATED, ORDER_STATUS.CONFIRMED] } }).sort({ requiredBy: 1 }).limit(100).lean();
   const out = [];
   for (const order of confirmed) {
     const { inputs } = await assessOrderFeasibility(order);
@@ -64,6 +64,22 @@ export async function attentionFor(actor) {
         to: `/orders/${order.id}`,
       });
     }
+    // Goods on their way: the buyer confirms receipt or reports a problem (this unlocks the invoice).
+    const inTransit = await Dispatch.find(
+      { buyerId: actor.buyerId, status: DISPATCH_STATUS.CONFIRMED, deliveryStatus: { $in: [DELIVERY_STATUS.IN_TRANSIT, null] } },
+      { dispatchNumber: 1, orderId: 1, orderNumber: 1 },
+    ).lean();
+    if (inTransit.length) {
+      alerts.push({
+        key: 'buyer-confirm-delivery',
+        priority: 'HIGH',
+        title: `${inTransit.length} delivery(ies) to confirm`,
+        why: 'The goods have left the factory. Tell us when they arrive, or if anything is short or damaged.',
+        affected: inTransit.map((d) => ({ label: `${d.dispatchNumber} (${d.orderNumber})`, to: `/orders/${d.orderId}` })),
+        action: 'Open the order and confirm delivery or report a problem.',
+        to: `/orders/${inTransit[0].orderId}`,
+      });
+    }
     badges['/orders'] = alerts.length;
     return { alerts, badges, generatedAt: new Date() };
   }
@@ -86,8 +102,10 @@ export async function attentionFor(actor) {
 
   if (sees(role, 'material')) {
     const shortages = await materialShortages();
+    // New orders short of yarn cannot be confirmed; confirmed ones cannot be reserved. Either way the
+    // store keeper resolves it (receive yarn, or correct a stock discrepancy).
     const blocked = shortages.filter((s) => s.shortfallGrams > 0);
-    const ready = shortages.filter((s) => s.shortfallGrams === 0);
+    const ready = shortages.filter((s) => s.shortfallGrams === 0 && s.order.status === ORDER_STATUS.CONFIRMED);
     if (role === ROLES.FLOOR_MANAGER) badges['/orders'] = ready.length;
     if (blocked.length) {
       const byYarn = new Map();
@@ -99,10 +117,15 @@ export async function attentionFor(actor) {
       alerts.push({
         key: 'material-shortage',
         priority: 'HIGH',
-        title: `${blocked.length} confirmed order(s) blocked by a yarn shortage`,
+        title: `${blocked.length} order(s) blocked by a yarn shortage`,
         why: [...byYarn.entries()].map(([yarn, grams]) => `${yarn.toLowerCase()}: short by ${kg(grams)}`).join('; '),
         affected: blocked.slice(0, 5).map((s) => ({ label: s.order.orderNumber, to: `/orders/${s.order._id}` })),
-        action: role === ROLES.STORE_KEEPER ? 'Receive the missing yarn.' : 'Reserve once the store has received the missing yarn.',
+        action:
+          role === ROLES.STORE_KEEPER
+            ? 'Receive the missing yarn, or correct the stock if a count is wrong (Yarn inventory → Reconciliation / Adjust).'
+            : role === ROLES.ADMIN
+              ? 'The store keeper resolves it by receiving yarn; confirm the order once it is feasible.'
+              : 'Reserve once the store has received the missing yarn.',
         to: role === ROLES.STORE_KEEPER ? '/inventory' : '/orders?status=CONFIRMED',
       });
     }
@@ -207,6 +230,37 @@ export async function attentionFor(actor) {
         why: 'All their rolls passed QC and are in finished goods.',
         affected: ready.map((o) => ({ label: o.orderNumber, to: `/orders/${o._id}` })),
         action: role === ROLES.STORE_KEEPER || role === ROLES.ADMIN ? 'Prepare the dispatch.' : null,
+        to: '/dispatch',
+      });
+    }
+  }
+
+  if (role === ROLES.ADMIN) {
+    const [toVerify, toInvoice] = await Promise.all([
+      Dispatch.find({ status: DISPATCH_STATUS.CONFIRMED, deliveryStatus: { $in: [DELIVERY_STATUS.DELIVERED, DELIVERY_STATUS.DISCREPANCY] } }, { dispatchNumber: 1, deliveryStatus: 1 }).lean(),
+      Dispatch.find({ status: DISPATCH_STATUS.CONFIRMED, deliveryStatus: DELIVERY_STATUS.VERIFIED, invoiceId: null }, { dispatchNumber: 1 }).lean(),
+    ]);
+    badges['/dispatch'] = (badges['/dispatch'] ?? 0) + toVerify.length + toInvoice.length;
+    const problems = toVerify.filter((d) => d.deliveryStatus === DELIVERY_STATUS.DISCREPANCY);
+    if (toVerify.length) {
+      alerts.push({
+        key: 'delivery-to-verify',
+        priority: problems.length ? 'HIGH' : 'MEDIUM',
+        title: `${toVerify.length} delivery(ies) to verify${problems.length ? `, ${problems.length} with a reported problem` : ''}`,
+        why: 'The buyer has confirmed receipt or reported a problem. Invoices wait for your verification.',
+        affected: toVerify.map((d) => ({ label: d.dispatchNumber, to: '/dispatch' })),
+        action: 'Verify the delivery (resolve any reported problem first).',
+        to: '/dispatch',
+      });
+    }
+    if (toInvoice.length) {
+      alerts.push({
+        key: 'ready-to-invoice',
+        priority: 'MEDIUM',
+        title: `${toInvoice.length} verified delivery(ies) ready to invoice`,
+        why: 'Delivery is confirmed and verified.',
+        affected: toInvoice.map((d) => ({ label: d.dispatchNumber, to: '/dispatch' })),
+        action: 'Issue the invoice.',
         to: '/dispatch',
       });
     }

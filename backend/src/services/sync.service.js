@@ -6,12 +6,14 @@ import { receiveLotBodySchema } from '../validators/inventory.validators.js';
 import { adminCreateOrderBodySchema, buyerCreateOrderBodySchema, updateOrderBodySchema } from '../validators/order.validators.js';
 import { completeRunBodySchema, reasonBodySchema, recordRollBodySchema } from '../validators/production.validators.js';
 import { inspectRollBodySchema, reworkDoneBodySchema } from '../validators/quality.validators.js';
+import { recordAttendanceBodySchema } from '../validators/workforce.validators.js';
 import { objectIdSchema } from '../validators/common.validators.js';
 import * as inventory from './inventory.service.js';
 import * as machines from './machine.service.js';
 import * as orders from './order.service.js';
 import * as production from './production.service.js';
 import * as quality from './quality.service.js';
+import * as workforce from './workforce.service.js';
 
 /*
  * Phase 15: replay of actions captured offline (instruction.md §14). The device queues events with a
@@ -26,7 +28,8 @@ import * as quality from './quality.service.js';
  *
  * Offline actions (instruction.md Phase 13, plus the safe ordering and receiving steps): production
  * pause/resume/complete, recording a roll, reporting a machine problem, QC inspection (signature captured
- * on the device), finishing rework, placing or editing an order, recording a yarn receipt. Everything that
+ * on the device), finishing rework, placing or editing an order, recording a yarn receipt, recording a
+ * worker's attendance. Everything that
  * needs live state or cannot be undone (confirming orders, reserving/issuing yarn, dispatch, invoices,
  * user and master data) stays online-only.
  */
@@ -63,6 +66,8 @@ export const SYNC_HANDLERS = Object.freeze({
   ORDER_UPDATE: handler(ORDERING, 'orderId', updateOrderBodySchema, (id, body, ctx) => orders.updateOrder(id, body, ctx)),
   // POST /yarn-lots (records goods that physically arrived; only adds stock)
   MATERIAL_RECEIVE: handler(STORE, null, receiveLotBodySchema, (id, body, ctx) => inventory.receiveLot(body, ctx)),
+  // POST /attendance (one worker, one day; a second entry for the same day is refused, never merged)
+  ATTENDANCE_RECORD: handler(FLOOR, null, recordAttendanceBodySchema, (id, body, ctx) => workforce.recordAttendance(body, ctx)),
 });
 
 /** Splits and validates a payload: { success, id, body } or { success: false, issues }. */

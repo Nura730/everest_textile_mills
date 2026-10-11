@@ -10,6 +10,7 @@ import {
   machineActiveBodySchema,
   machineEventsQuerySchema,
   machineIdParamsSchema,
+  endMaintenanceBodySchema,
   maintenanceBodySchema,
   problemParamsSchema,
   reportProblemBodySchema,
@@ -34,7 +35,7 @@ router.patch('/:id', adminOnly, validate({ ...byId, body: updateMachineBodySchem
 router.patch('/:id/active', adminOnly, validate({ ...byId, body: machineActiveBodySchema }), machineController.setMachineActive);
 router.get('/:id/events', viewers, validate({ ...byId, query: machineEventsQuerySchema }), machineController.getMachineEvents);
 router.post('/:id/maintenance/start', operators, requireIdempotencyKey, validate({ ...byId, body: maintenanceBodySchema }), machineController.startMaintenance);
-router.post('/:id/maintenance/end', operators, requireIdempotencyKey, validate({ ...byId, body: maintenanceBodySchema }), machineController.endMaintenance);
+router.post('/:id/maintenance/end', operators, requireIdempotencyKey, validate({ ...byId, body: endMaintenanceBodySchema }), machineController.endMaintenance);
 router.post('/:id/problems', operators, requireIdempotencyKey, validate({ ...byId, body: reportProblemBodySchema }), machineController.reportProblem);
 router.post(
   '/:id/problems/:eventId/resolve',

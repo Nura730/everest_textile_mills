@@ -1,8 +1,9 @@
 import { recordAudit } from '../audit/recordAudit.js';
 import { MACHINE_STATUS } from '../constants/machines.js';
 import { ORDER_STATUS } from '../constants/orderStatus.js';
-import { OPEN_RUN_STATUSES, RUN_STATUS } from '../constants/production.js';
+import { OPEN_RUN_STATUSES, ROLL_STATUS, RUN_STATUS } from '../constants/production.js';
 import { onFloorGrams } from '../models/MaterialReservation.js';
+import { Roll } from '../models/Roll.js';
 import { toPublicOrder } from '../models/Order.js';
 import { toPublicRoll } from '../models/Roll.js';
 import { toPublicRun } from '../models/ProductionRun.js';
@@ -39,6 +40,11 @@ import { executeIdempotent } from './idempotency.service.js';
  *   complete RUNNING/PAUSED with ≥ 1 roll → COMPLETED, machine freed; when no run is open and the
  *            produced total covers the order → order IN_PRODUCTION → PRODUCTION_COMPLETED
  *   cancel   PLANNED → CANCELLED, machine freed
+ *   reopen   COMPLETED → PAUSED, only for a run completed by mistake: it produced less than its target,
+ *            its order still needs output (IN_PRODUCTION) and its machine is free. Reason required;
+ *            history and rolls are kept; the machine is booked again (PAUSED) until the run resumes.
+ *   output   never beyond the order: good or pending output (rejected rolls excluded, they must be
+ *            remade) plus a new roll may not exceed the ordered quantity.
  *
  * Every action locks the order and the machine (two runs completing at once cannot both miss that
  * the order is done), writes run history + machine event + audit in one transaction, with an
@@ -246,11 +252,21 @@ export const resumeRun = (id, context) =>
 
 /** Record one produced roll against a producing run. The roll carries its traceability. */
 export const recordRoll = (id, { lengthMetres, weightKg }, context) =>
-  runAction({ id, operation: 'RUN_RECORD_ROLL', request: { lengthMetres, weightKg }, context }, async ({ run }, session) => {
+  runAction({ id, operation: 'RUN_RECORD_ROLL', request: { lengthMetres, weightKg }, context }, async ({ run, order }, session) => {
     if (![RUN_STATUS.RUNNING, RUN_STATUS.PAUSED].includes(run.status)) {
       throw new AppError('CONFLICT', `Output can be recorded only on a running or paused run (this one is ${run.status})`, { details: { status: run.status } });
     }
     const lengthCm = metresToCm(lengthMetres);
+    // Never produce beyond the order. Rejected rolls do not count: they have to be made again.
+    const runs = await findRunsForOrder(order._id, { session });
+    const producedCm = runs.filter((r) => r.status !== RUN_STATUS.CANCELLED).reduce((sum, r) => sum + r.producedCm, 0);
+    const [rejected] = await Roll.aggregate([{ $match: { orderId: order._id, status: ROLL_STATUS.REJECTED } }, { $group: { _id: null, cm: { $sum: '$lengthCm' } } }]).session(session);
+    const goodCm = producedCm - (rejected?.cm ?? 0);
+    if (goodCm + lengthCm > order.quantityCm) {
+      throw new AppError('QUANTITY_EXCEEDS_ORDER', `Only ${cmToMetres(Math.max(0, order.quantityCm - goodCm))} m of order ${order.orderNumber} is still to be produced`, {
+        details: { orderedMetres: cmToMetres(order.quantityCm), producedMetres: cmToMetres(goodCm), remainingMetres: cmToMetres(Math.max(0, order.quantityCm - goodCm)), requestedMetres: lengthMetres },
+      });
+    }
     const reservations = await findReservationsForOrder(run.orderId, { session });
     const yarnLots = reservations.filter((r) => r.issuedGrams > 0).map((r) => ({ yarnLotId: r.yarnLotId, lotNumber: r.lotNumber }));
     const year = todayInIndia().slice(0, 4);
@@ -282,17 +298,25 @@ export const recordRoll = (id, { lengthMetres, weightKg }, context) =>
  * open and the produced total covers the ordered quantity, the order becomes PRODUCTION_COMPLETED;
  * otherwise it stays IN_PRODUCTION for another run.
  */
-export const completeRun = (id, { note }, context) =>
-  runAction({ id, operation: 'RUN_COMPLETE', request: { note }, context }, async ({ run, machine, order }, session) => {
+export const completeRun = (id, { note, shortfallReason }, context) =>
+  runAction({ id, operation: 'RUN_COMPLETE', request: { note, shortfallReason }, context }, async ({ run, machine, order }, session) => {
     if (![RUN_STATUS.RUNNING, RUN_STATUS.PAUSED].includes(run.status)) throw runInvalid(run, RUN_STATUS.COMPLETED, [RUN_STATUS.RUNNING, RUN_STATUS.PAUSED]);
     if (run.rollCount === 0) {
       throw new AppError('NO_OUTPUT_RECORDED', 'Record at least one roll before completing the run', { details: { runNumber: run.runNumber } });
     }
+    // A run below its target is never completed by a plain click: the shortfall is stated and recorded.
+    const shortCm = Math.max(0, run.targetCm - run.producedCm);
+    if (shortCm > 0 && !shortfallReason) {
+      throw new AppError('SHORTFALL_REASON_REQUIRED', `${run.runNumber} produced ${cmToMetres(run.producedCm)} m of its ${cmToMetres(run.targetCm)} m target. To complete it short, give the reason for the ${cmToMetres(shortCm)} m shortfall; otherwise keep producing.`, {
+        details: { producedMetres: cmToMetres(run.producedCm), targetMetres: cmToMetres(run.targetCm), shortMetres: cmToMetres(shortCm) },
+      });
+    }
+    const historyReason = shortCm > 0 ? `Completed short by ${cmToMetres(shortCm)} m: ${shortfallReason}` : (note ?? null);
     const updated = await transitionRunGuarded(
       run._id,
       [RUN_STATUS.RUNNING, RUN_STATUS.PAUSED],
       RUN_STATUS.COMPLETED,
-      change(context, run.status, RUN_STATUS.COMPLETED, note ?? null),
+      change(context, run.status, RUN_STATUS.COMPLETED, historyReason),
       session,
       { completedAt: new Date() },
     );
@@ -317,11 +341,68 @@ export const completeRun = (id, { note }, context) =>
     await audit(
       'RUN_COMPLETED',
       run,
-      { before: { status: run.status }, after: { status: RUN_STATUS.COMPLETED, producedCm: run.producedCm, rollCount: run.rollCount, orderStatus: orderAfter.status } },
+      { before: { status: run.status }, after: { status: RUN_STATUS.COMPLETED, producedCm: run.producedCm, rollCount: run.rollCount, orderStatus: orderAfter.status, ...(shortCm > 0 ? { shortfallCm: shortCm, shortfallReason } : {}) } },
       context,
       session,
     );
     return { body: { order: toPublicOrder(orderAfter, context.actor), orderProducedMetres: cmToMetres(producedCm) } };
+  });
+
+/**
+ * Reopen a run that was completed by mistake (FLOOR_MANAGER or ADMIN). Explicit and narrow: the run
+ * produced less than its target, its order is still IN_PRODUCTION and short of its quantity, nothing
+ * else already covers the gap, and the run's machine is free. The run goes back to PAUSED on the same
+ * machine (resume it to continue); its rolls and history stay; the correction is audited with the
+ * reason and the values before and after. Retrying with the same key replays; it cannot reopen twice.
+ */
+export const reopenRun = (id, { reason }, context) =>
+  runAction({ id, operation: 'RUN_REOPEN', request: { reason }, context }, async ({ run, machine, order }, session) => {
+    if (run.status !== RUN_STATUS.COMPLETED) throw runInvalid(run, RUN_STATUS.PAUSED, [RUN_STATUS.COMPLETED]);
+    if (run.producedCm >= run.targetCm) {
+      throw new AppError('INVALID_STATE_TRANSITION', `Run ${run.runNumber} reached its target (${cmToMetres(run.producedCm)} m); only a run that ended short can be reopened`, {
+        details: { reason: 'RUN_REACHED_TARGET', producedMetres: cmToMetres(run.producedCm), targetMetres: cmToMetres(run.targetCm) },
+      });
+    }
+    if (order.status !== ORDER_STATUS.IN_PRODUCTION) {
+      throw new AppError('INVALID_STATE_TRANSITION', `Order ${order.orderNumber} is ${order.status}; a run can be reopened only while its order is in production`, {
+        details: { reason: 'ORDER_NOT_IN_PRODUCTION', orderStatus: order.status },
+      });
+    }
+    const runs = await findRunsForOrder(order._id, { session });
+    const reopened = runs.map((r) => (String(r._id) === String(run._id) ? { ...r, status: RUN_STATUS.PAUSED } : r));
+    if (plannedCmForOrder(reopened) > order.quantityCm) {
+      throw new AppError('QUANTITY_EXCEEDS_ORDER', `Other runs already cover the rest of order ${order.orderNumber}; continue on those instead`, {
+        details: { reason: 'GAP_ALREADY_PLANNED', orderedMetres: cmToMetres(order.quantityCm) },
+      });
+    }
+    if (machine.status !== MACHINE_STATUS.AVAILABLE) {
+      throw new AppError('INVALID_STATE_TRANSITION', `Machine ${machine.code} is ${machine.status}; it must be available to take the run back. Plan a continuation run on another machine instead.`, {
+        details: { reason: 'MACHINE_NOT_AVAILABLE', machineStatus: machine.status },
+      });
+    }
+
+    const updated = await transitionRunGuarded(
+      run._id,
+      [RUN_STATUS.COMPLETED],
+      RUN_STATUS.PAUSED,
+      change(context, run.status, RUN_STATUS.PAUSED, `Reopened (completed by mistake): ${reason}`),
+      session,
+      { completedAt: null },
+    );
+    if (!updated) throw runInvalid(run, RUN_STATUS.PAUSED, [RUN_STATUS.COMPLETED]);
+    await moveMachine(machine, MACHINE_STATUS.PAUSED, { currentRunId: run._id }, session);
+    await machineEvent(machine, run, MACHINE_STATUS.PAUSED, `Run ${run.runNumber} reopened: ${reason}`, context, session);
+    const orderProducedCm = runs.filter((r) => r.status === RUN_STATUS.COMPLETED).reduce((sum, r) => sum + r.producedCm, 0);
+    await audit(
+      'RUN_REOPENED',
+      run,
+      {
+        before: { status: RUN_STATUS.COMPLETED, producedCm: run.producedCm, targetCm: run.targetCm, completedAt: run.completedAt },
+        after: { status: RUN_STATUS.PAUSED, reason, runRemainingCm: run.targetCm - run.producedCm, orderRemainingCm: order.quantityCm - orderProducedCm },
+      },
+      context,
+      session,
+    );
   });
 
 export const cancelRun = (id, { reason }, context) =>

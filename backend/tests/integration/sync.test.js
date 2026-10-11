@@ -102,7 +102,7 @@ describe('POST /api/sync/events', () => {
   it('reports CONFLICT when the factory moved on while the device was offline', async () => {
     expect((await post(floor, `/api/production-runs/${run.id}/complete`, {})).status).toBe(409); // nothing produced yet
     await sync(floor, [event('ROLL_RECORD', { runId: run.id, lengthMetres: 100 })]);
-    expect((await post(floor, `/api/production-runs/${run.id}/complete`, {})).status).toBe(200);
+    expect((await post(floor, `/api/production-runs/${run.id}/complete`, { shortfallReason: 'Order split across machines' })).status).toBe(200);
     const res = await sync(floor, [event('RUN_PAUSE', { runId: run.id, reason: 'Pause recorded offline' })]);
     expect(res.body.data.results[0]).toMatchObject({ outcome: 'CONFLICT', error: { code: 'INVALID_STATE_TRANSITION' } });
     // Conflicts stay visible for review.
@@ -180,7 +180,7 @@ describe('offline orders, receipts and run completion', () => {
   });
 
   it('production completion can be recorded offline', async () => {
-    const res = await sync(floor, [event('ROLL_RECORD', { runId: run.id, lengthMetres: 500 }, minutesAgo(10)), event('RUN_COMPLETE', { runId: run.id }, minutesAgo(5))]);
+    const res = await sync(floor, [event('ROLL_RECORD', { runId: run.id, lengthMetres: 500 }, minutesAgo(10)), event('RUN_COMPLETE', { runId: run.id, shortfallReason: 'Yarn ran out on this loom' }, minutesAgo(5))]);
     expect(res.body.data.results.map((r) => r.outcome)).toEqual(['APPLIED', 'APPLIED']);
     expect(await ProductionRun.findById(run.id).lean()).toMatchObject({ status: 'COMPLETED' });
   });

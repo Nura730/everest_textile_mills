@@ -87,6 +87,11 @@ describe('production → QC → finished goods → dispatch', () => {
     expect(avail.message).toMatch(/awaiting quality inspection/);
 
     await inspect(a, 'PASS');
+    // one roll passed, the other still in QC: in stock, but NOT dispatchable (prepare would be refused)
+    avail = await availability(order._id);
+    expect(avail).toMatchObject({ status: 'PRODUCTION_COMPLETED', inStock: { metres: 600 }, dispatchableMetres: 0, reason: 'NOT_READY' });
+    expect(avail.message).toMatch(/600 m has passed QC/);
+    expect((await post(store, '/api/dispatches', { orderId: String(order._id), finishedGoodIds: (await goodsOf(order._id)).map((g) => g.id) })).status).toBe(409);
     await inspect(b, 'PASS');
     const goods = await goodsOf(order._id);
     expect(goods.map((g) => g.lengthMetres)).toEqual([600, 600]);

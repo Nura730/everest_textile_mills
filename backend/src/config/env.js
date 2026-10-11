@@ -39,6 +39,9 @@ const envSchema = z
       .optional(),
     // RSA modulus for newly generated signing keys. 3072 by default (NIST SP 800-57: beyond 2030).
     SIGNING_RSA_BITS: z.coerce.number().int().refine((bits) => [2048, 3072, 4096].includes(bits), { error: 'must be 2048, 3072 or 4096' }).default(3072),
+    // Share of the daily wage paid for a half day, in basis points (5000 = 50%). Snapshotted on each
+    // attendance record, so changing it never rewrites wages already recorded.
+    HALF_DAY_WAGE_FACTOR_BP: z.coerce.number().int().min(0).max(10_000).default(5000),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.BCRYPT_ROUNDS < MIN_PRODUCTION_BCRYPT_ROUNDS) {
@@ -86,6 +89,7 @@ export function parseEnv(source) {
     bcryptRounds: env.BCRYPT_ROUNDS,
     signingKeyEncryptionKey: env.SIGNING_KEY_ENCRYPTION_KEY ? Buffer.from(env.SIGNING_KEY_ENCRYPTION_KEY, 'base64') : null,
     signingRsaBits: env.SIGNING_RSA_BITS,
+    halfDayWageFactorBp: env.HALF_DAY_WAGE_FACTOR_BP,
   });
 }
 

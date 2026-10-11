@@ -33,6 +33,10 @@ export async function completeRun(req, res) {
   return sendIdempotent(res, await productionService.completeRun(id(req), req.validated.body, requestContext(req)));
 }
 
+export async function reopenRun(req, res) {
+  return sendIdempotent(res, await productionService.reopenRun(id(req), req.validated.body, requestContext(req)));
+}
+
 export async function cancelRun(req, res) {
   return sendIdempotent(res, await productionService.cancelRun(id(req), req.validated.body, requestContext(req)));
 }

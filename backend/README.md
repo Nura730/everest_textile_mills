@@ -162,7 +162,7 @@ Notes:
 | `GET /api/yarn-lots/:id/transactions` | ✓ | ✓ | | | ✓ |
 | `POST /api/yarn-lots/:id/adjustments` | ✓ | | | | ✓ |
 | `GET /api/inventory/yarn-summary` | ✓ | ✓ | | | ✓ |
-| `GET /api/inventory/reconciliation` | | | | | ✓ |
+| `GET /api/inventory/reconciliation` | ✓ | | | | ✓ |
 | `GET /api/buyers`, `GET /api/buyers/:id` | | | | | ✓ |
 | `POST /api/buyers` | | | | | ✓ |
 | `GET /api/products`, `GET /api/products/:id` | ✓ | ✓ | ✓ | ✓ (no yarn spec) | ✓ |
@@ -174,12 +174,12 @@ Notes:
 | `GET /api/orders/:id/feasibility` | ✓ | ✓ | | | ✓ |
 | `POST /api/orders/:id/confirm` | | | | | ✓ |
 | `PATCH /api/orders/:id` | | | | ✓ own, while `ORDER_CREATED` | ✓ while `ORDER_CREATED` |
-| `POST /api/orders/:id/reserve` | | ✓ | | | ✓ |
+| `POST /api/orders/:id/reserve`, `/reserve-additional` (reason; free stock only) | | ✓ | | | ✓ |
 | `POST /api/orders/:id/issue`, `/return` | ✓ | | | | ✓ |
 | `GET /api/orders/:id/reservations` | ✓ | ✓ | | | ✓ |
 | `GET /api/machines`, `GET /api/machines/:id`, `GET /api/machines/:id/events` | | ✓ | ✓ | | ✓ |
 | `POST /api/machines`, `PATCH /api/machines/:id`, `PATCH /api/machines/:id/active` | | | | | ✓ |
-| `POST /api/machines/:id/maintenance/start`, `/maintenance/end`, `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
+| `POST /api/machines/:id/maintenance/start`, `/maintenance/end` (cost required), `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
 | `GET /api/production-runs`, `GET /api/production-runs/:id` | ✓ | ✓ | ✓ | | ✓ |
 | `POST /api/production-runs`, `/:id/start`, `/pause`, `/resume`, `/complete`, `/cancel`, `/rolls` | | ✓ | | | ✓ |
 | `GET /api/rolls`, `GET /api/rolls/:id` | ✓ | ✓ | ✓ | | ✓ |
@@ -189,7 +189,9 @@ Notes:
 | `GET /api/finished-goods`, `GET /api/summary/fulfilment` | ✓ | ✓ | ✓ | | ✓ |
 | `PATCH /api/finished-goods/:id/location`, `POST /api/dispatches`, `/:id/confirm`, `/:id/cancel` | ✓ | | | | ✓ |
 | `GET /api/dispatches`, `GET /api/dispatches/:id` | ✓ | ✓ | ✓ | ✓ own | ✓ |
-| `POST /api/dispatches/:id/invoice` | | | | | ✓ |
+| `POST /api/dispatches/:id/delivery/confirm`, `/delivery/discrepancy` | | | | ✓ own | ✓ (confirm needs a proof note) |
+| `POST /api/dispatches/:id/delivery/verify` | | | | | ✓ |
+| `POST /api/dispatches/:id/invoice` (delivery VERIFIED only) | | | | | ✓ |
 | `GET /api/invoices`, `GET /api/invoices/:id` | | | | ✓ own | ✓ |
 | `GET /api/audit` | ✓ (inventory) | ✓ (production) | ✓ (QC) | ✓ own milestones | ✓ all |
 | `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
@@ -204,6 +206,10 @@ Notes:
 | `GET /api/sync/events` | ✓ own | ✓ own | ✓ own | ✓ own | ✓ all |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
+| `GET /api/workers`, `/workers/:id`, `GET /api/attendance`, `/attendance/register` | | ✓ (no money) | ✓ (no money) | | ✓ |
+| `POST /api/workers`, `PATCH /api/workers/:id` | | | | | ✓ |
+| `POST /api/attendance`, `PATCH /api/attendance/:id` (floor: last 7 days) | | ✓ | | | ✓ |
+| `GET /api/wages/summary` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -538,6 +544,29 @@ Stock grouped by material and colour across all lots. Query: `material`, `includ
   }
 }
 ```
+
+### Correcting a run completed by mistake — `POST /api/production-runs/:id/reopen` (FLOOR_MANAGER, ADMIN; Idempotency-Key)
+
+Body `{ reason }` (5-500 chars). Allowed only when the run is `COMPLETED` **and** produced less than its
+target, its order is still `IN_PRODUCTION` and short of its quantity, no other run already covers the gap
+(409 `QUANTITY_EXCEEDS_ORDER`, `GAP_ALREADY_PLANNED`), and its machine is `AVAILABLE` (else 409,
+`MACHINE_NOT_AVAILABLE`: plan a continuation run on another machine instead). Other refusals:
+`RUN_REACHED_TARGET`, `ORDER_NOT_IN_PRODUCTION`. The run goes back to `PAUSED` on the same machine
+(machine `PAUSED`); resume it and record the remaining rolls. History (`COMPLETED → PAUSED`, with the
+reason), rolls and stock are kept; audit `RUN_REOPENED` with before/after. Produced quantity is always
+the sum of the run's rolls: it is corrected by recording rolls, never edited directly.
+
+Output never exceeds the order: a roll is refused (409 `QUANTITY_EXCEEDS_ORDER`,
+`details.remainingMetres`) if good or pending output (all runs, rejected rolls excluded because they must
+be remade) plus the roll would exceed the ordered quantity.
+
+### Dispatch availability — `GET /api/finished-goods/availability[?orderId]` (staff)
+
+Per order: `inStock`, `reserved` (with the prepared dispatches holding it), `dispatched`, `awaitingQc`,
+`rejected`, `dispatchableMetres` (in-stock goods of a `READY_FOR_DISPATCH` order — the same condition
+`POST /api/dispatches` enforces) and, when nothing is dispatchable, `reason`
+(`NOT_READY` / `RESERVED_IN_PREPARED_DISPATCH` / `ALL_DISPATCHED` / `NO_STOCK`) with a `message` naming the
+next step. Without `orderId`: every ready order.
 
 ### `PATCH /api/yarn-lots/:id` — edit a lot's details (STORE_KEEPER, ADMIN)
 

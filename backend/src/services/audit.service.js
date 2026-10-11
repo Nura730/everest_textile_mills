@@ -11,16 +11,16 @@ import { runInTransaction } from '../utils/transaction.js';
  * Phase 13: the audit center. Every role reads the trail, but sees only what instruction.md §13 lets it:
  *   ADMIN         everything, with before/after and every filter;
  *   STORE_KEEPER  inventory, material movement, finished goods and dispatch;
- *   FLOOR_MANAGER machines, production, material issue/return, machine problems;
- *   QC_INSPECTOR  QC, rolls, production and machine history around rolls, order lifecycle;
+ *   FLOOR_MANAGER machines, production, material issue/return, machine problems, attendance and workers;
+ *   QC_INSPECTOR  QC, rolls, production and machine history around rolls, order lifecycle, attendance;
  *   BUYER         milestones of their own company's orders only, without internal details.
  * Money and cost fields are removed from before/after for everyone but the ADMIN.
  */
 
 const ROLE_ACTIONS = {
-  [ROLES.STORE_KEEPER]: [/^MATERIAL_/, /^STOCK_ADJUSTED$/, /^FINISHED_GOOD_/, /^DISPATCH_/, /^ORDER_READY_FOR_DISPATCH$/, /^ORDER_DISPATCHED$/],
-  [ROLES.FLOOR_MANAGER]: [/^MACHINE_/, /^RUN_/, /^ROLL_/, /^MATERIAL_ISSUED$/, /^MATERIAL_RETURNED$/, /^MATERIAL_RESERVED$/, /^QC_REWORK$/],
-  [ROLES.QC_INSPECTOR]: [/^QC_/, /^ROLL_/, /^RUN_/, /^MACHINE_PROBLEM_/, /^FINISHED_GOOD_CREATED$/, /^ORDER_/],
+  [ROLES.STORE_KEEPER]: [/^MATERIAL_/, /^STOCK_ADJUSTED$/, /^FINISHED_GOOD_/, /^DISPATCH_/, /^DELIVERY_/, /^ORDER_READY_FOR_DISPATCH$/, /^ORDER_DISPATCHED$/],
+  [ROLES.FLOOR_MANAGER]: [/^MACHINE_/, /^RUN_/, /^ROLL_/, /^MATERIAL_ISSUED$/, /^MATERIAL_RETURNED$/, /^MATERIAL_RESERVED$/, /^MATERIAL_RESERVED_ADDITIONAL$/, /^QC_REWORK$/, /^ATTENDANCE_/, /^WORKER_/],
+  [ROLES.QC_INSPECTOR]: [/^QC_/, /^ROLL_/, /^RUN_/, /^MACHINE_PROBLEM_/, /^FINISHED_GOOD_CREATED$/, /^ORDER_/, /^ATTENDANCE_/, /^WORKER_/],
 };
 
 /** Milestones a buyer may see on their own orders (no internal operations, no figures). */
@@ -37,6 +37,9 @@ export const BUYER_ACTIONS = new Set([
   'ORDER_READY_FOR_DISPATCH',
   'DISPATCH_CONFIRMED',
   'ORDER_DISPATCHED',
+  'DELIVERY_CONFIRMED',
+  'DELIVERY_DISCREPANCY_REPORTED',
+  'DELIVERY_VERIFIED',
   'INVOICE_ISSUED',
   'ORDER_INVOICED',
 ]);
@@ -55,6 +58,9 @@ const BUYER_LABELS = {
   ORDER_READY_FOR_DISPATCH: 'Ready for dispatch',
   DISPATCH_CONFIRMED: 'Dispatched',
   ORDER_DISPATCHED: 'Order fully dispatched',
+  DELIVERY_CONFIRMED: 'Delivery confirmed',
+  DELIVERY_DISCREPANCY_REPORTED: 'Problem with a delivery reported',
+  DELIVERY_VERIFIED: 'Delivery verified',
   INVOICE_ISSUED: 'Invoice issued',
   ORDER_INVOICED: 'Order invoiced',
 };

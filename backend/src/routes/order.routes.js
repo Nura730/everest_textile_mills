@@ -1,8 +1,11 @@
 import { Router } from "express";
+import { z } from "zod";
 import { ALL_ROLES, ROLES } from "../constants/roles.js";
 import * as orderController from "../controllers/order.controller.js";
 import { getTimeline } from "../services/portal.service.js";
-import { sendSuccess } from "../utils/apiResponse.js";
+import { reserveAdditional } from "../services/material.service.js";
+import { requestContext } from "../utils/requestContext.js";
+import { sendIdempotent, sendSuccess } from "../utils/apiResponse.js";
 import { authorize } from "../middleware/authorize.js";
 import { requireIdempotencyKey } from "../middleware/idempotencyKey.js";
 import { validate } from "../middleware/validate.js";
@@ -89,6 +92,14 @@ router.post(
   requireIdempotencyKey,
   validate({ params: orderIdParamsSchema, body: reserveOrderBodySchema }),
   orderController.reserveMaterial,
+);
+// More yarn for a continuation run or remakes (floor manager / admin; reason required; free stock only).
+router.post(
+  "/:id/reserve-additional",
+  authorize(...RESERVERS),
+  requireIdempotencyKey,
+  validate({ params: orderIdParamsSchema, body: z.strictObject({ quantityKg: z.number().positive().max(100_000).refine((v) => Math.round(v * 1000) === v * 1000, { error: "must have at most 3 decimal places" }), reason: z.string().trim().min(5).max(500) }) }),
+  async (req, res) => sendIdempotent(res, await reserveAdditional(req.validated.params.id, req.validated.body, requestContext(req))),
 );
 router.get(
   "/:id/reservations",

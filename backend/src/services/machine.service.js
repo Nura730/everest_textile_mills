@@ -192,15 +192,20 @@ export const startMaintenance = (id, { note }, context) =>
     return { body: { event: toPublicMachineEvent(event) } };
   });
 
-export const endMaintenance = (id, { note }, context) =>
-  machineAction({ id, operation: 'MACHINE_MAINTENANCE_END', request: { note }, context }, async (machine, session) => {
+/**
+ * Finish maintenance and record its cost once (on the MAINTENANCE_ENDED event, append-only). A retried
+ * request replays the stored result, so the cost is never recorded twice. Maintenance cost is a
+ * machine/factory expense: it is reported separately and never spread over orders (no allocation rule).
+ */
+export const endMaintenance = (id, { note, costPaise }, context) =>
+  machineAction({ id, operation: 'MACHINE_MAINTENANCE_END', request: { note, costPaise }, context }, async (machine, session) => {
     if (machine.status !== MACHINE_STATUS.MAINTENANCE) throw invalidTransition(machine, MACHINE_STATUS.AVAILABLE, [MACHINE_STATUS.MAINTENANCE]);
     await moveStatus(machine, MACHINE_STATUS.AVAILABLE, {}, session);
     const event = await appendMachineEvent(
-      { ...eventBase(machine, context), type: 'MAINTENANCE_ENDED', fromStatus: machine.status, toStatus: MACHINE_STATUS.AVAILABLE, note: note ?? null },
+      { ...eventBase(machine, context), type: 'MAINTENANCE_ENDED', fromStatus: machine.status, toStatus: MACHINE_STATUS.AVAILABLE, note: note ?? null, costPaise },
       session,
     );
-    await auditFor('MACHINE_MAINTENANCE_ENDED', machine, { before: { status: machine.status }, after: { status: MACHINE_STATUS.AVAILABLE, note: note ?? null } }, context, session);
+    await auditFor('MACHINE_MAINTENANCE_ENDED', machine, { before: { status: machine.status }, after: { status: MACHINE_STATUS.AVAILABLE, note: note ?? null, costPaise } }, context, session);
     return { body: { event: toPublicMachineEvent(event) } };
   });
 

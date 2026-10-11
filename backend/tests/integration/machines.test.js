@@ -107,14 +107,37 @@ describe('maintenance', () => {
     const start = await act(floor, `/api/machines/${loom.id}/maintenance/start`, { note: 'Monthly lubrication' });
     expect(start.status).toBe(200);
     expect(start.body.data.machine.status).toBe('MAINTENANCE');
-    expect((await act(floor, `/api/machines/${loom.id}/maintenance/end`)).body.data.machine.status).toBe('AVAILABLE');
+    expect((await act(floor, `/api/machines/${loom.id}/maintenance/end`, { costPaise: 0 })).body.data.machine.status).toBe('AVAILABLE');
     const events = (await get(qc, `/api/machines/${loom.id}/events`)).body.data.events.map((e) => [e.type, e.fromStatus, e.toStatus]);
     expect(events).toEqual([['MAINTENANCE_ENDED', 'MAINTENANCE', 'AVAILABLE'], ['MAINTENANCE_STARTED', 'AVAILABLE', 'MAINTENANCE']]);
     expect(await AuditLog.countDocuments({ action: { $in: ['MACHINE_MAINTENANCE_STARTED', 'MACHINE_MAINTENANCE_ENDED'] } })).toBe(2);
   });
 
+  it('finishing records the maintenance cost once: validated, retry-safe, reported as a machine expense', async () => {
+    await act(floor, `/api/machines/${loom.id}/maintenance/start`, { note: 'Bearing replacement' });
+    // the cost is required when finishing (0 allowed), whole paise, never negative
+    for (const body of [{}, { costPaise: -100 }, { costPaise: 12.5 }, { costPaise: '500' }]) {
+      expect((await act(floor, `/api/machines/${loom.id}/maintenance/end`, body)).status).toBe(400);
+    }
+    expect((await Machine.findById(loom.id).lean()).status).toBe('MAINTENANCE');
+    const key = newKey();
+    const done = await act(floor, `/api/machines/${loom.id}/maintenance/end`, { costPaise: 450_000, note: 'Two bearings and labour' }, key);
+    expect(done.status).toBe(200);
+    expect(done.body.data.event).toMatchObject({ type: 'MAINTENANCE_ENDED', costPaise: 450_000 });
+    const retry = await act(floor, `/api/machines/${loom.id}/maintenance/end`, { costPaise: 450_000, note: 'Two bearings and labour' }, key);
+    expect(retry.headers['idempotent-replayed']).toBe('true');
+    expect(await MachineEvent.countDocuments({ machineId: loom.id, type: 'MAINTENANCE_ENDED' })).toBe(1);
+    expect(await AuditLog.findOne({ action: 'MACHINE_MAINTENANCE_ENDED' }).lean()).toMatchObject({ after: { costPaise: 450_000 } });
+    // a second job at zero cost
+    await act(floor, `/api/machines/${loom.id}/maintenance/start`);
+    await act(floor, `/api/machines/${loom.id}/maintenance/end`, { costPaise: 0 });
+    const summary = (await get(admin, '/api/costing/summary')).body.data.factoryExpenses.maintenance;
+    expect(summary).toMatchObject({ totalPaise: 450_000, jobs: 2, byMachine: [{ code: loom.code, totalPaise: 450_000, jobs: 2 }] });
+    expect((await get(floor, '/api/costing/summary')).status).toBe(403);
+  });
+
   it('refuses invalid transitions with 409 and the allowed source states', async () => {
-    expect((await act(floor, `/api/machines/${loom.id}/maintenance/end`)).body.error).toMatchObject({ code: 'INVALID_STATE_TRANSITION', details: { from: 'AVAILABLE', to: 'AVAILABLE', allowedFrom: ['MAINTENANCE'] } });
+    expect((await act(floor, `/api/machines/${loom.id}/maintenance/end`, { costPaise: 0 })).body.error).toMatchObject({ code: 'INVALID_STATE_TRANSITION', details: { from: 'AVAILABLE', to: 'AVAILABLE', allowedFrom: ['MAINTENANCE'] } });
     for (const busy of ['RUNNING', 'ASSIGNED', 'DOWN']) {
       await Machine.updateOne({ _id: loom.id }, { $set: { status: busy } });
       expect((await act(floor, `/api/machines/${loom.id}/maintenance/start`)).body.error.code).toBe('INVALID_STATE_TRANSITION');

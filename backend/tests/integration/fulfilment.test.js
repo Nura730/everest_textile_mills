@@ -3,7 +3,7 @@ import { createApp } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { ROLES } from '../../src/constants/roles.js';
 import { AuditLog } from '../../src/models/AuditLog.js';
-import { FinishedGood } from '../../src/models/Fulfilment.js';
+import { FinishedGood, Invoice } from '../../src/models/Fulfilment.js';
 import { Machine } from '../../src/models/Machine.js';
 import { Order } from '../../src/models/Order.js';
 import { ProductionRun } from '../../src/models/ProductionRun.js';
@@ -187,12 +187,78 @@ describe('dispatch', () => {
     expect((await get(otherBuyer, '/api/dispatches')).body.meta.total).toBe(0);
   });
 
+  describe('delivery after dispatch', () => {
+    let dispatchId;
+    const deliver = (actor, action, body = {}, key) => post(actor, `/api/dispatches/${dispatchId}/delivery/${action}`, body, key);
+    beforeEach(async () => {
+      dispatchId = (await prepare([a, b])).body.data.dispatch.id;
+    });
+
+    it('nothing before the dispatch is confirmed; then IN_TRANSIT and no invoice until verified', async () => {
+      expect((await deliver(buyerUser, 'confirm')).body.error.code).toBe('INVALID_STATE_TRANSITION');
+      const confirmed = await post(store, `/api/dispatches/${dispatchId}/confirm`, { signature: SIGNED });
+      expect(confirmed.body.data.dispatch.delivery).toMatchObject({ status: 'IN_TRANSIT', delivered: null, verified: null });
+      const early = await post(admin, `/api/dispatches/${dispatchId}/invoice`);
+      expect(early.status).toBe(409);
+      expect(early.body.error).toMatchObject({ code: 'DELIVERY_NOT_VERIFIED', details: { deliveryStatus: 'IN_TRANSIT' } });
+      expect(await Invoice.countDocuments()).toBe(0);
+    });
+
+    it('buyer confirms (own dispatch only, once), admin verifies, invoice issued once: actors and times recorded', async () => {
+      await post(store, `/api/dispatches/${dispatchId}/confirm`, { signature: SIGNED });
+      expect((await deliver(otherBuyer, 'confirm')).status).toBe(404);
+      for (const actor of [store, qc]) expect((await deliver(actor, 'confirm')).status).toBe(403);
+      const key = newKey();
+      const done = await deliver(buyerUser, 'confirm', { note: 'All 2 rolls received in good order' }, key);
+      expect(done.body.data.dispatch.delivery).toMatchObject({ status: 'DELIVERED', delivered: { byRole: 'BUYER', note: 'All 2 rolls received in good order' }, confirmedOnBuyersBehalf: false });
+      expect((await deliver(buyerUser, 'confirm', { note: 'All 2 rolls received in good order' }, key)).headers['idempotent-replayed']).toBe('true');
+      expect((await deliver(buyerUser, 'confirm')).body.error.code).toBe('INVALID_STATE_TRANSITION'); // a second confirmation
+      expect((await post(admin, `/api/dispatches/${dispatchId}/invoice`)).body.error.details.deliveryStatus).toBe('DELIVERED');
+      expect((await deliver(buyerUser, 'verify')).status).toBe(403);
+      const verified = await deliver(admin, 'verify', { note: 'Checked against the signed delivery note' });
+      expect(verified.body.data.dispatch.delivery).toMatchObject({ status: 'VERIFIED', verified: { byRole: 'ADMIN' } });
+      expect((await post(admin, `/api/dispatches/${dispatchId}/invoice`)).status).toBe(201);
+      expect((await post(admin, `/api/dispatches/${dispatchId}/invoice`)).body.error.code).toBe('DUPLICATE_RESOURCE');
+      expect(await Invoice.countDocuments()).toBe(1);
+      expect(await AuditLog.countDocuments({ action: { $in: ['DELIVERY_CONFIRMED', 'DELIVERY_VERIFIED'] } })).toBe(2);
+      const buyerView = (await get(buyerUser, `/api/dispatches/${dispatchId}`)).body.data.dispatch.delivery;
+      expect(buyerView.delivered.at).toBeTruthy();
+      expect(buyerView.verified.at).toBeTruthy();
+    });
+
+    it('a discrepancy blocks the invoice until the admin resolves it with a note', async () => {
+      await post(store, `/api/dispatches/${dispatchId}/confirm`, { signature: SIGNED });
+      expect((await deliver(buyerUser, 'discrepancy', {})).status).toBe(400); // description required
+      const reported = await deliver(buyerUser, 'discrepancy', { note: 'Roll B arrived with a torn wrap' });
+      expect(reported.body.data.dispatch.delivery).toMatchObject({ status: 'DISCREPANCY', discrepancy: { byRole: 'BUYER', note: 'Roll B arrived with a torn wrap' } });
+      expect((await deliver(buyerUser, 'confirm')).body.error.code).toBe('INVALID_STATE_TRANSITION');
+      expect((await post(admin, `/api/dispatches/${dispatchId}/invoice`)).body.error.details.deliveryStatus).toBe('DISCREPANCY');
+      expect((await deliver(admin, 'verify', {})).body.error.code).toBe('VALIDATION_ERROR'); // resolution needed
+      expect((await deliver(admin, 'verify', { note: 'Wrap only; fabric inspected and accepted by buyer' })).body.data.dispatch.delivery.status).toBe('VERIFIED');
+      expect((await post(admin, `/api/dispatches/${dispatchId}/invoice`)).status).toBe(201);
+    });
+
+    it('the admin can confirm for the buyer only with a proof note, and it is marked as such', async () => {
+      await post(store, `/api/dispatches/${dispatchId}/confirm`, { signature: SIGNED });
+      expect((await deliver(admin, 'confirm', {})).body.error.code).toBe('VALIDATION_ERROR');
+      // the buyer is told; the timeline shows the consignment in transit
+      expect((await get(buyerUser, '/api/summary/attention')).body.data.alerts.map((x) => x.key)).toContain('buyer-confirm-delivery');
+      expect((await get(buyerUser, `/api/orders/${order._id}/timeline`)).body.data.timeline.deliveries).toEqual([expect.objectContaining({ status: 'IN_TRANSIT', metres: 5000, invoiced: false })]);
+      const done = await deliver(admin, 'confirm', { note: 'Delivery note signed by buyer stores, ref DN-551' });
+      expect((await get(admin, '/api/summary/attention')).body.data.alerts.map((x) => x.key)).toContain('delivery-to-verify');
+      expect(done.body.data.dispatch.delivery).toMatchObject({ status: 'DELIVERED', confirmedOnBuyersBehalf: true, delivered: { byRole: 'ADMIN' } });
+    });
+  });
+
   describe('invoice', () => {
     let dispatchId;
     beforeEach(async () => {
       const prepared = await prepare([a, b]);
       dispatchId = prepared.body.data.dispatch.id;
       await post(store, `/api/dispatches/${dispatchId}/confirm`, { signature: SIGNED });
+      // delivery: the buyer confirms receipt, the admin verifies; only then can it be invoiced
+      expect((await post(buyerUser, `/api/dispatches/${dispatchId}/delivery/confirm`, {})).status).toBe(200);
+      expect((await post(admin, `/api/dispatches/${dispatchId}/delivery/verify`, {})).status).toBe(200);
     });
 
     it('issues one invoice per dispatch at the order\'s price with 5% GST; the order becomes INVOICED', async () => {
