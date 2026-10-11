@@ -151,7 +151,7 @@ function RecordPaymentModal({ invoice, onClose, onDone }) {
             {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </Field>
-        <Field label="Reference (UTR / cheque no.)" htmlFor="pay-ref">
+        <Field label="Reference (UTR / cheque no.)" htmlFor="pay-ref" required>
           <input id="pay-ref" className="erp-input" maxLength={60} value={form.reference} onChange={set('reference')} disabled={busy} />
         </Field>
         <Field label="Note" htmlFor="pay-note">
