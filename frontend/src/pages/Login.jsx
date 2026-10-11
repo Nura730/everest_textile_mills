@@ -15,6 +15,9 @@ const DEMO_ACCOUNTS = [
   { label: 'Buyer', email: 'buyer@everest.local', role: 'BUYER' },
 ];
 
+// Always in local dev; in a deployed build only when VITE_SHOW_DEMO_ACCOUNTS=true (a demo database).
+const SHOW_DEMO_ACCOUNTS = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
+
 function loginErrorMessage(error) {
   switch (error.code) {
     case 'INVALID_CREDENTIALS':
@@ -192,14 +195,18 @@ export default function Login() {
         </form>
       </div>
 
-      {import.meta.env.DEV && (
-        <aside className="login-dev-shelf" aria-label="Development helpers">
+      {SHOW_DEMO_ACCOUNTS && (
+        <aside className="login-dev-shelf" aria-label="Demo accounts">
           <button
             type="button"
             className="login-dev-shelf-toggle"
             onClick={() => setShowDemoShelf((open) => !open)}
           >
-            {showDemoShelf ? 'Hide development accounts' : 'Development accounts (local builds only)'}
+            {showDemoShelf
+              ? 'Hide demo accounts'
+              : import.meta.env.DEV
+                ? 'Development accounts (local builds only)'
+                : 'Demo accounts'}
           </button>
           {showDemoShelf && (
             <div className="login-dev-pills">
