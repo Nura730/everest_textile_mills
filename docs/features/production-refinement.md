@@ -7,6 +7,8 @@
 | Edit yarn lot details (supplier, count, cost, lot no.; material/colour before use) | ✓ | ✓ | | | |
 | Stock adjustments (ledger, reason, audited) | ✓ | ✓ | | | |
 | Reserve yarn for a confirmed order | ✓ | | ✓ | | |
+| Reopen a run completed by mistake (narrow, audited) | ✓ | | ✓ | | |
+| Stock reconciliation (find discrepancies) | ✓ | ✓ | | | |
 | Issue / return physical yarn | ✓ | ✓ | | | |
 | Machines: maintenance, problems; production runs; rolls; rework done | ✓ | | ✓ | | |
 | QC decisions (pass/rework/reject), cryptographically signed | ✓ | | | ✓ | |
@@ -20,7 +22,9 @@ now record adjustments and edit lot details (that edit did not exist at all befo
 ## Signatures
 See [docs/SIGNATURES.md](../SIGNATURES.md). Every QC decision and every dispatch confirmation is signed on
 the server with the user's own RSA key (RSA-PSS/SHA-256), verified before commit, and verifiable later.
-The drawn signature is labelled "handwritten acknowledgment" and is optional.
+There is no drawing pad: the signed-in user confirms with one button ("Confirm pass and sign as <name>",
+"Confirm dispatch and sign as <name>"); the server then signs with that user's key. Signatures recorded
+earlier with a drawing still show it as a handwritten acknowledgment.
 
 The signing window shows the stages the server reports after it answers. Nothing is animated while the
 single request runs. On failure, the failed stage is marked and nothing is approved. A safe retry is
@@ -48,6 +52,22 @@ Unknown states are grey, never green.
   included.
 - Toasts: success only after the server confirmed (or "Saved offline — waiting to sync"). Errors stay
   until dismissed. Identical toasts are not stacked. A new high-priority alert warns once.
+
+## Floor map
+`/floor-map` (floor manager, admin) is the original Factory Floor Map design (`pages/Machines.jsx`,
+`components/FactorySection.jsx`): same header, KPI cards, filters, section panels, tiles and summary table.
+It is now fed by the real machine records (sections by machine type) and only the status colours changed:
+**green** running, **yellow** idle/available (available, assigned, paused), **orange** maintenance, **red**
+not working (down) or out of service (retired), with a legend. The demo data, "Telemetry Active" and
+"Simulated Feed" claims were removed; a tile opens the machine page. See `master-task.md`.
+
+## Production recovery and shortages
+- A run completed by mistake (below target, order still in production) can be **reopened** by the floor
+  manager with a reason, or the remaining quantity planned as a continuation run from the order page. The
+  run page explains both when a completed run ended short.
+- Yarn shortages (new or confirmed orders) are routed to the **store keeper** (alert, badge, dashboard),
+  who resolves them by receiving yarn or correcting stock (reconciliation and adjustments). The admin is
+  told the store keeper resolves it; the floor manager reserves once yarn is there.
 
 ## Wording
 Sample-data screens and the development account list appear only in development builds. "Live data"
