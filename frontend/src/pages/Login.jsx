@@ -199,7 +199,7 @@ export default function Login() {
             className="login-dev-shelf-toggle"
             onClick={() => setShowDemoShelf((open) => !open)}
           >
-            {showDemoShelf ? 'Hide demo accounts' : 'Demo accounts for testing'}
+            {showDemoShelf ? 'Hide development accounts' : 'Development accounts (local builds only)'}
           </button>
           {showDemoShelf && (
             <div className="login-dev-pills">

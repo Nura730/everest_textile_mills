@@ -59,6 +59,7 @@ describe('POST /api/yarn-lots — happy path', () => {
       receivedAt: expect.any(String),
       receivedBy: String(keeper._id),
       createdAt: expect.any(String),
+      updatedAt: expect.any(String),
     });
     expect((await YarnLot.findOne().lean()).totalGrams).toBe(1_250_125);
   });

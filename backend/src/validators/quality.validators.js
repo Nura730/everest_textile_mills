@@ -24,12 +24,18 @@ export const listRollsQuerySchema = z.object({
  * A drawn signature: the signer ticks the statement (accepted: true) and draws on the pad (a small PNG
  * data URL, at most ~60 kB so it fits the request limit).
  */
+/*
+ * The signer's explicit consent to the statement (required). The approval itself is signed
+ * cryptographically on the server with the signer's own key; `image` is an optional handwritten
+ * acknowledgment kept as visual evidence only.
+ */
 export const signatureInputSchema = z.strictObject({
   accepted: z.literal(true, { error: 'the statement must be accepted' }),
   image: z
     .string()
     .max(60_000, { error: 'signature image is too large' })
-    .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, { error: 'must be a PNG data URL from the signature pad' }),
+    .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, { error: 'must be a PNG data URL from the signature pad' })
+    .optional(),
 });
 
 export const inspectRollBodySchema = z.strictObject({

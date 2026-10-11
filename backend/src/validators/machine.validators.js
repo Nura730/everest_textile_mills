@@ -74,6 +74,13 @@ export const problemParamsSchema = z.object({ id: objectIdSchema, eventId: objec
 
 export const maintenanceBodySchema = z.strictObject({ note: z.string().trim().min(1).max(1000).optional() });
 
+// Finishing maintenance records what it cost (paise; 0 allowed when nothing was spent). It is not asked
+// at the start because it is usually known only when the work is done.
+export const endMaintenanceBodySchema = z.strictObject({
+  note: z.string().trim().min(1).max(1000).optional(),
+  costPaise: z.number({ error: 'is required (0 if nothing was spent)' }).int().min(0).max(1_000_000_000),
+});
+
 export const reportProblemBodySchema = z.strictObject({
   category: z.enum(PROBLEM_CATEGORIES),
   severity: z.enum(PROBLEM_SEVERITIES),

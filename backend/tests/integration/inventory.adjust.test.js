@@ -111,12 +111,15 @@ describe('POST /api/yarn-lots/:id/adjustments', () => {
     expect((await YarnLot.findById(lot.id).lean()).totalGrams).toBe(90_000);
   });
 
-  it('is ADMIN only (a store keeper cannot write off stock)', async () => {
+  it('the store keeper records adjustments through the ledger; the floor cannot', async () => {
     const keeper = await createTestUser({ role: ROLES.STORE_KEEPER });
     const res = await adjust(keeper, { deltaKg: -10, reason: 'Stock count correction' });
+    expect(res.status).toBe(201);
+    expect((await YarnLot.findById(lot.id).lean()).totalGrams).toBe(90_000);
 
-    expect(res.status).toBe(403);
-    expect((await YarnLot.findById(lot.id).lean()).totalGrams).toBe(100_000);
+    const floor = await createTestUser({ role: ROLES.FLOOR_MANAGER });
+    expect((await adjust(floor, { deltaKg: -10, reason: 'Stock count correction' })).status).toBe(403);
+    expect((await YarnLot.findById(lot.id).lean()).totalGrams).toBe(90_000);
   });
 
   it('returns 404 for an unknown lot', async () => {

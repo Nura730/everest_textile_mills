@@ -13,6 +13,9 @@ import { Order } from '../../src/models/Order.js';
 import { ProductionRun } from '../../src/models/ProductionRun.js';
 import { Roll } from '../../src/models/Roll.js';
 import { Dispatch, FinishedGood, Invoice } from '../../src/models/Fulfilment.js';
+import { Attendance } from '../../src/models/Attendance.js';
+import { Worker } from '../../src/models/Worker.js';
+import { todayInIndia } from '../../src/utils/dates.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -55,6 +58,11 @@ async function existingLot({ totalGrams = 100_000 } = {}) {
   });
 }
 const MATRIX_ACTOR = '64b7f0c2a1b2c3d4e5f60718';
+const WORKFORCE_READERS = [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN];
+async function newWorker() {
+  seq += 1;
+  return Worker.create({ code: `MXW-${seq}`, name: 'Matrix Worker', department: 'GENERAL', wageBasis: 'DAILY', ratePaise: 50_000, createdBy: MATRIX_ACTOR });
+}
 
 /** A MATERIAL_RESERVED order holding 850 kg in one lot (issuedGrams of it already on the floor). */
 async function reservedOrder({ issuedGrams = 0 } = {}) {
@@ -124,12 +132,12 @@ async function readyGood() {
   });
   return { order, fg };
 }
-async function dispatchIn(status) {
+async function dispatchIn(status, extra = {}) {
   const { order, fg } = await readyGood();
   seq += 1;
   const dispatch = await Dispatch.create({
     dispatchNumber: `DSP-MTX-${seq}`, orderId: order._id, orderNumber: order.orderNumber, buyerId: matrixBuyer._id, buyerName: matrixBuyer.name,
-    lines: [{ finishedGoodId: fg._id, rollNumber: fg.rollNumber, lengthCm: 10_000 }], totalLengthCm: 10_000, status, preparedBy: MATRIX_ACTOR,
+    lines: [{ finishedGoodId: fg._id, rollNumber: fg.rollNumber, lengthCm: 10_000 }], totalLengthCm: 10_000, status, preparedBy: MATRIX_ACTOR, ...extra,
   });
   await FinishedGood.updateOne({ _id: fg._id }, { $set: { status: status === 'CONFIRMED' ? 'DISPATCHED' : 'RESERVED_FOR_DISPATCH', dispatchId: dispatch._id } });
   return dispatch;
@@ -199,7 +207,7 @@ const MATRIX = [
   {
     name: 'POST /api/yarn-lots/:id/adjustments',
     method: 'post',
-    allowed: [ROLES.ADMIN],
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
     build: async () => ({
       path: `/api/yarn-lots/${(await existingLot())._id}/adjustments`,
       body: { deltaKg: 1, reason: 'Matrix recount' },
@@ -215,7 +223,7 @@ const MATRIX = [
   {
     name: 'GET /api/inventory/reconciliation',
     method: 'get',
-    allowed: [ROLES.ADMIN],
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
     build: async () => ({ path: '/api/inventory/reconciliation' }),
   },
   // ── Phase 5: buyers, catalog, orders ──
@@ -339,11 +347,20 @@ const MATRIX = [
       };
     },
   },
+  {
+    name: 'PATCH /api/yarn-lots/:id',
+    method: 'patch',
+    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    build: async () => {
+      const lot = await existingLot();
+      return { path: `/api/yarn-lots/${lot._id}`, body: { expectedUpdatedAt: lot.updatedAt.toISOString(), supplierName: 'Matrix Supplier Two' } };
+    },
+  },
   // ── Phase 4: material reservation ──
   {
     name: 'POST /api/orders/:id/reserve',
     method: 'post',
-    allowed: [ROLES.STORE_KEEPER, ROLES.ADMIN],
+    allowed: [ROLES.FLOOR_MANAGER, ROLES.ADMIN],
     build: async () => {
       await existingLot({ totalGrams: 1_000_000 });
       const order = await createTestOrder({ buyer: matrixBuyer, product: matrixProduct, createdBy: MATRIX_ACTOR, status: 'CONFIRMED' });
@@ -401,7 +418,7 @@ const MATRIX = [
     name: 'POST /api/machines/:id/maintenance/end',
     method: 'post',
     allowed: MACHINE_OPERATORS,
-    build: async () => ({ path: `/api/machines/${(await newMachine({ status: 'MAINTENANCE' }))._id}/maintenance/end`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+    build: async () => ({ path: `/api/machines/${(await newMachine({ status: 'MAINTENANCE' }))._id}/maintenance/end`, body: { costPaise: 0 }, headers: { 'Idempotency-Key': newKey() } }),
   },
   {
     name: 'POST /api/machines/:id/problems',
@@ -439,7 +456,7 @@ const MATRIX = [
     ['start', 'PLANNED', {}],
     ['pause', 'RUNNING', { reason: 'Matrix pause' }],
     ['resume', 'PAUSED', {}],
-    ['complete', 'RUNNING', {}, { rollCount: 1 }],
+    ['complete', 'RUNNING', { shortfallReason: 'Matrix: completed short' }, { rollCount: 1 }],
     ['cancel', 'PLANNED', { reason: 'Matrix cancel' }],
     ['rolls', 'RUNNING', { lengthMetres: 10 }],
   ].map(([action, status, body, opts]) => ({
@@ -500,7 +517,26 @@ const MATRIX = [
     name: 'POST /api/dispatches/:id/invoice',
     method: 'post',
     allowed: [ROLES.ADMIN],
-    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('CONFIRMED'))._id}/invoice`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('CONFIRMED', { deliveryStatus: 'VERIFIED' }))._id}/invoice`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  // Delivery after dispatch: the owning buyer or the admin confirms / reports; only the admin verifies.
+  {
+    name: 'POST /api/dispatches/:id/delivery/confirm',
+    method: 'post',
+    allowed: [ROLES.ADMIN, ROLES.BUYER],
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('CONFIRMED', { deliveryStatus: 'IN_TRANSIT' }))._id}/delivery/confirm`, body: { note: 'Signed delivery note received' }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/dispatches/:id/delivery/discrepancy',
+    method: 'post',
+    allowed: [ROLES.ADMIN, ROLES.BUYER],
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('CONFIRMED', { deliveryStatus: 'IN_TRANSIT' }))._id}/delivery/discrepancy`, body: { note: 'One roll short on arrival' }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/dispatches/:id/delivery/verify',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/dispatches/${(await dispatchIn('CONFIRMED', { deliveryStatus: 'DELIVERED' }))._id}/delivery/verify`, body: {}, headers: { 'Idempotency-Key': newKey() } }),
   },
   { name: 'GET /api/invoices', method: 'get', allowed: [ROLES.ADMIN, ROLES.BUYER], build: async () => ({ path: '/api/invoices' }) },
   {
@@ -518,6 +554,29 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/summary/fulfilment', method: 'get', allowed: ALL_STAFF, build: async () => ({ path: '/api/summary/fulfilment' }) },
+  { name: 'GET /api/finished-goods/availability', method: 'get', allowed: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN], build: async () => ({ path: '/api/finished-goods/availability' }) },
+  { name: 'GET /api/summary/attention', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/summary/attention' }) },
+  // ── Cryptographic signatures ──
+  { name: 'GET /api/signatures/keys/me', method: 'get', allowed: ALL_ROLES, build: async () => ({ path: '/api/signatures/keys/me' }) },
+  { name: 'GET /api/signatures/keys/:id', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/signatures/keys/${new mongoose.Types.ObjectId()}` }) },
+  {
+    name: 'POST /api/signatures/keys/:id/rotate',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/signatures/keys/${(await createTestUser({ role: ROLES.QC_INSPECTOR }))._id}/rotate`, body: {} }),
+  },
+  {
+    name: 'GET /api/signatures/:id/verify',
+    method: 'get',
+    allowed: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN],
+    build: async () => {
+      const { insertedId } = await mongoose.connection.collection('signatures').insertOne({
+        signerId: new mongoose.Types.ObjectId(), signerName: 'Matrix', signerRole: 'QC_INSPECTOR', entityType: 'QC_INSPECTION', entityId: new mongoose.Types.ObjectId(),
+        statement: 'Matrix statement', contentHash: 'x', signatureImage: null, signedAt: new Date(),
+      });
+      return { path: `/api/signatures/${insertedId}/verify` };
+    },
+  },
   // ── Phase 17: intelligence ──
   { name: 'GET /api/intelligence/overview', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: '/api/intelligence/overview' }) },
   { name: 'GET /api/intelligence/orders/:id', method: 'get', allowed: [ROLES.ADMIN, ROLES.FLOOR_MANAGER, ROLES.STORE_KEEPER], build: async () => ({ path: `/api/intelligence/orders/${(await newOrder())._id}` }) },
@@ -525,7 +584,7 @@ const MATRIX = [
   {
     name: 'POST /api/sync/events',
     method: 'post',
-    allowed: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN],
+    allowed: ALL_ROLES, // each event is checked against its own route's roles (sync.test.js)
     build: async () => ({
       path: '/api/sync/events',
       body: { deviceId: 'matrix-device-01', events: [{ eventId: randomUUID(), type: 'RUN_RESUME', payload: { runId: new mongoose.Types.ObjectId().toString() }, recordedAt: new Date().toISOString() }] },
@@ -600,6 +659,49 @@ const MATRIX = [
       headers: { 'Idempotency-Key': newKey() },
     }),
   },
+  // ── Workers, attendance and wages ──
+  { name: 'GET /api/workers', method: 'get', allowed: WORKFORCE_READERS, build: async () => ({ path: '/api/workers' }) },
+  { name: 'GET /api/workers/:id', method: 'get', allowed: WORKFORCE_READERS, build: async () => ({ path: `/api/workers/${(await newWorker())._id}` }) },
+  {
+    name: 'POST /api/workers',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      seq += 1;
+      return { path: '/api/workers', body: { code: `MX-${seq}`, name: 'Matrix Worker', department: 'GENERAL', wageBasis: 'DAILY', ratePaise: 50_000 } };
+    },
+  },
+  {
+    name: 'PATCH /api/workers/:id',
+    method: 'patch',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const worker = await newWorker();
+      return { path: `/api/workers/${worker._id}`, body: { name: 'Renamed Worker', expectedUpdatedAt: worker.updatedAt.toISOString() } };
+    },
+  },
+  { name: 'GET /api/attendance', method: 'get', allowed: WORKFORCE_READERS, build: async () => ({ path: '/api/attendance' }) },
+  { name: 'GET /api/attendance/register', method: 'get', allowed: WORKFORCE_READERS, build: async () => ({ path: `/api/attendance/register?date=${todayInIndia()}` }) },
+  {
+    name: 'POST /api/attendance',
+    method: 'post',
+    allowed: [ROLES.FLOOR_MANAGER, ROLES.ADMIN],
+    build: async () => ({ path: '/api/attendance', body: { workerId: String((await newWorker())._id), date: todayInIndia(), status: 'PRESENT' }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'PATCH /api/attendance/:id',
+    method: 'patch',
+    allowed: [ROLES.FLOOR_MANAGER, ROLES.ADMIN],
+    build: async () => {
+      const worker = await newWorker();
+      const entry = await Attendance.create({
+        workerId: worker._id, workerCode: worker.code, workerName: worker.name, department: worker.department, date: todayInIndia(), status: 'PRESENT',
+        wageBasis: 'DAILY', ratePaise: 50_000, halfDayFactorBp: 5000, wagePaise: 50_000, recordedBy: MATRIX_ACTOR, recordedByRole: 'ADMIN',
+      });
+      return { path: `/api/attendance/${entry._id}`, body: { status: 'HALF_DAY', reason: 'Matrix correction', expectedUpdatedAt: entry.updatedAt.toISOString() } };
+    },
+  },
+  { name: 'GET /api/wages/summary', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/wages/summary?from=${todayInIndia()}&to=${todayInIndia()}` }) },
 ];
 
 const actorFor = (role) => createTestUser({ role, ...(role === ROLES.BUYER ? { buyerId: matrixBuyer._id } : {}) });
@@ -622,6 +724,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await Promise.all([Worker.deleteMany({}), Attendance.deleteMany({})]);
   await Machine.deleteMany({});
   await MachineEvent.collection.deleteMany({});
   await User.deleteMany({});

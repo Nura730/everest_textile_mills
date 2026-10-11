@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { attentionFor } from '../services/attention.service.js';
 import { z } from 'zod';
-import { ROLES } from '../constants/roles.js';
+import { ALL_ROLES, ROLES } from '../constants/roles.js';
 import { DISPATCH_STATUS, FG_STATUS } from '../models/Fulfilment.js';
 import { authorize } from '../middleware/authorize.js';
 import { requireIdempotencyKey } from '../middleware/idempotencyKey.js';
@@ -33,6 +34,13 @@ finishedGoodRoutes.get(
     const { finishedGoods, meta } = await fulfilment.listFinishedGoods(req.validated.query);
     sendSuccess(res, { finishedGoods }, { meta });
   },
+);
+// What can be dispatched per order and why not (one rule for the Ready list and Prepare dispatch).
+finishedGoodRoutes.get(
+  '/availability',
+  staff,
+  validate({ query: z.object({ orderId: objectIdSchema.optional() }) }),
+  async (req, res) => sendSuccess(res, { orders: await fulfilment.dispatchAvailability(req.validated.query) }),
 );
 finishedGoodRoutes.patch(
   '/:id/location',
@@ -81,6 +89,30 @@ dispatchRoutes.post(
   validate({ params: idParams, body: z.strictObject({ reason: z.string().trim().min(5).max(500) }) }),
   async (req, res) => sendIdempotent(res, await fulfilment.cancelDispatch(req.validated.params.id, req.validated.body, requestContext(req))),
 );
+// Delivery after dispatch: the owning buyer (or the admin for them) confirms or reports a problem; the admin verifies.
+const deliveryParties = authorize(ROLES.BUYER, ROLES.ADMIN);
+const deliveryNote = (required) => z.strictObject({ note: required ? z.string().trim().min(5).max(1000) : z.string().trim().min(1).max(1000).optional() });
+dispatchRoutes.post(
+  '/:id/delivery/confirm',
+  deliveryParties,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: deliveryNote(false) }),
+  async (req, res) => sendIdempotent(res, await fulfilment.confirmDelivery(req.validated.params.id, req.validated.body, requestContext(req))),
+);
+dispatchRoutes.post(
+  '/:id/delivery/discrepancy',
+  deliveryParties,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: deliveryNote(true) }),
+  async (req, res) => sendIdempotent(res, await fulfilment.reportDiscrepancy(req.validated.params.id, req.validated.body, requestContext(req))),
+);
+dispatchRoutes.post(
+  '/:id/delivery/verify',
+  adminOnly,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: deliveryNote(false) }),
+  async (req, res) => sendIdempotent(res, await fulfilment.verifyDelivery(req.validated.params.id, req.validated.body, requestContext(req))),
+);
 dispatchRoutes.post(
   '/:id/invoice',
   adminOnly,
@@ -98,3 +130,5 @@ invoiceRoutes.get('/:id', invoiceViewers, validate({ params: idParams }), async 
 
 export const summaryRoutes = Router();
 summaryRoutes.get('/fulfilment', staff, async (req, res) => sendSuccess(res, await fulfilment.fulfilmentSummary()));
+// What needs the caller's attention (navigation badges, dashboard insights); scoped by role and buyer.
+summaryRoutes.get('/attention', authorize(...ALL_ROLES), async (req, res) => sendSuccess(res, await attentionFor(req.user)));

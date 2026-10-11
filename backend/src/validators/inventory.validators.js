@@ -3,7 +3,7 @@ import { INVENTORY_TRANSACTION_TYPES } from '../models/InventoryTransaction.js';
 import { YARN_MATERIALS } from '../models/YarnLot.js';
 import { normalizeCode, toTitleCase } from '../utils/normalize.js';
 import { hasAtMostDecimals } from '../utils/units.js';
-import { dateFilterSchema, objectIdSchema, refineDateRange } from './common.validators.js';
+import { expectedUpdatedAtSchema, dateFilterSchema, objectIdSchema, refineDateRange } from './common.validators.js';
 
 export const MAX_RECEIPT_KG = 100_000;
 // Allows a receipt timestamp from a device whose clock runs a little ahead.
@@ -25,6 +25,26 @@ const colourSchema = z
   .string()
   .transform(toTitleCase)
   .pipe(z.string().min(2).max(50).regex(/^[\p{L}][\p{L} -]*$/u, { error: 'must contain only letters, spaces and hyphens' }));
+
+/*
+ * Editing a lot's descriptive details (store keeper, admin). Quantities are NOT editable here: stock
+ * only changes through the ledger (receipt, adjustment, reservation, issue, return).
+ */
+export const updateLotBodySchema = z
+  .strictObject({
+    expectedUpdatedAt: expectedUpdatedAtSchema,
+    lotNumber: lotNumberSchema.optional(),
+    material: z.enum(YARN_MATERIALS).optional(),
+    colour: colourSchema.optional(),
+    yarnCount: z.string().trim().min(1).max(20).nullable().optional(),
+    supplierName: z.string().trim().min(2).max(120).optional(),
+    costPerKgPaise: z.number().int().min(0).max(100_000_000).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (['lotNumber', 'material', 'colour', 'yarnCount', 'supplierName', 'costPerKgPaise'].every((key) => value[key] === undefined)) {
+      ctx.addIssue({ code: 'custom', path: [], message: 'must include at least one field to change' });
+    }
+  });
 
 export const receiveLotBodySchema = z.strictObject({
   lotNumber: lotNumberSchema,

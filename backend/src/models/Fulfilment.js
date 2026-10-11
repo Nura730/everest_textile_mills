@@ -8,6 +8,19 @@ const integer = { validator: Number.isInteger, message: '{PATH} must be an integ
 export const FG_STATUS = Object.freeze({ IN_STOCK: 'IN_STOCK', RESERVED_FOR_DISPATCH: 'RESERVED_FOR_DISPATCH', DISPATCHED: 'DISPATCHED' });
 export const DISPATCH_STATUS = Object.freeze({ PREPARED: 'PREPARED', CONFIRMED: 'CONFIRMED', CANCELLED: 'CANCELLED' });
 
+/**
+ * Delivery of a CONFIRMED (dispatched) dispatch, kept apart from the dispatch status so each step stays
+ * distinct: dispatched (signed by the store) → IN_TRANSIT → DELIVERED (buyer confirmed receipt, or the
+ * admin on the buyer's behalf with proof) or DISCREPANCY (short, damaged, wrong goods) → VERIFIED (admin
+ * checked it) → invoice. A confirmed dispatch from before this existed has no value and counts as IN_TRANSIT.
+ */
+export const DELIVERY_STATUS = Object.freeze({ IN_TRANSIT: 'IN_TRANSIT', DELIVERED: 'DELIVERED', DISCREPANCY: 'DISCREPANCY', VERIFIED: 'VERIFIED' });
+
+const deliveryStep = new Schema(
+  { at: { type: Date, required: true }, by: { type: Schema.Types.ObjectId, ref: 'User', required: true }, byRole: { type: String, required: true }, note: { type: String, trim: true, maxlength: 1000, default: null } },
+  { _id: false },
+);
+
 // GST on woven cotton/synthetic fabric (HSN 5208–5407) is 5% (assumption, stated on every invoice).
 export const DEFAULT_TAX_RATE_BASIS_POINTS = 500;
 
@@ -83,11 +96,30 @@ const dispatchSchema = new Schema(
     signatureId: { type: Schema.Types.ObjectId, ref: 'Signature', default: null },
     cancelledReason: { type: String, default: null },
     invoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null },
+    deliveryStatus: { type: String, enum: [...Object.values(DELIVERY_STATUS), null], default: null },
+    deliveredStep: { type: deliveryStep, default: null }, // receipt confirmed (by the buyer, or admin on their behalf)
+    discrepancyStep: { type: deliveryStep, default: null }, // what was wrong (note = the description)
+    verifiedStep: { type: deliveryStep, default: null }, // admin verification (note = resolution when there was a discrepancy)
   },
   { timestamps: true },
 );
 dispatchSchema.index({ orderId: 1, createdAt: 1 });
 dispatchSchema.index({ status: 1, createdAt: -1 });
+
+const publicStep = (s) => (s ? { at: s.at, byRole: s.byRole, note: s.note ?? null } : null);
+
+/** Delivery state of a dispatch (null until it is confirmed; legacy confirmed dispatches read as IN_TRANSIT). */
+export function deliveryOf(d) {
+  if (d.status !== DISPATCH_STATUS.CONFIRMED) return null;
+  return {
+    status: d.deliveryStatus ?? DELIVERY_STATUS.IN_TRANSIT,
+    delivered: publicStep(d.deliveredStep),
+    discrepancy: publicStep(d.discrepancyStep),
+    verified: publicStep(d.verifiedStep),
+    // The confirmation was entered by the admin for the buyer (e.g. a signed delivery note), not by the buyer.
+    confirmedOnBuyersBehalf: d.deliveredStep ? d.deliveredStep.byRole !== 'BUYER' : false,
+  };
+}
 
 export function toPublicDispatch(d) {
   return {
@@ -106,6 +138,7 @@ export function toPublicDispatch(d) {
     signed: Boolean(d.signatureId),
     cancelledReason: d.cancelledReason ?? null,
     invoiceId: d.invoiceId ? String(d.invoiceId) : null,
+    delivery: deliveryOf(d),
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
   };

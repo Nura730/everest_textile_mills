@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Box, Building2, CheckCircle2, ClipboardList, Factory, FlaskConical, Plus, Shirt, Users as UsersIcon } from 'lucide-react';
-import { buyersApi, inventoryApi, machinesApi, ordersApi, productsApi, usersApi } from '../api/endpoints.js';
+import { buyersApi, inventoryApi, machinesApi, ordersApi, productsApi, rollsApi, usersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { PREVIEW_NAV, ROLES, ROLE_LABELS } from '../auth/roles.js';
+import { PREVIEW_NAV, ROLES, ROLE_LABELS, SHOW_SAMPLE_SCREENS } from '../auth/roles.js';
+import { OperationalInsights } from '../attention/OperationalInsights.jsx';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge } from '../components/ui/OrderStatus.jsx';
 import { isOpenOrder } from '../utils/orderStatus.js';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
+import { StatusBadge } from '../components/ui/StatusBadge.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
 import { daysUntil, formatDate, formatNumber, formatPaise } from '../utils/format.js';
@@ -127,11 +129,11 @@ function YarnDemand({ summary, openOrders }) {
                 <td className="num">{row.orders ? `${formatNumber(row.neededKg, 'kg')} (${row.orders} order${row.orders > 1 ? 's' : ''})` : '—'}</td>
                 <td>
                   {row.orders === 0 ? (
-                    <span className="erp-status-badge neutral">No demand</span>
+                    <StatusBadge tone="neutral" label="No demand" />
                   ) : gap >= 0 ? (
-                    <span className="erp-status-badge active">Covered</span>
+                    <StatusBadge tone="success" label="Covered" />
                   ) : (
-                    <span className="deadline-chip overdue">Short by {formatNumber(-gap, 'kg')}</span>
+                    <StatusBadge tone="danger" label={`Short by ${formatNumber(-gap, 'kg')}`} />
                   )}
                 </td>
               </tr>
@@ -140,16 +142,17 @@ function YarnDemand({ summary, openOrders }) {
         </tbody>
       </table>
       <p className="card-footnote">
-        Indicative: compares total open-order demand with unreserved stock. Yarn is reserved per order once
-        material reservation (next phase) is live.
+        Indicative: compares open-order demand (new and confirmed orders) with unreserved stock. Yarn is
+        reserved per order by the floor manager once the order is confirmed.
       </p>
     </>
   );
 }
 
 function ModuleStatus({ role }) {
+  // A development aid only: production builds have no sample screens to point to.
   const previews = PREVIEW_NAV.filter((item) => item.roles.includes(role));
-  if (previews.length === 0) return null;
+  if (!SHOW_SAMPLE_SCREENS || previews.length === 0) return null;
   return (
     <div className="erp-card">
       <h3 className="card-title">What is live</h3>
@@ -161,7 +164,7 @@ function ModuleStatus({ role }) {
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn reservation, issue to production and returns</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Machines: registry, maintenance, problems and downtime</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Production runs and roll output</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Roll traceability and quality control (signed passes)</li>
+        <li><CheckCircle2 size={14} aria-hidden="true" /> Roll traceability and quality control (cryptographically signed decisions)</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Finished goods, signed dispatch and invoices</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Audit trail by role and buyer order timeline</li>
         <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
@@ -296,7 +299,7 @@ function StoreDashboard() {
     lots: () => inventoryApi.lots({ limit: 1 }),
     open: loadPipelineOrders,
   });
-  // The store's to-do list: confirmed orders whose yarn still has to be reserved.
+  // The store's to-do list: yarn shortages to resolve (receive stock) and reserved yarn to issue to the floor.
   if (dash.error) return <ErrorState error={dash.error} onRetry={dash.reload} />;
   if (!dash.data) return <LoadingState label="Loading stock…" />;
   const d = dash.data;
@@ -311,15 +314,7 @@ function StoreDashboard() {
         <Kpi label="Lots in stock" value={d.lots.meta.total} icon={Box} to="/inventory" />
         <Kpi label="Open orders" value={d.open.data.orders.length} sub="New or confirmed: will need yarn" icon={ClipboardList} to="/orders" />
       </div>
-      <Section title="Waiting for yarn reservation" subtitle="Confirmed orders, earliest deadline first. Open one to reserve its yarn.">
-        <OpenOrdersTable
-          orders={d.open.data.orders.filter((order) => order.status === 'CONFIRMED').sort(byDeadline)}
-          showBuyer
-          showYarn
-          emptyText="No confirmed orders are waiting for yarn."
-        />
-      </Section>
-      <Section title="Yarn demand vs stock" subtitle="Plan purchases before shortages hit the floor." action={<Link className="erp-btn-primary" to="/inventory">Receive yarn</Link>}>
+      <Section title="Yarn demand vs stock" subtitle="Shortages are yours to resolve: receive the missing yarn so orders can be confirmed and reserved." action={<Link className="erp-btn-primary" to="/inventory">Receive yarn</Link>}>
         <YarnDemand summary={summary} openOrders={d.open.data.orders} />
       </Section>
     </>
@@ -355,7 +350,10 @@ function FloorDashboard() {
           to="/machines"
         />
       </div>
-      <Section title="Upcoming work, by deadline" subtitle="Production runs are assigned to machines once the production module is live (preview: Production).">
+      <Section title="Waiting for yarn reservation" subtitle="Confirmed orders, earliest deadline first. Open one to reserve its yarn for production.">
+        <OpenOrdersTable orders={pending.filter((order) => order.status === 'CONFIRMED').sort(byDeadline)} showBuyer showYarn emptyText="No confirmed orders are waiting for a reservation." />
+      </Section>
+      <Section title="Upcoming work, by deadline" subtitle="Plan runs on available machines from each order's page.">
         <OpenOrdersTable orders={open} showBuyer showYarn emptyText="No orders in the pipeline." />
       </Section>
       <Section title="Yarn on hand">
@@ -367,14 +365,31 @@ function FloorDashboard() {
 
 function QcDashboard() {
   const open = useApiQuery(loadPipelineOrders, []);
+  // Real rolls waiting for inspection (this used to be a fixed "none" message).
+  const pending = useApiQuery(() => rollsApi.list({ status: 'QC_PENDING', limit: 10 }), []);
+  const rolls = pending.data?.rolls ?? [];
   return (
     <>
-      <Section title="Pending inspections" subtitle="Rolls reach QC after production.">
-        <EmptyState title="No rolls awaiting inspection">
-          Inspections start when production records rolls. The QC module is a planned phase; its screen is
-          available as a preview with sample data.
-        </EmptyState>
-        <div className="center"><Link to="/quality" className="erp-btn-outline">Open QC preview</Link></div>
+      <Section title="Pending inspections" subtitle="Rolls reach QC after production; oldest first." action={<Link to="/quality" className="erp-btn-primary">Open quality control</Link>}>
+        {pending.error && <ErrorState error={pending.error} onRetry={pending.reload} />}
+        {!pending.error && !pending.data && <LoadingState />}
+        {pending.data && rolls.length === 0 && <EmptyState title="No rolls awaiting inspection">New rolls appear here as the floor records them.</EmptyState>}
+        {rolls.length > 0 && (
+          <table className="erp-data-table">
+            <thead><tr><th scope="col">Roll</th><th scope="col">Order</th><th scope="col">Machine</th><th scope="col" className="num">Length</th></tr></thead>
+            <tbody>
+              {rolls.map((r) => (
+                <tr key={r.id}>
+                  <td className="mono"><Link to={`/rolls/${r.id}`}>{r.rollNumber}</Link></td>
+                  <td>{r.orderNumber}</td>
+                  <td>{r.machineCode}</td>
+                  <td className="num">{formatNumber(r.lengthMetres, 'm')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {pending.meta?.total > rolls.length && <p className="card-footnote">{pending.meta.total - rolls.length} more in Quality control.</p>}
       </Section>
       <Section title="Orders coming through the pipeline" subtitle="So you can plan inspection capacity.">
         {open.error && <ErrorState error={open.error} onRetry={open.reload} />}
@@ -386,7 +401,7 @@ function QcDashboard() {
 }
 
 const DASHBOARDS = {
-  [ROLES.ADMIN]: { component: AdminDashboard, subtitle: 'Factory-wide overview from live data.' },
+  [ROLES.ADMIN]: { component: AdminDashboard, subtitle: 'Factory-wide overview.' },
   [ROLES.BUYER]: { component: BuyerDashboard, subtitle: 'Your company’s orders and where each one stands.' },
   [ROLES.STORE_KEEPER]: { component: StoreDashboard, subtitle: 'Yarn stock and what open orders will need.' },
   [ROLES.FLOOR_MANAGER]: { component: FloorDashboard, subtitle: 'The work queue for the production floor.' },
@@ -400,6 +415,7 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title={`Welcome, ${user.name.split(' ')[0]}`} subtitle={`${ROLE_LABELS[user.role]} · ${config.subtitle}`} />
+      <OperationalInsights />
       <Board />
     </div>
   );

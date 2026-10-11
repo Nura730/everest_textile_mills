@@ -43,7 +43,7 @@ async function reservedOrder({ issueKg = 850, quantityCm = 500_000, requiredYarn
   });
   await InventoryTransaction.create({ type: 'RECEIPT', yarnLotId: lot._id, deltaTotalGrams: 2_000_000, deltaReservedGrams: 0, actorId: admin._id });
   const created = await createTestOrder({ buyer: buyerCo, product, createdBy: admin._id, status: 'CONFIRMED', quantityCm, requiredYarnGrams });
-  expect((await post(store, `/api/orders/${created._id}/reserve`)).status).toBe(200);
+  expect((await post(floor, `/api/orders/${created._id}/reserve`)).status).toBe(200);
   if (issueKg) expect((await post(store, `/api/orders/${created._id}/issue`, { quantityKg: issueKg })).status).toBe(200);
   return created;
 }
@@ -239,11 +239,24 @@ describe('output and completion', () => {
 
   it('a short run leaves the order IN_PRODUCTION; the next run completes it', async () => {
     await roll(run, 3000);
-    expect((await runAct(run, 'complete')).body.data.order.status).toBe('IN_PRODUCTION');
+    expect((await runAct(run, 'complete', { shortfallReason: 'Split the order across two looms' })).body.data.order.status).toBe('IN_PRODUCTION');
     const second = (await plan({ machineId: String(loom2._id), targetMetres: 2000 })).body.data.run;
     await runAct(second, 'start');
     await roll(second, 2000);
     expect((await runAct(second, 'complete')).body.data.order.status).toBe('PRODUCTION_COMPLETED');
+  });
+
+  it('completing below target needs a shortfall reason, which is recorded in history and audit', async () => {
+    await roll(run, 400);
+    const plain = await runAct(run, 'complete');
+    expect(plain.status).toBe(400);
+    expect(plain.body.error).toMatchObject({ code: 'SHORTFALL_REASON_REQUIRED', details: { producedMetres: 400, targetMetres: 5000, shortMetres: 4600 } });
+    expect((await ProductionRun.findById(run.id).lean()).status).toBe('RUNNING');
+    const done = await runAct(run, 'complete', { shortfallReason: 'Loom needed for an urgent order' });
+    expect(done.body.data.run.status).toBe('COMPLETED');
+    const history = (await ProductionRun.findById(run.id).lean()).statusHistory.at(-1);
+    expect(history.reason).toBe('Completed short by 4600 m: Loom needed for an urgent order');
+    expect(await AuditLog.findOne({ action: 'RUN_COMPLETED' }).lean()).toMatchObject({ after: { shortfallCm: 460_000, shortfallReason: 'Loom needed for an urgent order' } });
   });
 
   it('a running run cannot be cancelled; an IN_PRODUCTION order cannot be cancelled', async () => {

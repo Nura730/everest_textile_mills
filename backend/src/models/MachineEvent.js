@@ -30,6 +30,8 @@ const machineEventSchema = new Schema(
     problem: { type: problemSchema, default: null },
     resolvesEventId: { type: Schema.Types.ObjectId, ref: 'MachineEvent', default: null },
     note: { type: String, trim: true, maxlength: 1000, default: null },
+    // MAINTENANCE_ENDED only: what the maintenance cost (integer paise), recorded once when it finishes.
+    costPaise: { type: Number, min: 0, default: null, validate: { validator: (v) => v === null || Number.isInteger(v), message: 'costPaise must be an integer' } },
     actorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     actorRole: { type: String, required: true },
     occurredAt: { type: Date, default: () => new Date() },
@@ -65,6 +67,7 @@ export function toPublicMachineEvent(event, { resolvedBy } = {}) {
       : null,
     resolvesEventId: event.resolvesEventId ? String(event.resolvesEventId) : null,
     note: event.note ?? null,
+    costPaise: event.costPaise ?? null,
     actorId: String(event.actorId),
     actorRole: event.actorRole,
     occurredAt: event.occurredAt,

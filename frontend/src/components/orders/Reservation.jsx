@@ -26,8 +26,8 @@ function fifoPlan(lots, requiredGrams) {
 const STATUS_LABELS = { ACTIVE: 'Reserved', PARTIALLY_ISSUED: 'Partly issued', FULLY_ISSUED: 'Issued', RELEASED: 'Released' };
 
 /**
- * Reserve a confirmed order's yarn (store keeper / admin). "Oldest first" lets the server pick lots
- * FIFO; "Choose lots" sends the store keeper's own amounts, which must add up to the requirement.
+ * Reserve a confirmed order's yarn (floor manager / admin). "Oldest first" lets the server pick lots
+ * FIFO; "Choose lots" sends the planner's own amounts, which must add up to the requirement.
  * Either way the server re-checks availability inside the transaction.
  */
 export function ReserveModal({ order, onClose, onDone }) {
@@ -241,12 +241,72 @@ function MoveYarnModal({ order, kind, maxKg, onClose, onDone }) {
 }
 
 /** Where this order's yarn is: per lot, reserved / issued / on the floor / released. */
-export function ReservationPanel({ order, canMove, onChanged }) {
+/**
+ * Reserve more yarn for an order in production (continuation run, remakes). Free stock only, oldest
+ * lots first; the server refuses with the exact shortfall when the store does not have it.
+ */
+function TopUpModal({ order, onClose, onDone }) {
+  const toast = useToast();
+  const [qty, setQty] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const touch = () => { setError(null); setKey(newIdempotencyKey()); };
+
+  async function submit(event) {
+    event.preventDefault();
+    if (busy) return;
+    const kg = Number(qty);
+    if (!(kg > 0) || !/^\d+(\.\d{1,3})?$/.test(qty.trim())) return setError('Enter kilograms above 0, at most 3 decimals.');
+    if (reason.trim().length < 5) return setError('Give the reason (at least 5 characters), e.g. "Continuation run for the last 100 m".');
+    setBusy(true);
+    try {
+      const { data } = await ordersApi.reserveAdditional(order.id, { quantityKg: kg, reason: reason.trim() }, key);
+      toast.success(`${formatNumber(kg, 'kg')} more reserved from ${data.reservations.map((r) => r.lotNumber).join(', ')}. The store can issue it to the floor.`, { title: 'Yarn reserved' });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Reserve more yarn for ${order.orderNumber}`}
+      subtitle="For a continuation run or to remake rejected rolls. Only free stock is used (never yarn reserved for other orders)."
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="topup-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Reserving…' : 'Reserve'}</button>
+        </>
+      }
+    >
+      <form id="topup-form" className="erp-form-grid" onSubmit={submit} noValidate>
+        <Field label="Quantity (kg)" htmlFor="topup-qty" required>
+          <input id="topup-qty" className="erp-input" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); touch(); }} disabled={busy} />
+        </Field>
+        <Field label="Reason" htmlFor="topup-reason" required>
+          <input id="topup-reason" className="erp-input" maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); touch(); }} disabled={busy} placeholder="Continuation run for the last 100 m" />
+        </Field>
+        {error && <p className="login-field-error" role="alert">{error}</p>}
+      </form>
+    </Modal>
+  );
+}
+
+export function ReservationPanel({ order, canMove, canTopUp, onChanged }) {
   const data = useApiQuery(() => ordersApi.reservations(order.id), [order.id, order.updatedAt]);
-  const [moving, setMoving] = useState(null); // 'issue' | 'return'
+  const [moving, setMoving] = useState(null); // 'issue' | 'return' | 'topup'
   const reservations = data.data?.reservations ?? [];
   const totals = data.data?.totals;
-  const canIssue = canMove && order.status === 'MATERIAL_RESERVED' && totals?.openKg > 0;
+  const inPlay = ['MATERIAL_RESERVED', 'IN_PRODUCTION'].includes(order.status);
+  // Reserved yarn can be issued while the order is reserved or already in production (e.g. a top-up).
+  const canIssue = canMove && inPlay && totals?.openKg > 0;
+  const canReserveMore = canTopUp && inPlay;
   const canReturn = canMove && totals?.onFloorKg > 0;
 
   if (data.error) return <div className="erp-card section-gap"><ErrorState error={data.error} onRetry={data.reload} /></div>;
@@ -262,6 +322,7 @@ export function ReservationPanel({ order, canMove, onChanged }) {
         <div className="row-actions">
           {canIssue && <button type="button" className="erp-btn-primary" onClick={() => setMoving('issue')}>Issue to production</button>}
           {canReturn && <button type="button" className="erp-btn-outline" onClick={() => setMoving('return')}>Return to store</button>}
+          {canReserveMore && <button type="button" className="erp-btn-outline" onClick={() => setMoving('topup')}>Reserve more yarn</button>}
         </div>
       </div>
       <table className="erp-data-table">
@@ -300,7 +361,18 @@ export function ReservationPanel({ order, canMove, onChanged }) {
           </tr>
         </tfoot>
       </table>
-      {moving && (
+      {moving === 'topup' && (
+        <TopUpModal
+          order={order}
+          onClose={() => setMoving(null)}
+          onDone={() => {
+            setMoving(null);
+            data.reload();
+            onChanged?.();
+          }}
+        />
+      )}
+      {moving && moving !== 'topup' && (
         <MoveYarnModal
           order={order}
           kind={moving}

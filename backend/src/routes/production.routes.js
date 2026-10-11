@@ -30,6 +30,8 @@ router.post('/:id/pause', floor, requireIdempotencyKey, validate({ ...byId, body
 router.post('/:id/resume', floor, requireIdempotencyKey, validate({ ...byId, body: emptyBodySchema }), productionController.resumeRun);
 router.post('/:id/complete', floor, requireIdempotencyKey, validate({ ...byId, body: completeRunBodySchema }), productionController.completeRun);
 router.post('/:id/cancel', floor, requireIdempotencyKey, validate({ ...byId, body: reasonBodySchema }), productionController.cancelRun);
+// Correct a run completed by mistake (explicit, narrow, audited; see production.service reopenRun).
+router.post('/:id/reopen', floor, requireIdempotencyKey, validate({ ...byId, body: reasonBodySchema }), productionController.reopenRun);
 router.post('/:id/rolls', floor, requireIdempotencyKey, validate({ ...byId, body: recordRollBodySchema }), productionController.recordRoll);
 
 export default router;

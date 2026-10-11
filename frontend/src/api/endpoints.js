@@ -38,6 +38,8 @@ export const productsApi = {
 export const ordersApi = {
   list: (query) => apiRequest("/orders", { query }),
   get: (id) => apiRequest(`/orders/${id}`),
+  // Buyer-facing order timeline (GET /api/orders/:id/timeline; owning buyer or staff).
+  timeline: (id) => apiRequest(`/orders/${id}/timeline`),
   feasibility: (id) => apiRequest(`/orders/${id}/feasibility`),
   create: (body, idempotencyKey) =>
     apiRequest("/orders", { method: "POST", body, idempotencyKey }),
@@ -47,6 +49,9 @@ export const ordersApi = {
   reserve: (id, body, idempotencyKey) =>
     apiRequest(`/orders/${id}/reserve`, { method: "POST", body, idempotencyKey }),
   reservations: (id) => apiRequest(`/orders/${id}/reservations`),
+  // More yarn for a continuation run or remakes (floor manager / admin; reason required).
+  reserveAdditional: (id, body, idempotencyKey) =>
+    apiRequest(`/orders/${id}/reserve-additional`, { method: "POST", body, idempotencyKey }),
   issue: (id, quantityKg, idempotencyKey) =>
     apiRequest(`/orders/${id}/issue`, { method: "POST", body: { quantityKg }, idempotencyKey }),
   returnYarn: (id, body, idempotencyKey) =>
@@ -141,6 +146,8 @@ export const qcApi = {
 // Phases 11-12: finished goods, dispatch and invoices.
 export const fulfilmentApi = {
   finishedGoods: (query) => apiRequest("/finished-goods", { query }),
+  // What can be dispatched per order, and why not (one rule for the Ready list and Prepare dispatch).
+  availability: (orderId) => apiRequest("/finished-goods/availability", { query: orderId ? { orderId } : {} }),
   moveGood: (id, location, idempotencyKey) =>
     apiRequest(`/finished-goods/${id}/location`, { method: "PATCH", body: { location }, idempotencyKey }),
   dispatches: (query) => apiRequest("/dispatches", { query }),
@@ -149,9 +156,25 @@ export const fulfilmentApi = {
   confirm: (id, body, idempotencyKey) => apiRequest(`/dispatches/${id}/confirm`, { method: "POST", body, idempotencyKey }),
   cancel: (id, reason, idempotencyKey) => apiRequest(`/dispatches/${id}/cancel`, { method: "POST", body: { reason }, idempotencyKey }),
   invoice: (id, idempotencyKey) => apiRequest(`/dispatches/${id}/invoice`, { method: "POST", body: {}, idempotencyKey }),
+  // Delivery after dispatch: buyer (or admin for them) confirms / reports a problem; admin verifies.
+  delivery: (id, action, body, idempotencyKey) =>
+    apiRequest(`/dispatches/${id}/delivery/${action}`, { method: "POST", body, idempotencyKey }),
   invoices: (query) => apiRequest("/invoices", { query }),
   getInvoice: (id) => apiRequest(`/invoices/${id}`),
   summary: () => apiRequest("/summary/fulfilment"),
+};
+
+// Workers, attendance register and wages (wages and rates: admin only; the server decides).
+export const workforceApi = {
+  workers: (query) => apiRequest("/workers", { query }),
+  worker: (id) => apiRequest(`/workers/${id}`),
+  createWorker: (body) => apiRequest("/workers", { method: "POST", body }),
+  updateWorker: (id, body) => apiRequest(`/workers/${id}`, { method: "PATCH", body }),
+  attendance: (query) => apiRequest("/attendance", { query }),
+  register: (query) => apiRequest("/attendance/register", { query }),
+  record: (body, idempotencyKey) => apiRequest("/attendance", { method: "POST", body, idempotencyKey }),
+  correct: (id, body) => apiRequest(`/attendance/${id}`, { method: "PATCH", body }),
+  wageSummary: (query) => apiRequest("/wages/summary", { query }),
 };
 
 // Phase 13: audit center.
@@ -174,4 +197,20 @@ export const costingApi = {
 export const intelligenceApi = {
   overview: () => apiRequest("/intelligence/overview"),
   order: (id) => apiRequest(`/intelligence/orders/${id}`),
+};
+
+// Cryptographic signatures: independent verification and public key information.
+export const signaturesApi = {
+  verify: (id) => apiRequest(`/signatures/${id}/verify`),
+  myKey: () => apiRequest("/signatures/keys/me"),
+};
+
+// What needs the signed-in user's attention (badges, dashboard insights).
+export const attentionApi = {
+  get: () => apiRequest("/summary/attention"),
+};
+
+// Editing a yarn lot's descriptive details (store keeper, admin).
+export const yarnLotsApi = {
+  update: (id, body) => apiRequest(`/yarn-lots/${id}`, { method: "PATCH", body }),
 };

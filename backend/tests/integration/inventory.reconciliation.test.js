@@ -93,8 +93,10 @@ describe('GET /api/inventory/reconciliation', () => {
     expect(mismatch).toMatchObject({ lotId: String(orphanLotId), lotNumber: null, issues: ['LEDGER_WITHOUT_LOT'] });
   });
 
-  it('is ADMIN only', async () => {
+  it('the store keeper (who corrects stock) and the admin can run it; the floor cannot', async () => {
     const keeper = await createTestUser({ role: ROLES.STORE_KEEPER });
-    expect((await report(keeper)).status).toBe(403);
+    expect((await report(keeper)).status).toBe(200);
+    const floor = await createTestUser({ role: ROLES.FLOOR_MANAGER });
+    expect((await report(floor)).status).toBe(403);
   });
 });

@@ -6,6 +6,7 @@ import { seedDevCatalog } from '../src/scripts/seedDevCatalog.js';
 import { seedDevDemo } from '../src/scripts/seedDevDemo.js';
 import { seedDevMachines } from '../src/scripts/seedDevMachines.js';
 import { seedDevUsers, seedEnvSchema } from '../src/scripts/seedDevUsers.js';
+import { seedDevWorkforce } from '../src/scripts/seedDevWorkforce.js';
 
 async function main() {
   const config = getConfig(); // also loads backend/.env
@@ -35,6 +36,9 @@ async function main() {
     const machines = await seedDevMachines({ nodeEnv: config.nodeEnv });
     console.log('Dev machines:');
     console.table(machines);
+    const workforce = await seedDevWorkforce({ nodeEnv: config.nodeEnv });
+    console.log('Workers and attendance (wages computed by the server):');
+    console.table(workforce);
     return 0;
   } finally {
     await disconnectDatabase();

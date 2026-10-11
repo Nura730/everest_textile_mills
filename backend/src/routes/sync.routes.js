@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ALL_ROLES, ROLES } from '../constants/roles.js';
+import { ALL_ROLES } from '../constants/roles.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
 import { SYNC_OUTCOME } from '../models/SyncEvent.js';
 import { listSyncEvents, SYNC_EVENT_TYPES, syncEvents } from '../services/sync.service.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 
-// Mounted at /api/sync. Offline replay is for the floor and QC roles (and the owner); each event is
-// also checked against its own action's roles in the service.
+// Mounted at /api/sync. Every role may replay its own offline actions; each event is checked against
+// the roles of its own online route in the service (e.g. only buyers and the admin place orders).
 const router = Router();
 const deviceId = z.string().trim().regex(/^[A-Za-z0-9_-]{8,100}$/, { error: 'must be a device id' });
 
@@ -28,7 +28,7 @@ const syncBody = z.strictObject({
     .refine((events) => new Set(events.map((e) => e.eventId)).size === events.length, { error: 'eventIds must be unique within a batch' }),
 });
 
-router.post('/events', authorize(ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN), validate({ body: syncBody }), async (req, res) => {
+router.post('/events', authorize(...ALL_ROLES), validate({ body: syncBody }), async (req, res) => {
   sendSuccess(res, await syncEvents(req.validated.body, { actor: req.user, requestId: req.id ?? null }));
 });
 

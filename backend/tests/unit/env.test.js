@@ -109,11 +109,28 @@ describe('parseEnv: auth settings', () => {
     expect(() => parseEnv({ ...BASE, BCRYPT_ROUNDS: '16' })).toThrow(/BCRYPT_ROUNDS/);
   });
 
+  const PROD_SIGNING = { SIGNING_KEY_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64') };
+
   it('requires at least 10 BCRYPT_ROUNDS in production', () => {
-    expect(() => parseEnv({ ...BASE, NODE_ENV: 'production', BCRYPT_ROUNDS: '9' })).toThrow(
+    expect(() => parseEnv({ ...BASE, ...PROD_SIGNING, NODE_ENV: 'production', BCRYPT_ROUNDS: '9' })).toThrow(
       /BCRYPT_ROUNDS: must be at least 10 in production/,
     );
-    expect(parseEnv({ ...BASE, NODE_ENV: 'production', BCRYPT_ROUNDS: '10' }).bcryptRounds).toBe(10);
+    expect(parseEnv({ ...BASE, ...PROD_SIGNING, NODE_ENV: 'production', BCRYPT_ROUNDS: '10' }).bcryptRounds).toBe(10);
+  });
+
+  it('signing: a 32-byte key-encryption key is required in production, RSA ≥ 3072 bits there', () => {
+    expect(() => parseEnv({ ...BASE, NODE_ENV: 'production', BCRYPT_ROUNDS: '10' })).toThrow(/SIGNING_KEY_ENCRYPTION_KEY: is required in production/);
+    expect(() => parseEnv({ ...BASE, SIGNING_KEY_ENCRYPTION_KEY: Buffer.alloc(16).toString('base64') })).toThrow(/SIGNING_KEY_ENCRYPTION_KEY: must be 32 random bytes/);
+    expect(() => parseEnv({ ...BASE, ...PROD_SIGNING, NODE_ENV: 'production', BCRYPT_ROUNDS: '10', SIGNING_RSA_BITS: '2048' })).toThrow(/SIGNING_RSA_BITS: must be at least 3072/);
+    const config = parseEnv({ ...BASE, ...PROD_SIGNING });
+    expect(config.signingKeyEncryptionKey).toHaveLength(32);
+    expect(config.signingRsaBits).toBe(3072);
+    // Never echo the key itself in a validation error.
+    try {
+      parseEnv({ ...BASE, SIGNING_KEY_ENCRYPTION_KEY: 'c2VjcmV0LXZhbHVl' });
+    } catch (err) {
+      expect(err.message).not.toContain('c2VjcmV0LXZhbHVl');
+    }
   });
 
   it('allows low BCRYPT_ROUNDS outside production', () => {

@@ -1,6 +1,6 @@
 import { ORDER_STATUS } from '../constants/orderStatus.js';
 import { ROLES } from '../constants/roles.js';
-import { FG_STATUS, FinishedGood } from '../models/Fulfilment.js';
+import { DISPATCH_STATUS, Dispatch, FG_STATUS, FinishedGood, deliveryOf } from '../models/Fulfilment.js';
 import { ProductionRun } from '../models/ProductionRun.js';
 import { Roll } from '../models/Roll.js';
 import { findOrderById } from '../repositories/order.repository.js';
@@ -35,10 +35,11 @@ export async function getTimeline(orderId, actor) {
   const order = await findOrderById(orderId);
   if (!order || (actor.role === ROLES.BUYER && String(order.buyerId) !== actor.buyerId)) throw new AppError('NOT_FOUND', 'Order not found');
 
-  const [runs, rollStats, goods] = await Promise.all([
+  const [runs, rollStats, goods, dispatches] = await Promise.all([
     ProductionRun.find({ orderId: order._id }, { producedCm: 1, status: 1 }).lean(),
     Roll.aggregate([{ $match: { orderId: order._id } }, { $group: { _id: '$status', count: { $sum: 1 }, lengthCm: { $sum: '$lengthCm' } } }]),
     FinishedGood.aggregate([{ $match: { orderId: order._id } }, { $group: { _id: '$status', lengthCm: { $sum: '$lengthCm' } } }]),
+    Dispatch.find({ orderId: order._id, status: DISPATCH_STATUS.CONFIRMED }).sort({ confirmedAt: 1 }).lean(),
   ]);
   const producedCm = runs.reduce((sum, r) => sum + r.producedCm, 0);
   const rolls = Object.fromEntries(rollStats.map((r) => [r._id, r]));
@@ -78,6 +79,8 @@ export async function getTimeline(orderId, actor) {
       dispatchedMetres: cmToMetres(dispatchedCm),
     },
     expectedDelivery: { requiredBy: dateToDateString(order.requiredBy), status: closed ? null : 'ON_TRACK', message: null },
+    // Each dispatched consignment and where its delivery stands (dispatched ≠ delivered ≠ verified ≠ invoiced).
+    deliveries: dispatches.map((d) => ({ id: String(d._id), dispatchNumber: d.dispatchNumber, metres: cmToMetres(d.totalLengthCm), dispatchedAt: d.confirmedAt, invoiced: Boolean(d.invoiceId), ...deliveryOf(d) })),
   };
   for (const enrich of enrichers) await enrich(timeline, order);
   return timeline;

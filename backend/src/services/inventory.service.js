@@ -15,13 +15,51 @@ import {
   insertLot,
   summarizeByMaterialAndColour,
 } from '../repositories/yarnLot.repository.js';
+import { InventoryTransaction } from '../models/InventoryTransaction.js';
+import { YarnLot } from '../models/YarnLot.js';
 import { AppError } from '../utils/AppError.js';
+import { diffFields, isStale, staleEditConflict } from '../utils/edits.js';
+import { runInTransaction } from '../utils/transaction.js';
 import { gramsToKg, kgToGrams } from '../utils/units.js';
 import { executeIdempotent } from './idempotency.service.js';
 
 /** Business rule: yarn cost is internal financial data, visible to the store and the owner only. */
 export function canSeeCost(actor) {
   return actor.role === ROLES.STORE_KEEPER || actor.role === ROLES.ADMIN;
+}
+
+/**
+ * Edit a lot's descriptive details (STORE_KEEPER, ADMIN): lot number, supplier, yarn count, cost,
+ * and material/colour only while none of it has been reserved or issued (orders were matched on
+ * them). Quantities are never edited here: stock changes only through ledger operations.
+ * The edit is refused if the lot changed since the user loaded it, and is audited (before/after).
+ */
+export function updateLot(lotId, { expectedUpdatedAt, ...changes }, context) {
+  return runInTransaction(async (session) => {
+    const current = await findLotById(lotId, { session });
+    if (!current) throw new AppError('NOT_FOUND', 'Yarn lot not found');
+    const diff = diffFields(current, changes);
+    if (!diff) return toPublicLot(current, { includeCost: canSeeCost(context.actor) });
+    if (isStale(current, expectedUpdatedAt)) throw staleEditConflict('yarn lot');
+    if ('material' in diff.after || 'colour' in diff.after) {
+      const used = current.reservedGrams > 0 || (await InventoryTransaction.exists({ yarnLotId: current._id, type: { $in: ['RESERVATION', 'ISSUE'] } }).session(session));
+      if (used) {
+        throw new AppError('INVALID_STATE_TRANSITION', 'Material and colour cannot change after yarn from this lot was reserved or issued to an order', {
+          details: { reason: 'LOT_IN_USE' },
+        });
+      }
+    }
+    let updated;
+    try {
+      updated = await YarnLot.findOneAndUpdate({ _id: current._id, updatedAt: current.updatedAt }, { $set: diff.after }, { returnDocument: 'after', session, lean: true });
+    } catch (err) {
+      if (err?.code === 11000) throw new AppError('DUPLICATE_RESOURCE', 'Another lot already has this lot number', { details: { field: 'lotNumber' } });
+      throw err;
+    }
+    if (!updated) throw staleEditConflict('yarn lot');
+    await recordAudit({ action: 'YARN_LOT_UPDATED', entityType: 'YarnLot', entityId: current._id, ...diff }, context, session);
+    return toPublicLot(updated, { includeCost: canSeeCost(context.actor) });
+  });
 }
 
 /**

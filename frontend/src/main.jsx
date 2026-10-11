@@ -9,3 +9,11 @@ createRoot(document.getElementById("root")).render(
     <App />
   </StrictMode>,
 );
+
+// Offline app shell: lets the app open without a connection after it has been loaded once.
+// Production builds only (the dev server's modules are not cacheable this way).
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

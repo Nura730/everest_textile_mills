@@ -22,7 +22,8 @@ export function daysBetween(from, to) {
  *   Confirmed orders do not hold reservations until Phase 4 reserves them, so without the second
  *   term two orders could both be confirmed against the same kilograms.
  * Deadline: the required-by date must still be in the future (India calendar).
- * Machine capacity: reported as NOT_ASSESSED until machines exist; it never fails an order.
+ * Machine capacity: not part of confirmation (NOT_ASSESSED); it never fails an order. Delivery risk
+ * against machine capacity is assessed separately by the intelligence service (Insights).
  *
  * All quantities are integer grams.
  */
@@ -77,7 +78,7 @@ export function evaluateFeasibility({
   const capacityCheck = {
     code: FEASIBILITY_CHECK.MACHINE_CAPACITY,
     result: CHECK_RESULT.NOT_ASSESSED,
-    message: 'Machine capacity and workload are not checked yet: machines arrive in a later phase.',
+    message: 'Machine capacity is not part of this check; the delivery outlook against machine capacity is on the Insights page.',
   };
 
   const checks = [materialCheck, deadlineCheck, capacityCheck];

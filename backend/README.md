@@ -158,10 +158,11 @@ Notes:
 | `GET /api/yarn-lots` | ✓ | ✓ (no cost) | | | ✓ |
 | `POST /api/yarn-lots` | ✓ | | | | ✓ |
 | `GET /api/yarn-lots/:id` | ✓ | ✓ (no cost) | | | ✓ |
+| `PATCH /api/yarn-lots/:id` (descriptive details only) | ✓ | | | | ✓ |
 | `GET /api/yarn-lots/:id/transactions` | ✓ | ✓ | | | ✓ |
-| `POST /api/yarn-lots/:id/adjustments` | | | | | ✓ |
+| `POST /api/yarn-lots/:id/adjustments` | ✓ | | | | ✓ |
 | `GET /api/inventory/yarn-summary` | ✓ | ✓ | | | ✓ |
-| `GET /api/inventory/reconciliation` | | | | | ✓ |
+| `GET /api/inventory/reconciliation` | ✓ | | | | ✓ |
 | `GET /api/buyers`, `GET /api/buyers/:id` | | | | | ✓ |
 | `POST /api/buyers` | | | | | ✓ |
 | `GET /api/products`, `GET /api/products/:id` | ✓ | ✓ | ✓ | ✓ (no yarn spec) | ✓ |
@@ -173,11 +174,12 @@ Notes:
 | `GET /api/orders/:id/feasibility` | ✓ | ✓ | | | ✓ |
 | `POST /api/orders/:id/confirm` | | | | | ✓ |
 | `PATCH /api/orders/:id` | | | | ✓ own, while `ORDER_CREATED` | ✓ while `ORDER_CREATED` |
-| `POST /api/orders/:id/reserve`, `/issue`, `/return` | ✓ | | | | ✓ |
+| `POST /api/orders/:id/reserve`, `/reserve-additional` (reason; free stock only) | | ✓ | | | ✓ |
+| `POST /api/orders/:id/issue`, `/return` | ✓ | | | | ✓ |
 | `GET /api/orders/:id/reservations` | ✓ | ✓ | | | ✓ |
 | `GET /api/machines`, `GET /api/machines/:id`, `GET /api/machines/:id/events` | | ✓ | ✓ | | ✓ |
 | `POST /api/machines`, `PATCH /api/machines/:id`, `PATCH /api/machines/:id/active` | | | | | ✓ |
-| `POST /api/machines/:id/maintenance/start`, `/maintenance/end`, `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
+| `POST /api/machines/:id/maintenance/start`, `/maintenance/end` (cost required), `/problems`, `/problems/:eventId/resolve` | | ✓ | | | ✓ |
 | `GET /api/production-runs`, `GET /api/production-runs/:id` | ✓ | ✓ | ✓ | | ✓ |
 | `POST /api/production-runs`, `/:id/start`, `/pause`, `/resume`, `/complete`, `/cancel`, `/rolls` | | ✓ | | | ✓ |
 | `GET /api/rolls`, `GET /api/rolls/:id` | ✓ | ✓ | ✓ | | ✓ |
@@ -187,17 +189,27 @@ Notes:
 | `GET /api/finished-goods`, `GET /api/summary/fulfilment` | ✓ | ✓ | ✓ | | ✓ |
 | `PATCH /api/finished-goods/:id/location`, `POST /api/dispatches`, `/:id/confirm`, `/:id/cancel` | ✓ | | | | ✓ |
 | `GET /api/dispatches`, `GET /api/dispatches/:id` | ✓ | ✓ | ✓ | ✓ own | ✓ |
-| `POST /api/dispatches/:id/invoice` | | | | | ✓ |
+| `POST /api/dispatches/:id/delivery/confirm`, `/delivery/discrepancy` | | | | ✓ own | ✓ (confirm needs a proof note) |
+| `POST /api/dispatches/:id/delivery/verify` | | | | | ✓ |
+| `POST /api/dispatches/:id/invoice` (delivery VERIFIED only) | | | | | ✓ |
 | `GET /api/invoices`, `GET /api/invoices/:id` | | | | ✓ own | ✓ |
 | `GET /api/audit` | ✓ (inventory) | ✓ (production) | ✓ (QC) | ✓ own milestones | ✓ all |
 | `GET /api/audit/actions`, `POST /api/audit/:id/corrections` | | | | | ✓ |
 | `GET /api/orders/:id/timeline` | ✓ | ✓ | ✓ | ✓ own | ✓ |
+| `GET /api/summary/attention` (scoped per role) | ✓ | ✓ | ✓ | ✓ own | ✓ |
+| `GET /api/signatures/:id/verify` | ✓ | ✓ | ✓ | | ✓ |
+| `GET /api/signatures/keys/me` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `GET /api/signatures/keys/:userId`, `POST /api/signatures/keys/:userId/rotate` | | | | | ✓ |
 | `GET /api/costing/*`, `POST /api/costing/rates` | | | | | ✓ |
-| `POST /api/sync/events` | | ✓ | ✓ | | ✓ |
+| `POST /api/sync/events` (each event: its own route's roles) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `GET /api/intelligence/overview`, `GET /api/intelligence/orders/:id` | ✓ | ✓ | | | ✓ |
 | `GET /api/sync/events` | ✓ own | ✓ own | ✓ own | ✓ own | ✓ all |
 | `PATCH /api/buyers/:id`, `PATCH /api/buyers/:id/status` | | | | | ✓ |
 | `PATCH /api/products/:id`, `PATCH /api/products/:id/status` | | | | | ✓ |
+| `GET /api/workers`, `/workers/:id`, `GET /api/attendance`, `/attendance/register` | | ✓ (no money) | ✓ (no money) | | ✓ |
+| `POST /api/workers`, `PATCH /api/workers/:id` | | | | | ✓ |
+| `POST /api/attendance`, `PATCH /api/attendance/:id` (floor: last 7 days) | | ✓ | | | ✓ |
+| `GET /api/wages/summary` | | | | | ✓ |
 
 The same table is enforced by `tests/integration/rbac.matrix.test.js`.
 
@@ -533,7 +545,39 @@ Stock grouped by material and colour across all lots. Query: `material`, `includ
 }
 ```
 
-### `POST /api/yarn-lots/:id/adjustments` — correct stock (ADMIN; Idempotency-Key)
+### Correcting a run completed by mistake — `POST /api/production-runs/:id/reopen` (FLOOR_MANAGER, ADMIN; Idempotency-Key)
+
+Body `{ reason }` (5-500 chars). Allowed only when the run is `COMPLETED` **and** produced less than its
+target, its order is still `IN_PRODUCTION` and short of its quantity, no other run already covers the gap
+(409 `QUANTITY_EXCEEDS_ORDER`, `GAP_ALREADY_PLANNED`), and its machine is `AVAILABLE` (else 409,
+`MACHINE_NOT_AVAILABLE`: plan a continuation run on another machine instead). Other refusals:
+`RUN_REACHED_TARGET`, `ORDER_NOT_IN_PRODUCTION`. The run goes back to `PAUSED` on the same machine
+(machine `PAUSED`); resume it and record the remaining rolls. History (`COMPLETED → PAUSED`, with the
+reason), rolls and stock are kept; audit `RUN_REOPENED` with before/after. Produced quantity is always
+the sum of the run's rolls: it is corrected by recording rolls, never edited directly.
+
+Output never exceeds the order: a roll is refused (409 `QUANTITY_EXCEEDS_ORDER`,
+`details.remainingMetres`) if good or pending output (all runs, rejected rolls excluded because they must
+be remade) plus the roll would exceed the ordered quantity.
+
+### Dispatch availability — `GET /api/finished-goods/availability[?orderId]` (staff)
+
+Per order: `inStock`, `reserved` (with the prepared dispatches holding it), `dispatched`, `awaitingQc`,
+`rejected`, `dispatchableMetres` (in-stock goods of a `READY_FOR_DISPATCH` order — the same condition
+`POST /api/dispatches` enforces) and, when nothing is dispatchable, `reason`
+(`NOT_READY` / `RESERVED_IN_PREPARED_DISPATCH` / `ALL_DISPATCHED` / `NO_STOCK`) with a `message` naming the
+next step. Without `orderId`: every ready order.
+
+### `PATCH /api/yarn-lots/:id` — edit a lot's details (STORE_KEEPER, ADMIN)
+
+Body: `{ expectedUpdatedAt, lotNumber?, material?, colour?, yarnCount? (null clears), supplierName?,
+costPerKgPaise? }` — at least one field. Quantities are **not** accepted (400): stock changes only through
+ledger operations. `material`/`colour` are refused (409 `INVALID_STATE_TRANSITION`, `details.reason:
+LOT_IN_USE`) once yarn from the lot was reserved or issued. Stale copy → 409 `CONFLICT` (`STALE_EDIT`);
+duplicate lot number → 409 `DUPLICATE_RESOURCE`. Audited `YARN_LOT_UPDATED` with before/after; no ledger
+entry. `200 { lot }`.
+
+### `POST /api/yarn-lots/:id/adjustments` — correct stock (STORE_KEEPER, ADMIN; Idempotency-Key)
 
 Body: `{ "deltaKg": -2.5, "reason": "Water damage on two cones" }` — `deltaKg` non-zero, ±100,000,
 ≤ 3 decimals; `reason` 5–500 chars.
@@ -758,7 +802,7 @@ ORDER_CREATED ──confirm (ADMIN, feasibility must pass)──▶ CONFIRMED
 ORDER_CREATED ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
 ORDER_CREATED ──reject (ADMIN)──────────────────────────▶ REJECTED
 CONFIRMED     ──cancel (owning BUYER or ADMIN)──────────▶ CANCELLED
-CONFIRMED     ──reserve yarn (STORE_KEEPER or ADMIN)────▶ MATERIAL_RESERVED
+CONFIRMED     ──reserve yarn (FLOOR_MANAGER or ADMIN)───▶ MATERIAL_RESERVED
 MATERIAL_RESERVED ──cancel (owning BUYER or ADMIN; releases unissued yarn, cancels planned runs)──▶ CANCELLED
 MATERIAL_RESERVED ──first production run starts──▶ IN_PRODUCTION
 IN_PRODUCTION ──last run completes and output covers the order──▶ PRODUCTION_COMPLETED
@@ -968,7 +1012,7 @@ Rules, not a model: every verdict lists its factors and the numbers behind them.
 
 ## Offline sync (Phase 15)
 
-`POST /api/sync/events` (FLOOR_MANAGER, QC_INSPECTOR, ADMIN):
+`POST /api/sync/events` (every role; each event is checked against the roles of its own online route):
 
 ```json
 { "deviceId": "web-…", "events": [ { "eventId": "<uuid>", "type": "ROLL_RECORD", "payload": { "runId": "…", "lengthMetres": 120 }, "recordedAt": "2026-10-11T09:30:00+05:30" } ] }
@@ -976,17 +1020,29 @@ Rules, not a model: every verdict lists its factors and the numbers behind them.
 
 1-25 events per batch (the 100 KB body limit applies; a QC signature is sent in its own batch). Events are
 applied in `recordedAt` order, each through the same service as the online route, with `source: OFFLINE`
-and `eventId` as the idempotency key. The device uses the SAME uuid as the Idempotency-Key of its online
-attempt, so an action whose response was lost is replayed, not applied twice.
+and `eventId` as the idempotency key. The payload is `{ <record id field>, ...<the online route's body> }`
+and the body is validated with the online route's own schema, so rules and idempotency hashes are
+identical: the device uses the SAME uuid as the Idempotency-Key of its online attempt, and an action whose
+response was lost is replayed, not applied twice. If an event comes back `RETRY`, the rest of the batch is
+not processed (also `RETRY`, code `NOT_PROCESSED`), so dependent actions never run out of order.
 
 | type | payload | roles |
 |---|---|---|
 | `RUN_PAUSE` | `{ runId, reason }` | FLOOR_MANAGER, ADMIN |
 | `RUN_RESUME` | `{ runId }` | FLOOR_MANAGER, ADMIN |
+| `RUN_COMPLETE` | `{ runId, note? }` | FLOOR_MANAGER, ADMIN |
 | `ROLL_RECORD` | `{ runId, lengthMetres, weightKg? }` | FLOOR_MANAGER, ADMIN |
 | `MACHINE_PROBLEM_REPORT` | `{ machineId, category, severity, description, … }` | FLOOR_MANAGER, ADMIN |
-| `QC_INSPECT` | `{ rollId, result, defects?, notes?, signature? }` | QC_INSPECTOR, ADMIN |
+| `QC_INSPECT` | `{ rollId, result, defects?, notes?, signature: { accepted: true, image? } }` (signed by the server at sync) | QC_INSPECTOR, ADMIN |
 | `REWORK_DONE` | `{ rollId, note? }` | FLOOR_MANAGER, ADMIN |
+| `ORDER_CREATE` | body of `POST /api/orders` | BUYER, ADMIN |
+| `ORDER_UPDATE` | `{ orderId, expectedUpdatedAt, quantityMetres?, requiredBy?, buyerNotes? }` (stale → `CONFLICT`) | BUYER, ADMIN |
+| `MATERIAL_RECEIVE` | body of `POST /api/yarn-lots` | STORE_KEEPER, ADMIN |
+
+Online-only (never queued): confirming, rejecting or cancelling orders; reserving, issuing, returning or
+releasing yarn; stock adjustments; planning, starting or cancelling runs; maintenance and problem
+resolution; finished goods, dispatch and invoices; users, buyers, products, machines, rate card, audit
+corrections.
 
 Response `{ results: [{ eventId, type, outcome, originalOutcome?, result, error }], counts }`. Outcomes:
 `APPLIED`; `DUPLICATE` (eventId seen before, `originalOutcome` returned); `CONFLICT` (a 409 business rule:
@@ -1071,7 +1127,7 @@ invoice (one per confirmed dispatch): order ─▶ INVOICED when every confirmed
 | `GET /api/finished-goods` | Query: `orderId`, `status` (`IN_STOCK`\|`RESERVED_FOR_DISPATCH`\|`DISPATCHED`), `q`, paging |
 | `PATCH /api/finished-goods/:id/location` (Idempotency-Key) | `{ location }`; the only editable field; not once dispatched |
 | `POST /api/dispatches` (Idempotency-Key) | `{ orderId, finishedGoodIds[], vehicleNumber?, notes? }`. Order must be `READY_FOR_DISPATCH`; every good must be `IN_STOCK` and of this order (409 `FINISHED_GOODS_UNAVAILABLE`, `details.finishedGoodIds`); duplicates 400. Guarded per good: two dispatches cannot take the same roll |
-| `POST /api/dispatches/:id/confirm` (Idempotency-Key) | `{ signature: { accepted: true, image }, vehicleNumber? }` — without a signature 400 `SIGNATURE_REQUIRED`. Only `PREPARED` |
+| `POST /api/dispatches/:id/confirm` (Idempotency-Key) | `{ signature: { accepted: true, image? }, vehicleNumber? }` — without the accepted statement 400 `SIGNATURE_REQUIRED`. Only `PREPARED`. The server signs the dispatch record with the store keeper's RSA key (docs/SIGNATURES.md); response adds `signature { …, verified, stages }` |
 | `POST /api/dispatches/:id/cancel` (Idempotency-Key) | `{ reason }`; only `PREPARED`; goods back in stock |
 | `POST /api/dispatches/:id/invoice` (ADMIN; Idempotency-Key) | Confirmed dispatch only; one invoice per dispatch (409 `DUPLICATE_RESOURCE`). Lines at the order's own price per metre; **GST 5% (assumption for woven fabric, HSN 5208–5407)**; integer paise |
 | `GET /api/invoices`, `/:id` | ADMIN all; BUYER own company only (others 404) |
@@ -1092,15 +1148,16 @@ QC_PENDING ──PASS (signed)──▶ QC_PASSED
 |---|---|
 | `GET /api/rolls` | Query: `status`, `orderId`, `machineId`, `runId`, `q` (roll/order/run number, machine code), `page`, `limit`. `status=QC_PENDING` is the QC queue, oldest first |
 | `GET /api/rolls/:id` | Trace: `{ roll, order, run, machine, yarnLots: [{ lotNumber, supplierName, receivedAt, issuedToOrderKg }], inspections, qcSignature }`. The signature image is included for QC and admin |
-| `POST /api/rolls/:id/inspections` (QC_INSPECTOR, ADMIN; Idempotency-Key) | `{ result: PASS\|REWORK\|REJECT, defects: [{ type, severity: MINOR\|MAJOR\|CRITICAL, notes? }], notes?, signature? }`. Roll must be `QC_PENDING` (409). REWORK/REJECT need ≥ 1 defect (400). PASS needs `signature: { accepted: true, image: <PNG data URL ≤ 60 kB> }` (else 400 `SIGNATURE_REQUIRED`, `details.statement`). `201` with `{ roll, inspection }` |
+| `POST /api/rolls/:id/inspections` (QC_INSPECTOR, ADMIN; Idempotency-Key) | `{ result: PASS\|REWORK\|REJECT, defects: [{ type, severity: MINOR\|MAJOR\|CRITICAL, notes? }], notes?, signature? }`. Roll must be `QC_PENDING` (409). REWORK/REJECT need ≥ 1 defect (400). Every result needs `signature: { accepted: true, image?: <PNG data URL ≤ 60 kB, handwritten acknowledgment> }` (else 400 `SIGNATURE_REQUIRED`, `details.statement`). The server signs the inspection with the inspector's RSA key and verifies it before commit (503 `SIGNING_KEY_UNAVAILABLE` / 500 `SIGNATURE_VERIFICATION_FAILED` → nothing approved, `details.failedStage`). `201` with `{ roll, inspection, signature: { id, algorithm, keyId, payloadHash, cryptographic, verified, stages } }` |
 | `POST /api/rolls/:id/rework-done` (FLOOR_MANAGER, ADMIN; Idempotency-Key) | `{ note? }`. `IN_REWORK → QC_PENDING`, `reworkCount + 1` |
 | `GET /api/qc/inspections` | Query: `orderId`, `machineId`, `result`, paging. Newest first |
 | `GET /api/qc/summary` | `{ rolls: { <status>: { rolls, metres } }, inspections: { PASS, REWORK, REJECT } }` |
 
 Defect types: `COLOUR_MISMATCH`, `BROKEN_ENDS`, `BROKEN_PICKS`, `STAINS`, `HOLES`, `WIDTH_VARIATION`,
-`GSM_VARIATION`, `WEAVE_FAULT`, `OTHER`. Inspections and signatures are append-only. A signature stores the
-exact statement ("I confirm that roll … has passed inspection."), the signer, the image and a SHA-256 hash
-of the canonical signed record. Audit: `QC_PASSED`, `QC_REWORK`, `QC_REJECTED`, `ROLL_REWORK_DONE`.
+`GSM_VARIATION`, `WEAVE_FAULT`, `OTHER`. Inspections and signatures are append-only. Each inspection has
+its own RSA-PSS/SHA-256 signature over the canonical inspection record (statement, signer, key id, time,
+nonce); verify with `GET /api/signatures/:id/verify` (docs/SIGNATURES.md). The drawn image is an optional
+handwritten acknowledgment, not cryptographic proof. Audit: `QC_PASSED`, `QC_REWORK`, `QC_REJECTED`, `ROLL_REWORK_DONE`.
 
 ## Production runs (Phase 8)
 

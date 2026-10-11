@@ -10,12 +10,14 @@ import auditRoutes from './audit.routes.js';
 import costingRoutes from './costing.routes.js';
 import syncRoutes from './sync.routes.js';
 import intelligenceRoutes from './intelligence.routes.js';
+import signatureRoutes from './signature.routes.js';
 import { qcRoutes, rollRoutes } from './quality.routes.js';
 import { dispatchRoutes, finishedGoodRoutes, invoiceRoutes, summaryRoutes } from './fulfilment.routes.js';
 import orderRoutes from './order.routes.js';
 import productRoutes from './product.routes.js';
 import userRoutes from './user.routes.js';
 import yarnLotRoutes from './yarnLot.routes.js';
+import { attendanceRoutes, wageRoutes, workerRoutes } from './workforce.routes.js';
 
 // Every /api resource router is mounted here, so the whole API surface is visible in one file.
 const router = Router();
@@ -49,5 +51,9 @@ router.use('/audit', auditRoutes);
 router.use('/costing', costingRoutes);
 router.use('/sync', syncRoutes);
 router.use('/intelligence', intelligenceRoutes);
+router.use('/signatures', signatureRoutes);
+router.use('/workers', workerRoutes);
+router.use('/attendance', attendanceRoutes);
+router.use('/wages', wageRoutes);
 
 export default router;

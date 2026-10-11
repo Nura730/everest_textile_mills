@@ -3,7 +3,10 @@ import { Link, useParams } from 'react-router-dom';
 import { newIdempotencyKey } from '../api/client.js';
 import { rollsApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { SignatureLine } from '../components/signing/SignatureLine.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
 import { QcResultBadge, RollStatusBadge } from '../components/machines/MachineStatus.jsx';
@@ -25,12 +28,12 @@ function Fact({ label, children }) {
   );
 }
 
-/** The roll's full trace: order, run, machine, yarn lots, and every QC attempt with the signed pass. */
+/** The roll's full trace: order, run, machine, yarn lots, and every QC attempt with its signature. */
 export default function RollDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
-  const trace = useApiQuery(() => rollsApi.trace(id), [id]);
+  const trace = useApiQuery(() => rollsApi.trace(id), [id], { cacheKey: `roll:${id}` });
   useLive(liveMatch.entity(id), trace.reload);
   const [inspecting, setInspecting] = useState(false);
   const [reworking, setReworking] = useState(null);
@@ -51,7 +54,7 @@ export default function RollDetail() {
     setReworking({ ...reworking, busy: true });
     try {
       const sent = await runOrQueue(
-        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: roll.id }, label: `Rework finished on ${roll.rollNumber}`, userId: user.id },
+        { key: reworking.key, type: 'REWORK_DONE', payload: { rollId: roll.id }, label: `Rework finished on ${roll.rollNumber}`, ref: { rollId: roll.id }, userId: user.id },
         (k) => rollsApi.reworkDone(roll.id, null, k),
       );
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
@@ -76,6 +79,8 @@ export default function RollDetail() {
           </>
         }
       />
+      <CachedNotice cachedAt={trace.cachedAt} />
+      <PendingActions match={(item) => item.ref?.rollId === id} onApplied={() => trace.reload()} />
 
       <div className="detail-columns">
         <div className="erp-card">
@@ -117,6 +122,7 @@ export default function RollDetail() {
                     <div className="status-history-meta">{formatDateTime(i.inspectedAt)} · {i.inspectorName}</div>
                     {i.defects.length > 0 && <div className="status-history-reason">{i.defects.map((d) => `${DEFECT_LABELS[d.type] ?? d.type} (${d.severity.toLowerCase()})${d.notes ? `: ${d.notes}` : ''}`).join('; ')}</div>}
                     {i.notes && <div className="status-history-reason">{i.notes}</div>}
+                    <SignatureLine signature={i.signature} />
                   </div>
                 </li>
               ))}
@@ -124,11 +130,11 @@ export default function RollDetail() {
           )}
           {qcSignature && (
             <div className="signature-record">
-              <div className="detail-label">Signed pass</div>
+              <div className="detail-label">Latest signed decision</div>
               <p className="confirm-message">“{qcSignature.statement}”</p>
-              {qcSignature.signatureImage && <img src={qcSignature.signatureImage} alt={`Signature of ${qcSignature.signerName}`} className="signature-image" />}
+              {qcSignature.signatureImage && <img src={qcSignature.signatureImage} alt={`Handwritten acknowledgment of ${qcSignature.signerName}`} className="signature-image" />}
               <div className="cell-sub">{qcSignature.signerName} · {formatDateTime(qcSignature.signedAt)}</div>
-              <div className="cell-sub mono">SHA-256 {qcSignature.contentHash.slice(0, 16)}…</div>
+              <div className="cell-sub mono">{qcSignature.cryptographic ? `${qcSignature.algorithm} · key ${qcSignature.keyId} · payload SHA-256 ${qcSignature.payloadHash.slice(0, 16)}…` : `Content SHA-256 ${qcSignature.contentHash.slice(0, 16)}… (no cryptographic signature)`}</div>
             </div>
           )}
         </div>

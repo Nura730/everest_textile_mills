@@ -5,6 +5,7 @@ import { fieldErrorsOf } from '../api/client.js';
 import { machinesApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
 import { can } from '../auth/roles.js';
 import { MachineStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { MACHINE_STATUS_LABELS, MACHINE_TYPE_LABELS } from '../utils/machineStatus.js';
@@ -105,7 +106,7 @@ export default function MachineList() {
   const [adding, setAdding] = useState(false);
   const { filters, set, clear, query, active } = useFilters(NO_FILTERS);
   const { retired, ...rest } = query;
-  const machines = useApiQuery(() => machinesApi.list({ ...rest, isActive: !retired, limit: 100 }), [query]);
+  const machines = useApiQuery(() => machinesApi.list({ ...rest, isActive: !retired, limit: 100 }), [query], { cacheKey: `machines:${JSON.stringify(query)}` });
   useLive(liveMatch.actions('MACHINE_', 'RUN_'), machines.reload);
   const list = machines.data?.machines ?? [];
   const counts = list.reduce((acc, machine) => ({ ...acc, [machine.status]: (acc[machine.status] ?? 0) + 1 }), {});
@@ -114,7 +115,7 @@ export default function MachineList() {
     <div>
       <PageHeader
         title="Machines"
-        subtitle="Every machine on the floor, its state and open problems. Live data."
+        subtitle="Every machine on the floor, its recorded state and open problems."
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Machines' }]}
         actions={
           <>
@@ -129,6 +130,7 @@ export default function MachineList() {
           </>
         }
       />
+      <CachedNotice cachedAt={machines.cachedAt} />
       <div className="erp-card">
         <FilterBar active={active} onClear={clear} label="Machine filters">
           <SearchInput id="machine-search" value={filters.q} onChange={(value) => set('q', value)} placeholder="Search code, name or location" />

@@ -4,11 +4,14 @@ import { ROLL_STATUS, RUN_STATUS } from '../constants/production.js';
 import { Invoice } from '../models/Fulfilment.js';
 import { InventoryTransaction } from '../models/InventoryTransaction.js';
 import { Machine } from '../models/Machine.js';
+import { MachineEvent } from '../models/MachineEvent.js';
 import { Order } from '../models/Order.js';
 import { ProductionRun } from '../models/ProductionRun.js';
 import { DEFAULT_RATES, RateCard, rateCardAt, toPublicRateCard } from '../models/RateCard.js';
 import { Roll } from '../models/Roll.js';
 import { YarnLot } from '../models/YarnLot.js';
+import { Attendance } from '../models/Attendance.js';
+import { todayInIndia } from '../utils/dates.js';
 import { AppError } from '../utils/AppError.js';
 import { cmToMetres, gramsToKg } from '../utils/units.js';
 import { runInTransaction } from '../utils/transaction.js';
@@ -23,7 +26,8 @@ import { runInTransaction } from '../utils/transaction.js';
 
 export const COST_ASSUMPTIONS = Object.freeze([
   'Material = net yarn issued to the order (issued − returned) × the purchase cost of each lot it came from.',
-  'Labour = machine running hours × the labour rate (one operator per running machine; no attendance module, decision D6).',
+  'Labour = machine running hours × the labour rate (one operator per running machine, decision D6). Wages recorded in the attendance register are reported separately as a factory expense and never added to order cost (no double counting).',
+  'Maintenance cost (recorded when maintenance finishes) is a machine expense, reported separately, not allocated to orders.',
   'Machine = running hours × the hourly rate for the machine type (power, maintenance, depreciation).',
   'Running hours come from each run\'s history: time spent RUNNING, excluding pauses.',
   'Rework = number of rework rounds × the rework rate per roll.',
@@ -156,7 +160,40 @@ export async function costingSummary() {
     },
     rateCard: toPublicRateCard(await rateCardAt()),
     assumptions: COST_ASSUMPTIONS,
+    factoryExpenses: { maintenance: await maintenanceExpenses(), wages: await monthWages() },
   };
+}
+
+/**
+ * Maintenance cost recorded when maintenance finishes, per machine. A machine/factory expense: it is
+ * NOT spread over orders (there is no agreed allocation rule) and NOT inside order profit; it is shown
+ * next to it. Optional period: from/to as Indian calendar dates.
+ */
+export async function maintenanceExpenses({ from, to } = {}) {
+  const match = { type: 'MAINTENANCE_ENDED', costPaise: { $ne: null } };
+  if (from || to) {
+    match.occurredAt = {};
+    if (from) match.occurredAt.$gte = new Date(`${from}T00:00:00.000+05:30`);
+    if (to) match.occurredAt.$lt = new Date(new Date(`${to}T00:00:00.000+05:30`).getTime() + 86_400_000);
+  }
+  const rows = await MachineEvent.aggregate([{ $match: match }, { $group: { _id: '$machineId', totalPaise: { $sum: '$costPaise' }, jobs: { $sum: 1 } } }]);
+  const machines = await Machine.find({ _id: { $in: rows.map((r) => r._id) } }, { code: 1, name: 1 }).lean();
+  const byId = new Map(machines.map((m) => [String(m._id), m]));
+  const byMachine = rows
+    .map((r) => ({ machineId: String(r._id), code: byId.get(String(r._id))?.code ?? '?', name: byId.get(String(r._id))?.name ?? null, totalPaise: r.totalPaise, jobs: r.jobs }))
+    .sort((a, b) => b.totalPaise - a.totalPaise);
+  return { totalPaise: byMachine.reduce((s, m) => s + m.totalPaise, 0), jobs: byMachine.reduce((s, m) => s + m.jobs, 0), byMachine, allocation: 'Not allocated to orders: machine/factory expense' };
+}
+
+/**
+ * Wages recorded in the attendance register this calendar month (India). A factory expense shown next to
+ * order profit; NOT allocated to orders (order labour stays the machine-hour estimate above, so the two
+ * are never added together).
+ */
+export async function monthWages(today = todayInIndia()) {
+  const from = `${today.slice(0, 7)}-01`;
+  const [row] = await Attendance.aggregate([{ $match: { date: { $gte: from, $lte: today } } }, { $group: { _id: null, totalPaise: { $sum: '$wagePaise' }, entries: { $sum: 1 } } }]);
+  return { totalPaise: row?.totalPaise ?? 0, entries: row?.entries ?? 0, from, to: today, periodLabel: `${from} to ${today}`, allocation: 'Not allocated to orders: factory labour expense' };
 }
 
 export async function getRates() {

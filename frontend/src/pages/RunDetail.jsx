@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CheckCircle2, Pause, Play, PlusCircle, XOctagon } from 'lucide-react';
+import { CheckCircle2, Pause, Play, PlusCircle, RotateCcw, XOctagon } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { productionApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { runOrQueue } from '../offline/syncManager.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
+import { PendingActions } from '../offline/PendingActions.jsx';
+import { useOnline } from '../offline/useQueue.js';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { ROLE_LABELS, can } from '../auth/roles.js';
-import { RunStatusBadge } from '../components/machines/MachineStatus.jsx';
+import { RollStatusBadge, RunStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { ConfirmDialog, Field, Modal } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
@@ -16,8 +19,6 @@ import { useApiQuery } from '../hooks/useApiQuery.js';
 import { formatDateTime, formatNumber } from '../utils/format.js';
 import { RUN_STATUS_LABELS } from '../utils/machineStatus.js';
 import { RunProgress } from './ProductionList.jsx';
-
-const ROLL_STATUS_LABELS = { QC_PENDING: 'Awaiting QC', QC_PASSED: 'QC passed', IN_REWORK: 'In rework', REJECTED: 'Rejected', FINISHED: 'Finished' };
 
 /** Record one produced roll. Weight is optional (a roll may be weighed later). */
 function RecordRollModal({ run, onClose, onDone }) {
@@ -48,7 +49,7 @@ function RecordRollModal({ run, onClose, onDone }) {
     try {
       const body = { lengthMetres: Number(length), ...(weight ? { weightKg: Number(weight) } : {}) };
       const sent = await runOrQueue(
-        { key, type: 'ROLL_RECORD', payload: { runId: run.id, ...body }, label: `Roll of ${formatNumber(body.lengthMetres, 'm')} on ${run.runNumber}`, userId: user.id },
+        { key, type: 'ROLL_RECORD', payload: { runId: run.id, ...body }, label: `Roll of ${formatNumber(body.lengthMetres, 'm')} on ${run.runNumber}`, ref: { runId: run.id, orderId: run.orderId }, userId: user.id },
         (k) => productionApi.recordRoll(run.id, body, k),
       );
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
@@ -96,6 +97,13 @@ const ACTIONS = {
   pause: { title: 'Pause this run?', label: 'Pause', success: 'Run paused.', message: 'The machine pauses with the run.', reason: true },
   resume: { title: 'Resume this run?', label: 'Resume', success: 'Run resumed.', message: 'The machine starts producing again.' },
   complete: { title: 'Complete this run?', label: 'Complete run', success: 'Run completed.', message: 'The machine becomes available. If the order is fully produced it moves to "Production completed".' },
+  reopen: {
+    title: 'Reopen this run?',
+    label: 'Reopen run',
+    success: 'Run reopened. It is paused on its machine: resume it to record the remaining rolls.',
+    message: 'Only for a run that was completed by mistake. The run goes back to Paused on the same machine; its rolls and history are kept and the correction is recorded in the audit trail.',
+    reason: true,
+  },
   cancel: { title: 'Cancel this run?', label: 'Cancel run', success: 'Run cancelled.', message: 'The machine is freed and the quantity can be planned again.', reason: true, danger: true },
 };
 
@@ -103,7 +111,8 @@ export default function RunDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const toast = useToast();
-  const detail = useApiQuery(() => productionApi.get(id), [id]);
+  const detail = useApiQuery(() => productionApi.get(id), [id], { cacheKey: `run:${id}` });
+  const online = useOnline();
   const [action, setAction] = useState(null); // { name, reason, key, busy, error }
   const [recording, setRecording] = useState(false);
   useLive(liveMatch.entity(id), detail.reload);
@@ -121,18 +130,23 @@ export default function RunDetail() {
   const { run, rolls } = detail.data;
   const operate = can.runProduction(user.role);
   const producing = ['RUNNING', 'PAUSED'].includes(run.status);
+  // A completed run below its target: the floor may have completed it by mistake (reopen) or continue elsewhere.
+  const endedShort = operate && run.status === 'COMPLETED' && run.producedMetres < run.targetMetres;
+  // Completing below target is a deliberate partial completion: the server requires the shortfall reason.
+  const completingShort = run.producedMetres < run.targetMetres;
 
   async function confirm() {
     const config = ACTIONS[action.name];
     const reason = (action.reason ?? '').trim();
-    if (config.reason && reason.length < 5) return setAction({ ...action, error: 'Give a reason of at least 5 characters.' });
+    const needsReason = config.reason || (action.name === 'complete' && completingShort);
+    if (needsReason && reason.length < 5) return setAction({ ...action, error: action.name === 'complete' ? 'Give the reason for the shortfall (at least 5 characters).' : 'Give a reason of at least 5 characters.' });
     setAction({ ...action, busy: true, error: null });
     try {
-      const body = config.reason ? { reason } : {};
-      const offlineType = { pause: 'RUN_PAUSE', resume: 'RUN_RESUME' }[action.name];
+      const body = action.name === 'complete' ? (completingShort ? { shortfallReason: reason } : {}) : config.reason ? { reason } : {};
+      const offlineType = { pause: 'RUN_PAUSE', resume: 'RUN_RESUME', complete: 'RUN_COMPLETE' }[action.name];
       const call = (k) => productionApi.act(run.id, action.name, body, k);
       const sent = offlineType
-        ? await runOrQueue({ key: action.key, type: offlineType, payload: { runId: run.id, ...body }, label: `${config.label} ${run.runNumber}`, userId: user.id }, call)
+        ? await runOrQueue({ key: action.key, type: offlineType, payload: { runId: run.id, ...body }, label: `${config.label} ${run.runNumber}`, ref: { runId: run.id, orderId: run.orderId }, userId: user.id }, call)
         : { queued: false, result: await call(action.key) };
       if (sent.queued) toast.info('Saved on this device. It will be sent when the connection returns.', { title: 'Offline' });
       else toast.success(config.success);
@@ -153,7 +167,7 @@ export default function RunDetail() {
         actions={
           operate && (
             <>
-              {run.status === 'PLANNED' && <button type="button" className="erp-btn-primary" onClick={() => open('start')}><Play size={15} aria-hidden="true" /> Start</button>}
+              {run.status === 'PLANNED' && <button type="button" className="erp-btn-primary" onClick={() => open('start')} disabled={!online} title={online ? undefined : 'Needs a connection: starting checks the machine and the yarn on the server.'}><Play size={15} aria-hidden="true" /> Start</button>}
               {run.status === 'RUNNING' && <button type="button" className="erp-btn-outline" onClick={() => open('pause')}><Pause size={15} aria-hidden="true" /> Pause</button>}
               {run.status === 'PAUSED' && <button type="button" className="erp-btn-primary" onClick={() => open('resume')}><Play size={15} aria-hidden="true" /> Resume</button>}
               {producing && <button type="button" className="erp-btn-primary" onClick={() => setRecording(true)}><PlusCircle size={15} aria-hidden="true" /> Record roll</button>}
@@ -162,11 +176,23 @@ export default function RunDetail() {
                   <CheckCircle2 size={15} aria-hidden="true" /> Complete
                 </button>
               )}
-              {run.status === 'PLANNED' && <button type="button" className="erp-btn-danger" onClick={() => open('cancel')}><XOctagon size={15} aria-hidden="true" /> Cancel run</button>}
+              {endedShort && <button type="button" className="erp-btn-outline" onClick={() => open('reopen')} disabled={!online} title={online ? 'Use if the run was completed by mistake' : 'Needs a connection.'}><RotateCcw size={15} aria-hidden="true" /> Reopen run</button>}
+              {run.status === 'PLANNED' && <button type="button" className="erp-btn-danger" onClick={() => open('cancel')} disabled={!online} title={online ? undefined : 'Needs a connection.'}><XOctagon size={15} aria-hidden="true" /> Cancel run</button>}
             </>
           )
         }
       />
+      <CachedNotice cachedAt={detail.cachedAt} />
+      <PendingActions match={(item) => item.ref?.runId === run.id} onApplied={() => detail.reload()} />
+      {endedShort && (
+        <div className="next-step delivery-warning section-gap" role="status">
+          <div>
+            <strong>This run ended short: {formatNumber(run.producedMetres, 'm')} of its {formatNumber(run.targetMetres, 'm')} target.</strong>{' '}
+            If it was completed by mistake, <strong>Reopen run</strong> (a reason is required, and it is audited). Otherwise plan a continuation run for the rest on the{' '}
+            <Link to={`/orders/${run.orderId}`}>order page</Link>.
+          </div>
+        </div>
+      )}
 
       <div className="erp-tall-kpi-grid">
         <div className="erp-card"><div className="detail-label">Status</div><div className="detail-value"><RunStatusBadge status={run.status} /></div></div>
@@ -194,7 +220,7 @@ export default function RunDetail() {
                     <td className="num">{formatNumber(r.lengthMetres, 'm')}</td>
                     <td className="num">{r.weightKg !== null ? formatNumber(r.weightKg, 'kg') : '—'}</td>
                     <td>{r.yarnLots.map((lot) => lot.lotNumber).join(', ') || '—'}</td>
-                    <td><span className="erp-status-badge outline">{ROLL_STATUS_LABELS[r.status] ?? r.status}</span></td>
+                    <td><RollStatusBadge status={r.status} /></td>
                     <td>{formatDateTime(r.producedAt)}</td>
                   </tr>
                 ))}
@@ -223,13 +249,17 @@ export default function RunDetail() {
       {action && (
         <ConfirmDialog
           title={ACTIONS[action.name].title}
-          message={ACTIONS[action.name].message}
+          message={
+            action.name === 'complete' && completingShort
+              ? `This run has produced ${formatNumber(run.producedMetres, 'm')} of its ${formatNumber(run.targetMetres, 'm')} target. If production really stops here, give the reason for the ${formatNumber(run.targetMetres - run.producedMetres, 'm')} shortfall; it is recorded with the run. Otherwise cancel and keep producing.`
+              : ACTIONS[action.name].message
+          }
           confirmLabel={ACTIONS[action.name].label}
           danger={ACTIONS[action.name].danger}
           busy={action.busy}
           reason={action.reason}
           reasonError={action.error}
-          onReasonChange={ACTIONS[action.name].reason ? (reason) => setAction({ ...action, reason, error: null, key: newIdempotencyKey() }) : undefined}
+          onReasonChange={ACTIONS[action.name].reason || (action.name === 'complete' && completingShort) ? (reason) => setAction({ ...action, reason, error: null, key: newIdempotencyKey() }) : undefined}
           onConfirm={confirm}
           onClose={() => setAction(null)}
         />

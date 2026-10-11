@@ -17,7 +17,8 @@ import { dateToDateString } from '../utils/dates.js';
 import { searchAcross } from '../utils/search.js';
 import { cmToMetres } from '../utils/units.js';
 import { executeIdempotent } from './idempotency.service.js';
-import { createSignature, findSignature } from './signature.service.js';
+import { findSignaturesByIds } from './signature.service.js';
+import { ensureSigningKey, qcRecord, signApproval, toSignatureMeta } from './signing.service.js';
 
 /*
  * Phases 9 and 10: roll traceability and quality control.
@@ -69,15 +70,17 @@ export async function listRolls({ status, orderId, machineId, runId, q, page, li
 export async function traceRoll(id, actor) {
   const roll = await Roll.findById(id).lean();
   if (!roll) throw rollNotFound();
-  const [order, run, machine, inspections, lots, signature] = await Promise.all([
+  const [order, run, machine, inspections, lots] = await Promise.all([
     findOrderById(roll.orderId),
     ProductionRun.findById(roll.runId).lean(),
     Machine.findById(roll.machineId).lean(),
     QcInspection.find({ rollId: roll._id }).sort({ attempt: 1 }).lean(),
     YarnLot.find({ _id: { $in: roll.yarnLots.map((l) => l.yarnLotId) } }).lean(),
-    findSignature(SIGNATURE_ENTITY.QC_INSPECTION, roll._id),
   ]);
   const issues = await InventoryTransaction.find({ orderId: roll.orderId, type: 'ISSUE' }).lean();
+  const signed = await findSignaturesByIds(inspections.map((i) => i.signatureId).filter(Boolean));
+  const signatures = new Map(signed.map((s) => [String(s._id), toSignatureMeta(s)]));
+  const latestSigned = signed.sort((a, b) => b.signedAt - a.signedAt)[0] ?? null;
   return {
     roll: toPublicRoll(roll),
     order: order && {
@@ -100,8 +103,9 @@ export async function traceRoll(id, actor) {
       receivedAt: lot.receivedAt,
       issuedToOrderKg: issues.filter((tx) => String(tx.yarnLotId) === String(lot._id)).reduce((sum, tx) => sum - tx.deltaTotalGrams, 0) / 1000,
     })),
-    inspections: inspections.map(toPublicInspection),
-    qcSignature: signature ? toPublicSignature(signature, { includeImage: actor.role === ROLES.ADMIN || actor.role === ROLES.QC_INSPECTOR }) : null,
+    inspections: inspections.map((inspection) => ({ ...toPublicInspection(inspection), signature: signatures.get(String(inspection.signatureId)) ?? null })),
+    // The latest signed inspection (normally the pass that released the roll).
+    qcSignature: latestSigned ? toPublicSignature(latestSigned, { includeImage: actor.role === ROLES.ADMIN || actor.role === ROLES.QC_INSPECTOR }) : null,
   };
 }
 
@@ -110,10 +114,14 @@ export async function traceRoll(id, actor) {
 const NEXT_STATUS = { PASS: ROLL_STATUS.QC_PASSED, REWORK: ROLL_STATUS.IN_REWORK, REJECT: ROLL_STATUS.REJECTED };
 
 /**
- * Inspect a QC_PENDING roll (QC_INSPECTOR or ADMIN). PASS needs a signature
- * ({ accepted: true, image }) and creates it in the same transaction; REWORK and REJECT need defects.
+ * Inspect a QC_PENDING roll (QC_INSPECTOR or ADMIN). Every result (PASS, REWORK, REJECT) is an
+ * approval the inspector signs: they accept the statement ({ accepted: true, image? }) and the server
+ * signs the inspection record with the inspector's own RSA key in the same transaction, verifying it
+ * before commit. REWORK and REJECT need defects.
  */
-export function inspectRoll(rollId, { result, defects = [], notes, signature }, context) {
+export async function inspectRoll(rollId, { result, defects = [], notes, signature }, context) {
+  // Key generation (first signature of this user) happens before the transaction: it is slow.
+  if (signature) await ensureSigningKey(context.actor);
   return executeIdempotent(
     { context, operation: 'ROLL_INSPECT', request: { rollId, result, defects, notes, signed: Boolean(signature) } },
     async (session) => {
@@ -130,9 +138,9 @@ export function inspectRoll(rollId, { result, defects = [], notes, signature }, 
           details: [{ location: 'body', path: 'defects', message: `record at least one defect for ${result}` }],
         });
       }
-      if (result === QC_RESULT.PASS && !signature) {
-        throw new AppError('SIGNATURE_REQUIRED', 'A QC pass must be signed by the inspector', {
-          details: { statement: SIGNATURE_STATEMENTS.QC_INSPECTION(roll.rollNumber) },
+      if (!signature) {
+        throw new AppError('SIGNATURE_REQUIRED', 'A QC decision must be signed by the inspector', {
+          details: { statement: SIGNATURE_STATEMENTS.QC_INSPECTION(roll.rollNumber, result), failedStage: 'PAYLOAD_PREPARED' },
         });
       }
 
@@ -140,21 +148,20 @@ export function inspectRoll(rollId, { result, defects = [], notes, signature }, 
       // The inspection id is fixed first so the signature can cover it and the inspection can be
       // written once, already linked to its signature (append-only: never updated afterwards).
       const inspectionId = new mongoose.Types.ObjectId();
-      let signatureId = null;
-      if (result === QC_RESULT.PASS) {
-        const signed = await createSignature(
-          {
-            entityType: SIGNATURE_ENTITY.QC_INSPECTION,
-            entityId: roll._id,
-            statement: SIGNATURE_STATEMENTS.QC_INSPECTION(roll.rollNumber),
-            record: { rollNumber: roll.rollNumber, lengthCm: roll.lengthCm, attempt, result, inspectionId: String(inspectionId) },
-            image: signature.image,
-          },
-          context,
-          session,
-        );
-        signatureId = signed._id;
-      }
+      const { signature: signed, signing } = await signApproval(
+        {
+          approvalType: `QC_${result}`,
+          entityType: SIGNATURE_ENTITY.QC_INSPECTION,
+          entityId: inspectionId,
+          statement: SIGNATURE_STATEMENTS.QC_INSPECTION(roll.rollNumber, result),
+          record: qcRecord({ _id: inspectionId, rollId: roll._id, rollNumber: roll.rollNumber, attempt, result, defects }, roll),
+          image: signature.image,
+          nonce: `ROLL_INSPECT:${context.idempotencyKey}`,
+        },
+        context,
+        session,
+      );
+      const signatureId = signed._id;
       const [inspection] = await QcInspection.create(
         [
           {
@@ -191,7 +198,7 @@ export function inspectRoll(rollId, { result, defects = [], notes, signature }, 
           orderId: roll.orderId,
           machineId: roll.machineId,
           before: { status: roll.status },
-          after: { status: updated.status, attempt, defects: defects.map((d) => d.type), signed: Boolean(signatureId) },
+          after: { status: updated.status, attempt, defects: defects.map((d) => d.type), signed: true, signatureId: String(signatureId), keyId: signing.keyId },
         },
         context,
         session,
@@ -206,7 +213,13 @@ export function inspectRoll(rollId, { result, defects = [], notes, signature }, 
       const fresh = await Roll.findById(roll._id).session(session).lean();
       return {
         statusCode: 201,
-        body: { roll: toPublicRoll(fresh), inspection: toPublicInspection(inspection.toObject()), ...extra },
+        body: {
+          roll: toPublicRoll(fresh),
+          inspection: toPublicInspection(inspection.toObject()),
+          // Verified on the server before commit; the stages describe what actually ran.
+          signature: { ...toSignatureMeta(signed), verified: true, stages: signing.stages },
+          ...extra,
+        },
       };
     },
   );

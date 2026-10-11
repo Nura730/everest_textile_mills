@@ -2,6 +2,7 @@ import { Check, Circle, CircleDot } from 'lucide-react';
 import { ordersApi } from '../../api/endpoints.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
 import { formatDate, formatNumber } from '../../utils/format.js';
+import { DeliveryBadge } from '../fulfilment/Fulfilment.jsx';
 import { ErrorState, LoadingState } from '../ui/States.jsx';
 
 const DELIVERY_TEXT = {
@@ -46,6 +47,17 @@ export function BuyerTimeline({ order }) {
           );
         })}
       </ol>
+      {timeline.deliveries?.length > 0 && (
+        <ul className="plain-list section-gap" aria-label="Deliveries">
+          {timeline.deliveries.map((d) => (
+            <li key={d.id}>
+              <strong>{d.dispatchNumber}</strong> · {formatNumber(d.metres, 'm')} dispatched {formatDate(d.dispatchedAt)} · <DeliveryBadge delivery={d} />
+              {d.status === 'IN_TRANSIT' && <span className="cell-sub"> Confirm receipt (or report a problem) in Dispatch below.</span>}
+              {d.invoiced && <span className="cell-sub"> · invoiced</span>}
+            </li>
+          ))}
+        </ul>
+      )}
       {!timeline.closed && (
         <div className={`next-step ${expectedDelivery.status === 'ON_TRACK' ? '' : 'delivery-warning'}`}>
           <div>

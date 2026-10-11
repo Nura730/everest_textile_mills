@@ -29,7 +29,11 @@ export const runIdParamsSchema = z.object({ id: objectIdSchema });
 
 export const emptyBodySchema = z.strictObject({});
 export const reasonBodySchema = z.strictObject({ reason: z.string().trim().min(5).max(500) });
-export const completeRunBodySchema = z.strictObject({ note: z.string().trim().min(1).max(500).optional() });
+// Completing BELOW the run's target is a deliberate partial completion: it needs the reason for the shortfall.
+export const completeRunBodySchema = z.strictObject({
+  note: z.string().trim().min(1).max(500).optional(),
+  shortfallReason: z.string().trim().min(5).max(500).optional(),
+});
 
 export const recordRollBodySchema = z.strictObject({
   // One roll; stored as integer cm. A roll is at most 10,000 m.

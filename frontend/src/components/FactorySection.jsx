@@ -30,12 +30,14 @@ const sectionIconMap = {
 function getStatusIcon(status) {
   switch (status) {
     case 'DOWN':
+    case 'OUT_OF_SERVICE':
       return <AlertOctagon size={14} className="unit-icon-down" />;
     case 'RUNNING':
       return <Activity size={14} className="unit-icon-neutral" />;
     case 'AVAILABLE':
       return <CheckCircle2 size={14} className="unit-icon-neutral" />;
     case 'IDLE':
+    case 'ASSIGNED':
       return <Play size={14} className="unit-icon-neutral" />;
     case 'PAUSED':
       return <Pause size={14} className="unit-icon-neutral" />;
@@ -58,7 +60,7 @@ export default function FactorySection({
   const totalInSection = allSectionUnits.length;
   const availableCount = allSectionUnits.filter((u) => u.status === 'AVAILABLE').length;
   const runningCount = allSectionUnits.filter((u) => u.status === 'RUNNING').length;
-  const downCount = allSectionUnits.filter((u) => u.status === 'DOWN').length;
+  const downCount = allSectionUnits.filter((u) => u.status === 'DOWN' || u.status === 'OUT_OF_SERVICE').length;
 
   return (
     <section className="factory-section-panel" aria-labelledby={`section-title-${section.id}`}>
@@ -103,7 +105,7 @@ export default function FactorySection({
           </div>
         ) : (
           units.map((unit) => {
-            const isDown = unit.status === 'DOWN';
+            const isDown = unit.status === 'DOWN' || unit.status === 'OUT_OF_SERVICE';
             const isSelected = selectedUnit?.id === unit.id;
 
             return (
@@ -113,7 +115,7 @@ export default function FactorySection({
                 role="listitem"
                 className={`factory-unit-tile ${isDown ? 'is-down' : ''} ${
                   isSelected ? 'is-selected' : ''
-                }`}
+                } ${unit.tone ? `floor-tone-${unit.tone}` : ''}`}
                 onClick={() => onSelectUnit(unit)}
                 title={`${unit.id} • ${unit.name} • Status: ${unit.status} • Location: ${unit.location}`}
                 aria-label={`Unit ${unit.id}, ${unit.name}, Status ${unit.status}`}
@@ -123,8 +125,8 @@ export default function FactorySection({
                   {getStatusIcon(unit.status)}
                 </div>
                 <div className="factory-unit-tile-bottom">
-                  <span className={`factory-unit-status-tag ${isDown ? 'tag-down' : ''}`}>
-                    {unit.status}
+                  <span className={`factory-unit-status-tag ${isDown ? 'tag-down' : ''} ${unit.tone ? `floor-tone-${unit.tone}` : ''}`}>
+                    {unit.status.replace(/_/g, ' ')}
                   </span>
                 </div>
               </button>

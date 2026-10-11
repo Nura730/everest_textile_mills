@@ -7,6 +7,7 @@ import { ROLES, ROLE_LABELS } from '../auth/roles.js';
 import { FilterBar, FilterDate, FilterSelect } from '../components/ui/Filters.jsx';
 import { ConfirmDialog } from '../components/ui/Modal.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
+import { StatusBadge } from '../components/ui/StatusBadge.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
@@ -93,7 +94,7 @@ export default function AuditTrail() {
                     <td>{e.actorName ?? '—'}<div className="cell-sub">{ROLE_LABELS[e.actorRole] ?? e.actorRole}</div></td>
                     <td>{e.entityType}{e.orderId && <div><Link to={`/orders/${e.orderId}`}>Order</Link></div>}{e.machineId && <div><Link to={`/machines/${e.machineId}`}>Machine</Link></div>}</td>
                     <td><Change before={e.before} after={e.after} /></td>
-                    <td><span className="erp-status-badge neutral">{e.source === 'OFFLINE' ? 'Offline' : 'Online'}</span></td>
+                    <td><StatusBadge tone={e.source === 'OFFLINE' ? 'info' : 'neutral'} label={e.source === 'OFFLINE' ? 'Offline' : 'Online'} /></td>
                     {admin && <td className="row-actions">{e.action !== 'AUDIT_CORRECTION' && <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setCorrecting({ entry: e, note: '' })}>Correct</button>}</td>}
                   </tr>
                 ))}

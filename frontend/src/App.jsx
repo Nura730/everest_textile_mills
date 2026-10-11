@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext.jsx';
 import { RequireAuth, RequireRole } from './auth/RequireAuth.jsx';
-import { LIVE_NAV, PREVIEW_NAV } from './auth/roles.js';
+import { LIVE_NAV, PREVIEW_NAV, SHOW_SAMPLE_SCREENS } from './auth/roles.js';
 import AppLayout from './components/AppLayout';
 import { PreviewNotice } from './components/ui/PageHeader.jsx';
 import { ToastProvider } from './components/ui/Toast.jsx';
@@ -15,9 +15,14 @@ import MachineList from './pages/MachineList';
 import ProductionList from './pages/ProductionList';
 import AuditTrail from './pages/AuditTrail';
 import Costing from './pages/Costing';
+import Machines from './pages/Machines';
 import Insights from './pages/Insights';
 import DispatchPage from './pages/DispatchPage';
 import Invoices from './pages/Invoices';
+import InvoiceDetail from './pages/InvoiceDetail';
+import Attendance from './pages/Attendance';
+import Workers from './pages/Workers';
+import Wages from './pages/Wages';
 import QcQueue from './pages/QcQueue';
 import RollDetail from './pages/RollDetail';
 import RollList from './pages/RollList';
@@ -30,7 +35,6 @@ import Users from './pages/Users';
 // Preview screens (sample data from context/AppContext; backend modules are planned phases)
 import BOM from './pages/BOM';
 import Dispatch from './pages/Dispatch';
-import Machines from './pages/Machines';
 import Production from './pages/Production';
 import QualityControl from './pages/QualityControl';
 import Settings from './pages/Settings';
@@ -47,15 +51,18 @@ const LIVE_PAGES = {
   '/quality': <QcQueue />,
   '/dispatch': <DispatchPage />,
   '/invoices': <Invoices />,
+  '/attendance': <Attendance />,
+  '/workers': <Workers />,
+  '/wages': <Wages />,
   '/audit': <AuditTrail />,
   '/costing': <Costing />,
+  '/floor-map': <Machines />,
   '/insights': <Insights />,
   '/rolls': <RollList />,
   '/users': <Users />,
 };
 
 const PREVIEW_PAGES = {
-  '/floor-map': <Machines />,
   '/production-board': <Production />,
   '/quality-board': <QualityControl />,
   '/dispatch-board': <Dispatch />,
@@ -68,6 +75,7 @@ const ordersRoles = LIVE_NAV.find((item) => item.to === '/orders').roles;
 const machineRoles = LIVE_NAV.find((item) => item.to === '/machines').roles;
 const productionRoles = LIVE_NAV.find((item) => item.to === '/production').roles;
 const rollRoles = LIVE_NAV.find((item) => item.to === '/rolls').roles;
+const invoiceRoles = LIVE_NAV.find((item) => item.to === '/invoices').roles;
 
 function App() {
   return (
@@ -88,10 +96,12 @@ function App() {
                     />
                   ))}
                   <Route path="orders/:id" element={<RequireRole roles={ordersRoles}><OrderDetail /></RequireRole>} />
+                  <Route path="invoices/:id" element={<RequireRole roles={invoiceRoles}><InvoiceDetail /></RequireRole>} />
                   <Route path="machines/:id" element={<RequireRole roles={machineRoles}><MachineDetail /></RequireRole>} />
                   <Route path="production/:id" element={<RequireRole roles={productionRoles}><RunDetail /></RequireRole>} />
                   <Route path="rolls/:id" element={<RequireRole roles={rollRoles}><RollDetail /></RequireRole>} />
-                  {PREVIEW_NAV.map((item) => (
+                  {/* Sample-data screens: development builds only. */}
+                  {SHOW_SAMPLE_SCREENS && PREVIEW_NAV.map((item) => (
                     <Route
                       key={item.to}
                       path={item.to.slice(1)}

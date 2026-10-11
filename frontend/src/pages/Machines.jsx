@@ -13,93 +13,68 @@ import {
   ShieldAlert,
   Box,
 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { factorySections, factoryUnits } from '../data/factoryFloorData';
+import { machinesApi } from '../api/endpoints.js';
+import { useAuth } from '../auth/AuthContext.jsx';
+import { ROLE_LABELS, ROLES } from '../auth/roles.js';
+import { ErrorState, LoadingState } from '../components/ui/States.jsx';
+import { useApiQuery } from '../hooks/useApiQuery.js';
+import { liveMatch, useLive } from '../realtime/realtimeBus.js';
+import { formatDateTime } from '../utils/format.js';
+import { FLOOR_LEGEND, SECTION_BY_TYPE, floorCounts, toFloorUnit } from '../utils/floorMap.js';
+import { factorySections as allFactorySections } from '../data/factoryFloorData';
 import FactorySection from '../components/FactorySection';
-import FactoryUnitModal from '../components/FactoryUnitModal';
+
+// Only the sections that hold machines in the system (by machine type); storage, QC and dispatch bays are
+// not machine records, so they are not drawn.
+const factorySections = allFactorySections.filter((s) => Object.values(SECTION_BY_TYPE).includes(s.id));
+
+/** Every machine record (active and retired), page by page (the list API returns at most 100 a page). */
+async function loadAllMachines() {
+  const machines = [];
+  for (const isActive of [true, false]) {
+    for (let page = 1; ; page += 1) {
+      const { data, meta } = await machinesApi.list({ isActive, limit: 100, page });
+      machines.push(...data.machines);
+      if (page * 100 >= (meta?.total ?? 0)) break;
+    }
+  }
+  return { data: { machines, loadedAt: new Date() } };
+}
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'All Statuses' },
   { value: 'RUNNING', label: 'Running' },
   { value: 'AVAILABLE', label: 'Available' },
-  { value: 'IDLE', label: 'Idle' },
+  { value: 'ASSIGNED', label: 'Idle (assigned)' },
   { value: 'PAUSED', label: 'Paused' },
   { value: 'MAINTENANCE', label: 'Maintenance' },
   { value: 'DOWN', label: 'Down (Critical)' },
+  { value: 'OUT_OF_SERVICE', label: 'Out of service' },
 ];
 
 export default function Machines() {
   const navigate = useNavigate();
-  const { currentRole } = useApp();
+  const { user } = useAuth();
+  const currentRole = user ? { id: user.role, name: ROLE_LABELS[user.role] ?? user.role } : null;
 
-  // Role-Based Access Control: Only ADMIN_OWNER and FLOOR_MANAGER are authorized
-  const isAuthorized =
-    currentRole && (currentRole.id === 'ADMIN_OWNER' || currentRole.id === 'FLOOR_MANAGER');
+  // Role-Based Access Control: only Admin and Floor Manager (the server also enforces machine access)
+  const isAuthorized = Boolean(user) && (user.role === ROLES.ADMIN || user.role === ROLES.FLOOR_MANAGER);
+
+  // The machine records from the backend; refreshed whenever a machine or run change is recorded.
+  const machines = useApiQuery(() => (isAuthorized ? loadAllMachines() : Promise.resolve({ data: { machines: [] } })), [isAuthorized], { cacheKey: 'floor-map:machines' });
+  useLive(liveMatch.actions('MACHINE_', 'RUN_'), machines.reload);
+  const factoryUnits = useMemo(() => (machines.data?.machines ?? []).map((m) => toFloorUnit(m, factorySections)), [machines.data]);
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSection, setSelectedSection] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
 
-  // Selected Unit for Detail Modal
-  const [selectedUnit, setSelectedUnit] = useState(null);
+  // A tile opens the machine's own page (status history, problems, maintenance).
+  const openUnit = (unit) => navigate(`/machines/${unit.machineId}`);
 
-  // Local demo problem reports list
-  const [reportedProblems, setReportedProblems] = useState([
-    {
-      id: 'REP-9012',
-      unitId: 'WV-16',
-      unitName: 'Dobby Loom C-05',
-      section: 'Weaving Section',
-      category: 'Mechanical',
-      severity: 'Critical',
-      description: 'CRITICAL BREAKDOWN: Warp yarn tension break across harness shaft #4. Line halted.',
-      timestamp: '09:15 AM',
-      date: '2026-10-10',
-      isDemoState: true,
-    },
-    {
-      id: 'REP-9013',
-      unitId: 'SP-10',
-      unitName: 'Ring Spinning Frame RS-03',
-      section: 'Spinning Section',
-      category: 'Electrical',
-      severity: 'Critical',
-      description: 'Main spindle drive flat belt snapped on Section 4. Maintenance crew installing spare.',
-      timestamp: '08:45 AM',
-      date: '2026-10-10',
-      isDemoState: true,
-    },
-    {
-      id: 'REP-9014',
-      unitId: 'RM-06',
-      unitName: 'Bamboo Viscose Staging B2',
-      section: 'Raw Material Store',
-      category: 'Mechanical',
-      severity: 'Critical',
-      description: 'Overhead pallet crane hoist cable jam. Automatic retrieval halted; repair crew dispatched.',
-      timestamp: '07:30 AM',
-      date: '2026-10-10',
-      isDemoState: true,
-    },
-  ]);
-
-  const handleReportProblem = (newReport) => {
-    setReportedProblems((prev) => [newReport, ...prev]);
-  };
-
-  // Dynamic KPI counts derived from actual dataset
-  const kpis = useMemo(() => {
-    const total = factoryUnits.length;
-    const running = factoryUnits.filter((u) => u.status === 'RUNNING').length;
-    const available = factoryUnits.filter((u) => u.status === 'AVAILABLE').length;
-    const idle = factoryUnits.filter((u) => u.status === 'IDLE').length;
-    const paused = factoryUnits.filter((u) => u.status === 'PAUSED').length;
-    const maintenance = factoryUnits.filter((u) => u.status === 'MAINTENANCE').length;
-    const down = factoryUnits.filter((u) => u.status === 'DOWN').length;
-
-    return { total, running, available, idle, paused, maintenance, down };
-  }, []);
+  // KPI counts from the backend machine records
+  const kpis = useMemo(() => floorCounts(factoryUnits), [factoryUnits]);
 
   // Filtered dataset
   const filteredUnits = useMemo(() => {
@@ -109,7 +84,7 @@ export default function Machines() {
         searchTerm.trim() === '' ||
         unit.id.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
         unit.name.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
-        (unit.currentOrder && unit.currentOrder.toLowerCase().includes(searchTerm.toLowerCase().trim())) ||
+        (unit.location && unit.location.toLowerCase().includes(searchTerm.toLowerCase().trim())) ||
         (unit.type && unit.type.toLowerCase().includes(searchTerm.toLowerCase().trim())) ||
         unit.section.toLowerCase().includes(searchTerm.toLowerCase().trim());
 
@@ -121,26 +96,15 @@ export default function Machines() {
 
       return matchesSearch && matchesSection && matchesStatus;
     });
-  }, [searchTerm, selectedSection, selectedStatus]);
+  }, [factoryUnits, searchTerm, selectedSection, selectedStatus]);
 
   // Dynamic Summary Table counts by section
   const summaryTableData = useMemo(() => {
     return factorySections.map((sec) => {
-      const unitsInSec = factoryUnits.filter((u) => u.sectionId === sec.id);
-      return {
-        sectionId: sec.id,
-        sectionName: sec.name,
-        prefix: sec.prefix,
-        count: unitsInSec.length,
-        running: unitsInSec.filter((u) => u.status === 'RUNNING').length,
-        available: unitsInSec.filter((u) => u.status === 'AVAILABLE').length,
-        idle: unitsInSec.filter((u) => u.status === 'IDLE').length,
-        paused: unitsInSec.filter((u) => u.status === 'PAUSED').length,
-        maintenance: unitsInSec.filter((u) => u.status === 'MAINTENANCE').length,
-        down: unitsInSec.filter((u) => u.status === 'DOWN').length,
-      };
+      const { total, ...counts } = floorCounts(factoryUnits.filter((u) => u.sectionId === sec.id));
+      return { sectionId: sec.id, sectionName: sec.name, prefix: sec.prefix, count: total, ...counts };
     });
-  }, []);
+  }, [factoryUnits]);
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -163,7 +127,7 @@ export default function Machines() {
           </div>
           <h2 className="restricted-title">Access Restricted — Factory Floor Map</h2>
           <p className="restricted-desc">
-            The interactive Factory Floor Map and equipment telemetry feed are restricted to{' '}
+            The Factory Floor Map is restricted to{' '}
             <strong>Admin</strong> and <strong>Floor Manager</strong> roles.
           </p>
           <div className="restricted-role-info">
@@ -173,8 +137,7 @@ export default function Machines() {
               <span className="restricted-role-id">({currentRole?.id || 'NO_ROLE'})</span>
             </div>
             <p className="text-xs text-secondary" style={{ marginTop: 8 }}>
-              To inspect this feature, use the role switcher located at the top-right of the header
-              bar and select <strong>Admin</strong> or <strong>Floor Manager</strong>.
+              Ask an <strong>Admin</strong> if you need access.
             </p>
           </div>
           <div className="restricted-actions">
@@ -201,79 +164,74 @@ export default function Machines() {
         <div className="factory-header-left">
           <div className="factory-title-row">
             <h1 className="factory-main-title">Factory Floor Map</h1>
-            <span className="factory-demo-badge">DEMO DATA</span>
-            <span className="factory-live-pulse-badge">
-              <span className="pulse-dot" />
-              <span>Telemetry Active</span>
-            </span>
           </div>
           <p className="factory-main-subtitle">
-            Live view of factory sections, machines, and storage locations.
+            Machines by factory section, coloured by their recorded status (updated when a change is recorded; not sensor telemetry).
           </p>
         </div>
 
         <div className="factory-header-right">
           <div className="factory-last-updated-box">
             <Clock size={14} className="text-muted" />
-            <span>Updated: Just now (Simulated Feed)</span>
+            <span>Loaded: {machines.data?.loadedAt ? formatDateTime(machines.data.loadedAt) : '—'}</span>
           </div>
         </div>
       </div>
 
       {/* 5. Summary KPI Cards (Monochrome + Red for DOWN) */}
       <div className="factory-kpi-grid">
-        <div className="factory-kpi-card" title="Total factory floor units across all 8 conceptual sections">
+        <div className="factory-kpi-card" title="Every machine record, including retired machines">
           <div className="factory-kpi-card-header">
             <span className="factory-kpi-label">Total Units</span>
             <Box size={16} className="text-muted" />
           </div>
           <div className="factory-kpi-value">{kpis.total}</div>
-          <div className="factory-kpi-meta">74 Tracked Bays & Machines</div>
+          <div className="factory-kpi-meta">Machines in {factorySections.length} sections</div>
         </div>
 
-        <div className="factory-kpi-card" title="Actively spinning, weaving, or processing orders">
+        <div className="factory-kpi-card floor-kpi-running" title="Running a production run">
           <div className="factory-kpi-card-header">
             <span className="factory-kpi-label">Running</span>
             <Activity size={16} className="text-muted" />
           </div>
           <div className="factory-kpi-value">{kpis.running}</div>
-          <div className="factory-kpi-meta">{((kpis.running / kpis.total) * 100).toFixed(0)}% Fleet In-Service</div>
+          <div className="factory-kpi-meta">{kpis.total ? ((kpis.running / kpis.total) * 100).toFixed(0) : 0}% of machines running</div>
         </div>
 
-        <div className="factory-kpi-card" title="Ready for immediate batch assignment or staging">
+        <div className="factory-kpi-card floor-kpi-idle" title="Free for a new production run">
           <div className="factory-kpi-card-header">
             <span className="factory-kpi-label">Available</span>
             <CheckCircle2 size={16} className="text-muted" />
           </div>
           <div className="factory-kpi-value">{kpis.available}</div>
-          <div className="factory-kpi-meta">Clean & Ready for Work Orders</div>
+          <div className="factory-kpi-meta">Free for production</div>
         </div>
 
-        <div className="factory-kpi-card" title="Standby between production shifts">
+        <div className="factory-kpi-card floor-kpi-idle" title="Assigned to a run that has not started, or paused">
           <div className="factory-kpi-card-header">
             <span className="factory-kpi-label">Idle</span>
             <Play size={16} className="text-muted" />
           </div>
-          <div className="factory-kpi-value">{kpis.idle}</div>
-          <div className="factory-kpi-meta">Awaiting Material or Beam</div>
+          <div className="factory-kpi-value">{kpis.idle + kpis.paused}</div>
+          <div className="factory-kpi-meta">Assigned {kpis.idle} · paused {kpis.paused}</div>
         </div>
 
-        <div className="factory-kpi-card" title="Under scheduled preventive servicing">
+        <div className="factory-kpi-card floor-kpi-maintenance" title="In maintenance">
           <div className="factory-kpi-card-header">
             <span className="factory-kpi-label">Maintenance</span>
             <Wrench size={16} className="text-muted" />
           </div>
           <div className="factory-kpi-value">{kpis.maintenance}</div>
-          <div className="factory-kpi-meta">Planned Lubrication & Overhaul</div>
+          <div className="factory-kpi-meta">Cost recorded when it finishes</div>
         </div>
 
-        <div className="factory-kpi-card kpi-card-down" title="Unscheduled stoppages & breakdown outages">
+        <div className="factory-kpi-card kpi-card-down" title="Down after a reported problem, or retired (out of service)">
           <div className="factory-kpi-card-header">
             <span className="factory-kpi-label text-red">Down</span>
             <AlertOctagon size={16} className="text-red" />
           </div>
           <div className="factory-kpi-value text-red">{kpis.down}</div>
-          <div className="factory-kpi-meta text-red">Critical Halt • Ticket Dispatched</div>
+          <div className="factory-kpi-meta text-red">Not working or out of service</div>
         </div>
       </div>
 
@@ -284,7 +242,7 @@ export default function Machines() {
           <input
             type="text"
             className="factory-search-input"
-            placeholder="Search by unit ID (e.g. WV-03), name, order (ORD-...), or section..."
+            placeholder="Search by machine code (e.g. W-03), name, location, or section..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -311,7 +269,7 @@ export default function Machines() {
               value={selectedSection}
               onChange={(e) => setSelectedSection(e.target.value)}
             >
-              <option value="ALL">All Sections (8)</option>
+              <option value="ALL">All Sections ({factorySections.length})</option>
               {factorySections.map((sec) => (
                 <option key={sec.id} value={sec.id}>
                   {sec.name} ({sec.prefix})
@@ -358,14 +316,28 @@ export default function Machines() {
         </div>
       </div>
 
+      {/* Status colour legend */}
+      <div className="floor-legend" aria-label="Status colours">
+        {FLOOR_LEGEND.map((l) => (
+          <span key={l.tone} className="floor-legend-item">
+            <span className={`floor-legend-swatch floor-tone-${l.tone}`} aria-hidden="true" />
+            {l.label}
+          </span>
+        ))}
+      </div>
+
       {/* 7. Factory Floor Map Section Grid */}
       <main className="factory-map-main-area">
-        {filteredUnits.length === 0 ? (
+        {machines.error ? (
+          <ErrorState error={machines.error} onRetry={machines.reload} />
+        ) : !machines.data ? (
+          <LoadingState label="Loading machines…" />
+        ) : filteredUnits.length === 0 ? (
           <div className="factory-global-empty-state">
             <AlertTriangle size={32} className="text-muted" style={{ marginBottom: 12 }} />
-            <h3>No Factory Units Match Your Criteria</h3>
+            <h3>{factoryUnits.length === 0 ? 'No machines recorded yet' : 'No Factory Units Match Your Criteria'}</h3>
             <p className="text-muted text-sm">
-              No equipment or bays found matching &ldquo;{searchTerm}&rdquo; with the selected filters.
+              {factoryUnits.length === 0 ? 'Add machines on the Machines page; they appear here by type.' : <>No machines found matching &ldquo;{searchTerm}&rdquo; with the selected filters.</>}
             </p>
             <button
               type="button"
@@ -373,7 +345,7 @@ export default function Machines() {
               style={{ marginTop: 14 }}
               onClick={clearFilters}
             >
-              Reset Filters & Show All 74 Units
+              Reset Filters & Show All Units
             </button>
           </div>
         ) : (
@@ -395,8 +367,8 @@ export default function Machines() {
                   section={section}
                   units={sectionFilteredUnits}
                   allSectionUnits={sectionAllUnits}
-                  selectedUnit={selectedUnit}
-                  onSelectUnit={setSelectedUnit}
+                  selectedUnit={null}
+                  onSelectUnit={openUnit}
                 />
               );
             })}
@@ -404,7 +376,7 @@ export default function Machines() {
         )}
       </main>
 
-      {/* 12. Demo Data Summary Table */}
+      {/* 12. Summary Table (from the machine records) */}
       <section className="factory-summary-table-section" aria-labelledby="summary-table-title">
         <div className="summary-table-header">
           <div>
@@ -412,10 +384,9 @@ export default function Machines() {
               Factory Unit Distribution & Status Summary
             </h2>
             <p className="summary-table-subtitle">
-              Mathematical cross-tabulation across all 8 conceptual textile plant departments.
+              Machines by section and recorded status.
             </p>
           </div>
-          <span className="summary-demo-flag">DEMO AUDIT DATA</span>
         </div>
 
         <div className="factory-table-container">
@@ -427,7 +398,7 @@ export default function Machines() {
                 <th scope="col" style={{ width: '10%' }} className="text-right">Total</th>
                 <th scope="col" style={{ width: '10%' }} className="text-right">Running</th>
                 <th scope="col" style={{ width: '10%' }} className="text-right">Available</th>
-                <th scope="col" style={{ width: '10%' }} className="text-right">Idle</th>
+                <th scope="col" style={{ width: '10%' }} className="text-right">Assigned</th>
                 <th scope="col" style={{ width: '10%' }} className="text-right">Paused</th>
                 <th scope="col" style={{ width: '12%' }} className="text-right">Maintenance</th>
                 <th scope="col" style={{ width: '10%' }} className="text-right text-red">Down</th>
@@ -455,7 +426,7 @@ export default function Machines() {
             <tfoot>
               <tr className="table-total-row">
                 <td className="font-bold">Total Factory Fleet</td>
-                <td className="font-mono text-xs text-muted">All 8 Sectors</td>
+                <td className="font-mono text-xs text-muted">All {factorySections.length} Sections</td>
                 <td className="text-right font-bold font-mono">{kpis.total}</td>
                 <td className="text-right font-bold font-mono">{kpis.running}</td>
                 <td className="text-right font-bold font-mono">{kpis.available}</td>
@@ -471,20 +442,11 @@ export default function Machines() {
         </div>
         <div className="summary-table-note">
           <span>
-            * Note: Paused units (4) represent temporary shift handovers or yarn beam re-creeling stops, accounted for explicitly in totals (40 Running + 13 Available + 9 Idle + 4 Paused + 5 Maintenance + 3 Down = 74 Total).
+            * Down includes retired (out of service) machines. Totals: {kpis.running} Running + {kpis.available} Available + {kpis.idle} Assigned + {kpis.paused} Paused + {kpis.maintenance} Maintenance + {kpis.down} Down = {kpis.total} Total.
           </span>
         </div>
       </section>
 
-      {/* 10. Machine Details Modal (Keyboard & Backdrop Safe) */}
-      <FactoryUnitModal
-        key={selectedUnit ? selectedUnit.id : 'none'}
-        unit={selectedUnit}
-        isOpen={Boolean(selectedUnit)}
-        onClose={() => setSelectedUnit(null)}
-        onReportProblem={handleReportProblem}
-        reportedProblems={reportedProblems}
-      />
     </div>
   );
 }

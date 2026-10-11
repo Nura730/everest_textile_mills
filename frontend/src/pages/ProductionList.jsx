@@ -4,6 +4,7 @@ import { Plus, RefreshCw } from 'lucide-react';
 import { machinesApi, productionApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
+import { CachedNotice } from '../offline/CachedNotice.jsx';
 import { can } from '../auth/roles.js';
 import { RunStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { PlanRunModal } from '../components/production/PlanRunModal.jsx';
@@ -34,7 +35,7 @@ export default function ProductionList() {
   const navigate = useNavigate();
   const [planning, setPlanning] = useState(false);
   const { filters, set, clear, query, active, page, setPage } = useFilters(NO_FILTERS);
-  const runs = useApiQuery(() => productionApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page]);
+  const runs = useApiQuery(() => productionApi.list({ ...query, page, limit: PAGE_SIZE }), [query, page], { cacheKey: `runs:${JSON.stringify(query)}:${page}` });
   useLive(liveMatch.actions('RUN_', 'ROLL_'), runs.reload);
   // The machine filter needs the machine list, which only machine viewers may read.
   const machineViewer = can.operateMachines(user.role) || user.role === 'QC_INSPECTOR';
@@ -47,7 +48,7 @@ export default function ProductionList() {
     <div>
       <PageHeader
         title="Production"
-        subtitle="Production runs: which order is on which machine, and how much has been produced. Live data."
+        subtitle="Production runs: which order is on which machine, and how much has been produced."
         breadcrumbs={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Production' }]}
         actions={
           <>
@@ -62,6 +63,7 @@ export default function ProductionList() {
           </>
         }
       />
+      <CachedNotice cachedAt={runs.cachedAt} />
       <div className="erp-card">
         <FilterBar active={active} onClear={clear} label="Run filters">
           <FilterSelect id="run-status" label="Status" value={filters.status} onChange={(value) => set('status', value)} options={Object.entries(RUN_STATUS_LABELS).map(([value, label]) => ({ value, label }))} />

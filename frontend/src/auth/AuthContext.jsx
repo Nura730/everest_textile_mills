@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { configureApi } from '../api/client.js';
 import { authApi } from '../api/endpoints.js';
 import { useToast } from '../components/ui/Toast.jsx';
+import { clearCacheFor, clearOtherUsersCache, setCacheUser } from '../offline/cache.js';
+import { queuedItems } from '../offline/syncManager.js';
 
 /*
  * Session handling.
@@ -10,6 +12,10 @@ import { useToast } from '../components/ui/Toast.jsx';
  *  - On load, a stored token is re-validated with GET /auth/me (the backend decides whether it is
  *    still good: expired, revoked or deactivated accounts get 401).
  *  - Any 401 from any request ends the session and sends the user to the login page.
+ *  - Offline-first: the session also keeps the user's PUBLIC profile (id, name, email, role, company).
+ *    If the server cannot be reached on a page refresh, a stored, unexpired session opens the app from
+ *    that profile so cached screens and queued actions stay usable; the server still checks the token
+ *    on every request and on sync, and the session is re-verified as soon as the connection returns.
  *  - The UI hides what a role cannot do, but the backend enforces every permission.
  */
 
@@ -33,10 +39,13 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [status, setStatus] = useState(session ? 'checking' : 'signedOut'); // checking | signedIn | signedOut | unreachable
   const tokenRef = useRef(session?.token ?? null);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   const endSession = useCallback(() => {
     sessionStorage.removeItem(STORAGE_KEY);
     tokenRef.current = null;
+    setCacheUser(null);
     setSession(null);
     setUser(null);
     setStatus('signedOut');
@@ -61,18 +70,48 @@ export function AuthProvider({ children }) {
     configureApi({ tokenGetter: () => tokenRef.current, unauthorizedHandler: handleUnauthorized });
   }, [handleUnauthorized]);
 
-  const verify = useCallback(async () => {
-    setStatus('checking');
+  const verify = useCallback(async ({ quiet = false } = {}) => {
+    const token = tokenRef.current;
+    if (!quiet) setStatus('checking');
     try {
       const { data } = await authApi.me();
+      // The session may have ended while this check was in flight (sign-out, or a 401 elsewhere):
+      // a late answer must never bring an ended session back.
+      if (!token || tokenRef.current !== token) return;
+      const stored = sessionRef.current;
+      if (stored) {
+        const next = { ...stored, user: data.user };
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        sessionRef.current = next;
+      }
       setUser(data.user);
       setStatus('signedIn');
     } catch (error) {
       // 401 is handled by handleUnauthorized (signs out). Anything else — network down, 5xx — must not
-      // silently log the user out: show "cannot reach the server" with a retry.
-      if (error.status !== 401) setStatus('unreachable');
+      // silently log the user out. Offline with a stored profile: open the app from it (offline-first);
+      // otherwise show "cannot reach the server" with a retry.
+      if (error.status === 401 || quiet || tokenRef.current !== token) return;
+      const stored = sessionRef.current;
+      if (error.isNetworkError && stored?.user) {
+        setUser(stored.user);
+        setStatus('signedIn');
+      } else setStatus('unreachable');
     }
   }, []);
+
+  // Opened offline from the stored profile: re-check the session with the server once back online.
+  useEffect(() => {
+    if (status !== 'signedIn') return undefined;
+    const recheck = () => verify({ quiet: true });
+    window.addEventListener('online', recheck);
+    return () => window.removeEventListener('online', recheck);
+  }, [status, verify]);
+
+  // The device cache belongs to the signed-in user; another person's cached screens are removed.
+  useEffect(() => {
+    setCacheUser(user?.id ?? null);
+    if (user?.id) clearOtherUsersCache(user.id);
+  }, [user?.id]);
 
   // Re-validate a stored session once on load (page refresh).
   useEffect(() => {
@@ -90,7 +129,7 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (email, password) => {
     const { data } = await authApi.login(email, password);
-    const next = { token: data.token, expiresAt: data.expiresAt };
+    const next = { token: data.token, expiresAt: data.expiresAt, user: data.user };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     tokenRef.current = data.token;
     setSession(next);
@@ -99,10 +138,17 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const leaving = user;
+    const waiting = leaving ? (await queuedItems(leaving.id)).length : 0;
+    if (leaving) await clearCacheFor(leaving.id);
     endSession();
-    toast.info('You have been signed out.');
-  }, [endSession, toast]);
+    toast.info(
+      waiting
+        ? `You have been signed out. ${waiting} action(s) stay saved on this device and will sync the next time you sign in.`
+        : 'You have been signed out.',
+    );
+  }, [endSession, toast, user]);
 
   const value = useMemo(() => ({ user, status, login, logout, retry: verify }), [user, status, login, logout, verify]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

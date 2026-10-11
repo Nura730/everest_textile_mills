@@ -15,6 +15,7 @@ router.get(
   inventoryController.getYarnSummary,
 );
 // Proves stored balances against the ledger. Owner-level oversight.
-router.get('/reconciliation', authorize(ROLES.ADMIN), inventoryController.getReconciliation);
+// The store keeper owns stock correctness: they find discrepancies here and correct them with adjustments.
+router.get('/reconciliation', authorize(ROLES.STORE_KEEPER, ROLES.ADMIN), inventoryController.getReconciliation);
 
 export default router;

@@ -7,6 +7,7 @@ import {
   ScrollText,
   Building2,
   Factory,
+  CalendarCheck,
   ClipboardCheck,
   ClipboardList,
   History,
@@ -18,6 +19,8 @@ import {
   TrendingUp,
   Truck,
   Users,
+  UserSquare,
+  Wallet,
 } from 'lucide-react';
 
 // Roles exactly as defined by the backend (backend/README.md permission matrix).
@@ -51,8 +54,8 @@ export const can = {
   confirmOrder: (role) => role === ROLES.ADMIN,
   // Ownership is checked by the server (a buyer only ever receives their own orders).
   editOrder: (role) => role === ROLES.BUYER || role === ROLES.ADMIN,
-  // Phase 4: the store moves yarn; the floor manager can see where it is.
-  reserveMaterial: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  // The floor manager reserves yarn for production; the store issues and returns the physical yarn.
+  reserveMaterial: (role) => role === ROLES.FLOOR_MANAGER || role === ROLES.ADMIN,
   issueMaterial: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
   viewReservations: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   // Phase 7: the owner registers machines; the floor manager runs maintenance and reports problems.
@@ -61,7 +64,7 @@ export const can = {
   // Phase 8: the floor manager plans and runs production; the store and QC follow it.
   runProduction: (role) => role === ROLES.FLOOR_MANAGER || role === ROLES.ADMIN,
   viewProduction: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN].includes(role),
-  // Phases 9-10: QC inspects (and signs passes); the floor finishes rework.
+  // Phases 9-10: QC inspects and signs every decision; the floor finishes rework.
   inspectRolls: (role) => role === ROLES.QC_INSPECTOR || role === ROLES.ADMIN,
   finishRework: (role) => role === ROLES.FLOOR_MANAGER || role === ROLES.ADMIN,
   // Phases 11-12: the store dispatches (signed); the owner invoices; buyers read their own invoices.
@@ -74,8 +77,16 @@ export const can = {
   manageUsers: (role) => role === ROLES.ADMIN,
   viewStock: (role) => [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN].includes(role),
   receiveYarn: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
-  adjustStock: (role) => role === ROLES.ADMIN,
-  reconcileStock: (role) => role === ROLES.ADMIN,
+  // Count corrections and write-offs go through the ledger; the store records them, the owner too.
+  adjustStock: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  // Descriptive lot details (supplier, count, cost, lot number); never quantities.
+  editLot: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  reconcileStock: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  // Workers, attendance and wages: the admin manages workers and sees wages; the floor manager records
+  // attendance (and corrects recent days); QC reads the register. Store keeper and buyers: no access.
+  manageWorkers: (role) => role === ROLES.ADMIN,
+  recordAttendance: (role) => role === ROLES.FLOOR_MANAGER || role === ROLES.ADMIN,
+  viewWages: (role) => role === ROLES.ADMIN,
 };
 
 /** Screens connected to the real backend. */
@@ -91,7 +102,11 @@ export const LIVE_NAV = [
   { to: '/quality', label: 'Quality control', icon: ClipboardCheck, roles: [ROLES.QC_INSPECTOR, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/rolls', label: 'Rolls', icon: ScrollText, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/floor-map', label: 'Factory floor map', icon: Sliders, roles: [ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/insights', label: 'Insights', icon: TrendingUp, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
+  { to: '/attendance', label: 'Attendance', icon: CalendarCheck, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/workers', label: 'Workers', icon: UserSquare, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/wages', label: 'Wages', icon: Wallet, roles: [ROLES.ADMIN] },
   { to: '/costing', label: 'Costing', icon: BarChart2, roles: [ROLES.ADMIN] },
   { to: '/audit', label: 'Audit trail', icon: ShieldCheck, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
@@ -102,7 +117,6 @@ export const LIVE_NAV = [
  * (docs/PROGRESS.md). They are labelled as previews everywhere so nobody mistakes them for live data.
  */
 export const PREVIEW_NAV = [
-  { to: '/floor-map', label: 'Factory Floor Map', icon: Sliders, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Sample layout; live machines are under Machines' },
   { to: '/production-board', label: 'Production board', icon: Activity, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Sample board; live runs are under Production' },
   { to: '/quality-board', label: 'QC board', icon: ClipboardCheck, roles: [ROLES.ADMIN, ROLES.QC_INSPECTOR], phase: 'Sample board; live QC is under Quality control' },
   { to: '/dispatch-board', label: 'Dispatch board', icon: Truck, roles: [ROLES.ADMIN, ROLES.STORE_KEEPER], phase: 'Sample board; live dispatch is under Dispatch' },
@@ -111,9 +125,12 @@ export const PREVIEW_NAV = [
   { to: '/settings', label: 'Settings', icon: Settings, roles: [ROLES.ADMIN], phase: 'Not scheduled' },
 ];
 
+/** Sample-data screens are shown only in development builds, never in production. */
+export const SHOW_SAMPLE_SCREENS = import.meta.env.DEV;
+
 export function navFor(role) {
   return {
     live: LIVE_NAV.filter((item) => item.roles.includes(role)),
-    preview: PREVIEW_NAV.filter((item) => item.roles.includes(role)),
+    preview: SHOW_SAMPLE_SCREENS ? PREVIEW_NAV.filter((item) => item.roles.includes(role)) : [],
   };
 }

@@ -10,7 +10,8 @@ import { Roll } from '../../src/models/Roll.js';
 import { Signature } from '../../src/models/Signature.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
-import { signatureHash } from '../../src/services/signature.service.js';
+import { verifyPayload } from '../../src/services/signing.service.js';
+import { SigningKey } from '../../src/models/SigningKey.js';
 import { bearer, captureLogs, createTestUser } from '../helpers/auth.js';
 import { clearCatalog, createTestBuyer, createTestOrder, createTestProduct, ensureCatalogCollections } from '../helpers/catalog.js';
 import { clearInventory, ensureInventoryCollections, newKey } from '../helpers/inventory.js';
@@ -105,7 +106,7 @@ describe('roll traceability', () => {
 });
 
 describe('QC inspection', () => {
-  it('PASS needs the inspector\'s signature, which is stored with its statement and a verifiable hash', async () => {
+  it('every decision needs the inspector\'s signed consent; the server signs it with the inspector\'s RSA key', async () => {
     const roll = await newRoll();
     const unsigned = await inspect(roll, { result: 'PASS' });
     expect(unsigned.status).toBe(400);
@@ -117,10 +118,15 @@ describe('QC inspection', () => {
     expect(res.body.data.roll.status).toBe('FINISHED');
     expect(res.body.data.finishedGood).toMatchObject({ rollNumber: roll.rollNumber, lengthMetres: 420, status: 'IN_STOCK' });
     expect(res.body.data.inspection).toMatchObject({ attempt: 1, result: 'PASS', inspectorName: 'Meena Iyer', signatureId: expect.any(String) });
-    const sig = await Signature.findOne({ entityId: roll._id }).lean();
+    expect(res.body.data.signature).toMatchObject({ cryptographic: true, verified: true, algorithm: 'RSA-PSS-SHA256', signerRole: 'QC_INSPECTOR' });
+    expect(res.body.data.signature.stages.map((st) => st.stage)).toEqual(['AUTHENTICATED', 'AUTHORIZED', 'PAYLOAD_PREPARED', 'HASHED', 'SIGNED', 'VERIFIED', 'SAVED']);
+
+    const sig = await Signature.findOne({ entityId: res.body.data.inspection.id }).lean();
     expect(sig).toMatchObject({ entityType: 'QC_INSPECTION', signerName: 'Meena Iyer', signerRole: 'QC_INSPECTOR', statement: `I confirm that roll ${roll.rollNumber} has passed inspection.` });
-    const record = { rollNumber: roll.rollNumber, lengthCm: 42_000, attempt: 1, result: 'PASS', inspectionId: res.body.data.inspection.id };
-    expect(sig.contentHash).toBe(signatureHash({ statement: sig.statement, signerId: qc._id, record }));
+    const key = await SigningKey.findOne({ keyId: sig.keyId }).lean();
+    expect(String(key.userId)).toBe(String(qc._id));
+    expect(verifyPayload(sig.payload, sig.signatureValue, key.publicKeyPem)).toBe(true);
+    expect(JSON.parse(sig.payload).record).toEqual({ inspectionId: res.body.data.inspection.id, rollId: String(roll._id), rollNumber: roll.rollNumber, lengthCm: 42_000, attempt: 1, result: 'PASS', defects: [] });
     expect(await AuditLog.countDocuments({ action: 'QC_PASSED', entityId: roll._id })).toBe(1);
   });
 
@@ -135,7 +141,7 @@ describe('QC inspection', () => {
 
   it('REWORK keeps the roll in history: inspected again as attempt 2 after rework', async () => {
     const roll = await newRoll();
-    expect((await inspect(roll, { result: 'REWORK', defects: colourMismatch })).body.data.roll.status).toBe('IN_REWORK');
+    expect((await inspect(roll, { result: 'REWORK', defects: colourMismatch, signature: signed })).body.data.roll.status).toBe('IN_REWORK');
     expect((await inspect(roll, { result: 'PASS', signature: signed })).body.error.code).toBe('INVALID_STATE_TRANSITION');
     const back = await reworkDone(roll);
     expect(back.body.data.roll).toMatchObject({ status: 'QC_PENDING', reworkCount: 1 });
@@ -149,14 +155,14 @@ describe('QC inspection', () => {
 
   it('REJECT is terminal: the roll can never be inspected or reworked again', async () => {
     const roll = await newRoll();
-    expect((await inspect(roll, { result: 'REJECT', defects: [{ type: 'HOLES', severity: 'CRITICAL' }] })).body.data.roll.status).toBe('REJECTED');
+    expect((await inspect(roll, { result: 'REJECT', defects: [{ type: 'HOLES', severity: 'CRITICAL' }], signature: signed })).body.data.roll.status).toBe('REJECTED');
     expect((await inspect(roll, { result: 'PASS', signature: signed })).status).toBe(409);
     expect((await reworkDone(roll)).status).toBe(409);
   });
 
   it('inspection history is append-only', async () => {
     const roll = await newRoll();
-    await inspect(roll, { result: 'REJECT', defects: colourMismatch });
+    await inspect(roll, { result: 'REJECT', defects: colourMismatch, signature: signed });
     await expect(QcInspection.updateOne({}, { $set: { result: 'PASS' } })).rejects.toThrow(/append-only/);
     await expect(Signature.deleteMany({})).rejects.toThrow(/append-only/);
   });
@@ -165,7 +171,7 @@ describe('QC inspection', () => {
     const roll = await newRoll();
     const results = await Promise.all([
       inspect(roll, { result: 'PASS', signature: signed }),
-      inspect(roll, { result: 'REJECT', defects: colourMismatch }, await createTestUser({ role: ROLES.QC_INSPECTOR })),
+      inspect(roll, { result: 'REJECT', defects: colourMismatch, signature: signed }, await createTestUser({ role: ROLES.QC_INSPECTOR })),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
     expect(await QcInspection.countDocuments({ rollId: roll._id })).toBe(1);
@@ -174,8 +180,8 @@ describe('QC inspection', () => {
   it('replays a retried inspection instead of recording it twice', async () => {
     const roll = await newRoll();
     const key = newKey();
-    await inspect(roll, { result: 'REJECT', defects: colourMismatch }, qc, key);
-    const retry = await inspect(roll, { result: 'REJECT', defects: colourMismatch }, qc, key);
+    await inspect(roll, { result: 'REJECT', defects: colourMismatch, signature: signed }, qc, key);
+    const retry = await inspect(roll, { result: 'REJECT', defects: colourMismatch, signature: signed }, qc, key);
     expect(retry.headers['idempotent-replayed']).toBe('true');
     expect(await QcInspection.countDocuments({ rollId: roll._id })).toBe(1);
   });
@@ -191,7 +197,7 @@ describe('QC inspection', () => {
 
   it('only QC (and admin) inspect; only the floor (and admin) finish rework', async () => {
     const roll = await newRoll();
-    for (const actor of [floor, store]) expect((await inspect(roll, { result: 'REJECT', defects: colourMismatch }, actor)).status).toBe(403);
+    for (const actor of [floor, store]) expect((await inspect(roll, { result: 'REJECT', defects: colourMismatch, signature: signed }, actor)).status).toBe(403);
     expect((await reworkDone(roll, qc)).status).toBe(403);
   });
 });
@@ -201,7 +207,7 @@ describe('QC reports', () => {
     const a = await newRoll();
     const b = await newRoll();
     await inspect(a, { result: 'PASS', signature: signed });
-    await inspect(b, { result: 'REWORK', defects: colourMismatch });
+    await inspect(b, { result: 'REWORK', defects: colourMismatch, signature: signed });
     const summary = (await get(qc, '/api/qc/summary')).body.data;
     expect(summary.inspections).toMatchObject({ PASS: 1, REWORK: 1 });
     expect(summary.rolls.IN_REWORK).toMatchObject({ rolls: 1, metres: 420 });

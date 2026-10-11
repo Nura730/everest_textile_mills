@@ -5,6 +5,7 @@ import { SIGNATURE_ENTITY, SIGNATURE_STATEMENTS } from '../constants/quality.js'
 import { ROLES } from '../constants/roles.js';
 import {
   DEFAULT_TAX_RATE_BASIS_POINTS,
+  DELIVERY_STATUS,
   DISPATCH_STATUS,
   Dispatch,
   FG_STATUS,
@@ -14,7 +15,7 @@ import {
   toPublicFinishedGood,
   toPublicInvoice,
 } from '../models/Fulfilment.js';
-import { toPublicOrder } from '../models/Order.js';
+import { Order, toPublicOrder } from '../models/Order.js';
 import { Roll } from '../models/Roll.js';
 import { findBuyerById } from '../repositories/catalog.repository.js';
 import { claimLock } from '../repositories/locks.repository.js';
@@ -25,7 +26,7 @@ import { searchAcross } from '../utils/search.js';
 import { cmToMetres } from '../utils/units.js';
 import { executeIdempotent } from './idempotency.service.js';
 import { onRollInspected, onRollPassed } from './quality.service.js';
-import { createSignature } from './signature.service.js';
+import { dispatchRecord, ensureSigningKey, signApproval, toSignatureMeta } from './signing.service.js';
 
 /*
  * Phases 11 and 12: finished goods, dispatch and invoicing.
@@ -194,8 +195,13 @@ function loadDispatch(id, session) {
   return Dispatch.findById(id).session(session ?? null).lean();
 }
 
-/** Confirm (sign) a prepared dispatch: the goods leave the factory. */
-export function confirmDispatch(id, { signature, vehicleNumber }, context) {
+/**
+ * Confirm a prepared dispatch: the goods leave the factory. The store keeper accepts the statement and
+ * the server signs the dispatch record (rolls, quantity, vehicle) with the store keeper's own RSA key,
+ * verifying it before commit; a failed signature leaves the dispatch PREPARED.
+ */
+export async function confirmDispatch(id, { signature, vehicleNumber }, context) {
+  if (signature) await ensureSigningKey(context.actor);
   return executeIdempotent({ context, operation: 'DISPATCH_CONFIRM', request: { id, vehicleNumber, signed: Boolean(signature) } }, async (session) => {
     const preview = await loadDispatch(id, session);
     if (!preview) throw notFound('Dispatch');
@@ -208,16 +214,19 @@ export function confirmDispatch(id, { signature, vehicleNumber }, context) {
     }
     if (!signature) {
       throw new AppError('SIGNATURE_REQUIRED', 'Final dispatch must be signed by the store keeper', {
-        details: { statement: SIGNATURE_STATEMENTS.DISPATCH(dispatch.dispatchNumber) },
+        details: { statement: SIGNATURE_STATEMENTS.DISPATCH(dispatch.dispatchNumber), failedStage: 'PAYLOAD_PREPARED' },
       });
     }
-    const signed = await createSignature(
+    const { signature: signed, signing } = await signApproval(
       {
+        approvalType: 'DISPATCH_CONFIRM',
         entityType: SIGNATURE_ENTITY.DISPATCH,
         entityId: dispatch._id,
         statement: SIGNATURE_STATEMENTS.DISPATCH(dispatch.dispatchNumber),
-        record: { dispatchNumber: dispatch.dispatchNumber, orderNumber: dispatch.orderNumber, rolls: dispatch.lines.map((l) => l.rollNumber).sort(), totalLengthCm: dispatch.totalLengthCm },
+        // Signed as it will be stored: with the vehicle given now, or the one from preparation.
+        record: dispatchRecord({ ...dispatch, vehicleNumber: vehicleNumber ?? dispatch.vehicleNumber ?? null }),
         image: signature.image,
+        nonce: `DISPATCH_CONFIRM:${context.idempotencyKey}`,
       },
       context,
       session,
@@ -230,11 +239,11 @@ export function confirmDispatch(id, { signature, vehicleNumber }, context) {
     if (moved.modifiedCount !== dispatch.lines.length) throw new AppError('CONFLICT', 'The dispatch changed meanwhile. Reload and try again.');
     const updated = await Dispatch.findOneAndUpdate(
       { _id: dispatch._id, status: DISPATCH_STATUS.PREPARED },
-      { $set: { status: DISPATCH_STATUS.CONFIRMED, confirmedBy: context.actor.id, confirmedAt: new Date(), signatureId: signed._id, ...(vehicleNumber ? { vehicleNumber } : {}) } },
+      { $set: { status: DISPATCH_STATUS.CONFIRMED, deliveryStatus: DELIVERY_STATUS.IN_TRANSIT, confirmedBy: context.actor.id, confirmedAt: new Date(), signatureId: signed._id, ...(vehicleNumber ? { vehicleNumber } : {}) } },
       { returnDocument: 'after', session, lean: true },
     );
     await recordAudit(
-      { action: 'DISPATCH_CONFIRMED', entityType: 'Dispatch', entityId: dispatch._id, orderId: dispatch.orderId, before: { status: dispatch.status }, after: { status: DISPATCH_STATUS.CONFIRMED, signed: true } },
+      { action: 'DISPATCH_CONFIRMED', entityType: 'Dispatch', entityId: dispatch._id, orderId: dispatch.orderId, before: { status: dispatch.status }, after: { status: DISPATCH_STATUS.CONFIRMED, signed: true, signatureId: String(signed._id), keyId: signing.keyId } },
       context,
       session,
     );
@@ -244,7 +253,7 @@ export function confirmDispatch(id, { signature, vehicleNumber }, context) {
     if (left === 0 && order.status === ORDER_STATUS.READY_FOR_DISPATCH) {
       order = await moveOrder(order, ORDER_STATUS.DISPATCHED, context, session, `Dispatch ${dispatch.dispatchNumber} confirmed`);
     }
-    return { statusCode: 200, body: { dispatch: toPublicDispatch(updated), orderStatus: order.status } };
+    return { statusCode: 200, body: { dispatch: toPublicDispatch(updated), orderStatus: order.status, signature: { ...toSignatureMeta(signed), verified: true, stages: signing.stages } } };
   });
 }
 
@@ -267,6 +276,83 @@ export function cancelDispatch(id, { reason }, context) {
     );
     await recordAudit({ action: 'DISPATCH_CANCELLED', entityType: 'Dispatch', entityId: dispatch._id, orderId: dispatch.orderId, before: { status: dispatch.status }, after: { status: DISPATCH_STATUS.CANCELLED, reason } }, context, session);
     return { statusCode: 200, body: { dispatch: toPublicDispatch(updated) } };
+  });
+}
+
+// ── Delivery after dispatch ─────────────────────────────────────────────────────
+
+const DELIVERY_NEXT_STEP = {
+  IN_TRANSIT: 'the buyer has not confirmed delivery yet (the buyer confirms receipt or reports a problem; the admin can record it on their behalf with proof).',
+  DELIVERED: 'the admin has not verified the delivery yet.',
+  DISCREPANCY: 'the buyer reported a problem with the delivery; the admin resolves and verifies it first.',
+};
+
+/**
+ * One delivery step on a confirmed dispatch, guarded on the expected current delivery state so a double
+ * click or a concurrent action cannot apply twice (idempotent with the Idempotency-Key as well).
+ */
+function deliveryAction({ id, operation, request, context, from, to, step, audit, check }) {
+  return executeIdempotent({ context, operation, request: { id, ...request } }, async (session) => {
+    const dispatch = await Dispatch.findOne({ _id: id, ...buyerScope(context.actor) }).session(session).lean();
+    if (!dispatch) throw notFound('Dispatch');
+    if (dispatch.status !== DISPATCH_STATUS.CONFIRMED) {
+      throw new AppError('INVALID_STATE_TRANSITION', `${dispatch.dispatchNumber} is ${dispatch.status}; delivery applies only after the dispatch is confirmed`, { details: { from: dispatch.status } });
+    }
+    const current = dispatch.deliveryStatus ?? DELIVERY_STATUS.IN_TRANSIT;
+    if (!from.includes(current)) {
+      throw new AppError('INVALID_STATE_TRANSITION', `Delivery of ${dispatch.dispatchNumber} is ${current}`, { details: { from: current, to, allowedFrom: from } });
+    }
+    check?.(current, dispatch);
+    const entry = { at: new Date(), by: context.actor.id, byRole: context.actor.role, note: request.note ?? null };
+    const updated = await Dispatch.findOneAndUpdate(
+      { _id: dispatch._id, status: DISPATCH_STATUS.CONFIRMED, deliveryStatus: dispatch.deliveryStatus ?? null },
+      { $set: { deliveryStatus: to, [step]: entry } },
+      { returnDocument: 'after', session, lean: true },
+    );
+    if (!updated) throw new AppError('CONFLICT', 'The delivery changed meanwhile. Reload and try again.');
+    await recordAudit(
+      { action: audit, entityType: 'Dispatch', entityId: dispatch._id, orderId: dispatch.orderId, before: { deliveryStatus: current }, after: { deliveryStatus: to, note: entry.note } },
+      context,
+      session,
+    );
+    return { statusCode: 200, body: { dispatch: toPublicDispatch(updated) } };
+  });
+}
+
+/**
+ * The buyer confirms the goods arrived (own dispatches only), or the admin records it for the buyer;
+ * the admin must then say what the proof is (e.g. "Signed delivery note, received by R. Shah").
+ */
+export function confirmDelivery(id, { note }, context) {
+  return deliveryAction({
+    id, operation: 'DELIVERY_CONFIRM', request: { note }, context,
+    from: [DELIVERY_STATUS.IN_TRANSIT], to: DELIVERY_STATUS.DELIVERED, step: 'deliveredStep', audit: 'DELIVERY_CONFIRMED',
+    check: () => {
+      if (context.actor.role !== ROLES.BUYER && !note) {
+        throw new AppError('VALIDATION_ERROR', 'Request validation failed', { details: [{ location: 'body', path: 'note', message: "is required when confirming on the buyer's behalf: say what proves the delivery" }] });
+      }
+    },
+  });
+}
+
+/** The buyer (or the admin for them) reports a short, damaged or wrong delivery, before verification. */
+export function reportDiscrepancy(id, { note }, context) {
+  return deliveryAction({
+    id, operation: 'DELIVERY_DISCREPANCY', request: { note }, context,
+    from: [DELIVERY_STATUS.IN_TRANSIT, DELIVERY_STATUS.DELIVERED], to: DELIVERY_STATUS.DISCREPANCY, step: 'discrepancyStep', audit: 'DELIVERY_DISCREPANCY_REPORTED',
+  });
+}
+
+/** The admin verifies a confirmed delivery, or resolves a discrepancy (resolution note required). */
+export function verifyDelivery(id, { note }, context) {
+  return deliveryAction({
+    id, operation: 'DELIVERY_VERIFY', request: { note }, context,
+    from: [DELIVERY_STATUS.DELIVERED, DELIVERY_STATUS.DISCREPANCY], to: DELIVERY_STATUS.VERIFIED, step: 'verifiedStep', audit: 'DELIVERY_VERIFIED',
+    check: (current) => {
+      if (current === DELIVERY_STATUS.DISCREPANCY && !note) {
+        throw new AppError('VALIDATION_ERROR', 'Request validation failed', { details: [{ location: 'body', path: 'note', message: 'is required: say how the reported problem was resolved' }] });
+      }
+    },
   });
 }
 
@@ -304,6 +390,11 @@ export function issueInvoice(dispatchId, context) {
     const dispatch = await loadDispatch(dispatchId, session);
     if (dispatch.status !== DISPATCH_STATUS.CONFIRMED) throw new AppError('CONFLICT', `Only a confirmed dispatch can be invoiced (this one is ${dispatch.status})`);
     if (dispatch.invoiceId) throw new AppError('DUPLICATE_RESOURCE', `Dispatch ${dispatch.dispatchNumber} is already invoiced`, { details: { fields: ['dispatchId'] } });
+    // Revenue is recognised at the invoice, and the invoice only after delivery is confirmed and verified.
+    const delivery = dispatch.deliveryStatus ?? DELIVERY_STATUS.IN_TRANSIT;
+    if (delivery !== DELIVERY_STATUS.VERIFIED) {
+      throw new AppError('DELIVERY_NOT_VERIFIED', `${dispatch.dispatchNumber} cannot be invoiced yet: ${DELIVERY_NEXT_STEP[delivery]}`, { details: { deliveryStatus: delivery } });
+    }
     const order = await findOrderById(dispatch.orderId, { session });
     const buyer = await findBuyerById(order.buyerId, { session });
     const price = order.product.pricePerMetrePaise;
@@ -365,6 +456,79 @@ export async function getInvoice(id, actor) {
 }
 
 /** Dispatch summary for dashboards. */
+/**
+ * What can be dispatched for each order, and if nothing, exactly why. ONE rule for the Ready-orders list
+ * and the Prepare-dispatch window (they used to disagree: an order stays READY_FOR_DISPATCH while its
+ * goods sit in a prepared, not yet confirmed dispatch, so the list offered "Prepare" with nothing left).
+ *   dispatchable = finished goods IN_STOCK (QC passed, not reserved, not dispatched)
+ *   reserved     = goods in PREPARED dispatches awaiting signed confirmation (named)
+ *   awaitingQc   = rolls QC_PENDING or IN_REWORK (never dispatchable until they pass)
+ *   rejected     = rejected rolls (never dispatchable)
+ * Without `orderId`: every READY_FOR_DISPATCH order.
+ */
+export async function dispatchAvailability({ orderId } = {}) {
+  const orders = await Order.find(orderId ? { _id: orderId } : { status: ORDER_STATUS.READY_FOR_DISPATCH }).sort({ requiredBy: 1 }).limit(200).lean();
+  if (orderId && orders.length === 0) throw notFound('Order');
+  const ids = orders.map((o) => o._id);
+  const [goods, rolls, prepared] = await Promise.all([
+    FinishedGood.aggregate([{ $match: { orderId: { $in: ids } } }, { $group: { _id: { orderId: '$orderId', status: '$status' }, rolls: { $sum: 1 }, cm: { $sum: '$lengthCm' } } }]),
+    Roll.aggregate([
+      { $match: { orderId: { $in: ids }, status: { $in: [ROLL_STATUS.QC_PENDING, ROLL_STATUS.IN_REWORK, ROLL_STATUS.REJECTED] } } },
+      { $group: { _id: { orderId: '$orderId', status: '$status' }, rolls: { $sum: 1 }, cm: { $sum: '$lengthCm' } } },
+    ]),
+    Dispatch.find({ orderId: { $in: ids }, status: DISPATCH_STATUS.PREPARED }, { dispatchNumber: 1, orderId: 1, totalLengthCm: 1 }).lean(),
+  ]);
+  const pick = (rows, id, status) => rows.find((r) => String(r._id.orderId) === String(id) && r._id.status === status) ?? { rolls: 0, cm: 0 };
+  const sum = (rows, id, statuses) => statuses.map((s) => pick(rows, id, s)).reduce((a, b) => ({ rolls: a.rolls + b.rolls, cm: a.cm + b.cm }), { rolls: 0, cm: 0 });
+  const m = (cm) => `${cmToMetres(cm).toLocaleString('en-IN')} m`;
+
+  return orders.map((order) => {
+    const inStock = pick(goods, order._id, FG_STATUS.IN_STOCK);
+    const reserved = pick(goods, order._id, FG_STATUS.RESERVED_FOR_DISPATCH);
+    const dispatched = pick(goods, order._id, FG_STATUS.DISPATCHED);
+    const awaitingQc = sum(rolls, order._id, [ROLL_STATUS.QC_PENDING, ROLL_STATUS.IN_REWORK]);
+    const rejected = pick(rolls, order._id, ROLL_STATUS.REJECTED);
+    const dispatches = prepared.filter((d) => String(d.orderId) === String(order._id)).map((d) => ({ id: String(d._id), dispatchNumber: d.dispatchNumber, metres: cmToMetres(d.totalLengthCm) }));
+    // Same condition as prepareDispatch: only a READY_FOR_DISPATCH order can be dispatched, so goods of
+    // an order that is not ready yet (e.g. other rolls still in QC) are in stock but not dispatchable.
+    const dispatchableCm = order.status === ORDER_STATUS.READY_FOR_DISPATCH ? inStock.cm : 0;
+    let reason = null;
+    let message = null;
+    if (dispatchableCm === 0) {
+      if (order.status !== ORDER_STATUS.READY_FOR_DISPATCH && order.status !== ORDER_STATUS.DISPATCHED && order.status !== ORDER_STATUS.INVOICED) {
+        reason = 'NOT_READY';
+        const passed = inStock.cm > 0 ? ` ${m(inStock.cm)} has passed QC and waits in finished goods.` : '';
+        message = awaitingQc.rolls
+          ? `${awaitingQc.rolls} roll(s) (${m(awaitingQc.cm)}) are still awaiting quality inspection or rework; the order can be dispatched once every roll is inspected.${passed}`
+          : `The order is ${order.status}; it becomes dispatchable once production is complete and its rolls have passed QC.${passed}`;
+      } else if (reserved.cm > 0) {
+        reason = 'RESERVED_IN_PREPARED_DISPATCH';
+        message = `All finished goods (${m(reserved.cm)}) are already in ${dispatches.map((d) => d.dispatchNumber).join(', ')}, waiting for the signed confirmation. Next step: confirm that dispatch when the goods leave, or cancel it to put them back in stock.`;
+      } else if (dispatched.cm > 0) {
+        reason = 'ALL_DISPATCHED';
+        message = `Everything produced has been dispatched (${m(dispatched.cm)}).`;
+      } else {
+        reason = 'NO_STOCK';
+        message = rejected.rolls ? `No finished goods: ${rejected.rolls} roll(s) (${m(rejected.cm)}) were rejected in QC.` : 'No finished goods have been recorded for this order.';
+      }
+    }
+    return {
+      orderId: String(order._id),
+      orderNumber: order.orderNumber,
+      status: order.status,
+      orderedMetres: cmToMetres(order.quantityCm),
+      inStock: { rolls: inStock.rolls, metres: cmToMetres(inStock.cm) },
+      reserved: { rolls: reserved.rolls, metres: cmToMetres(reserved.cm), dispatches },
+      dispatched: { rolls: dispatched.rolls, metres: cmToMetres(dispatched.cm) },
+      awaitingQc: { rolls: awaitingQc.rolls, metres: cmToMetres(awaitingQc.cm) },
+      rejected: { rolls: rejected.rolls, metres: cmToMetres(rejected.cm) },
+      dispatchableMetres: cmToMetres(dispatchableCm),
+      reason,
+      message,
+    };
+  });
+}
+
 export async function fulfilmentSummary() {
   const [goods, dispatches] = await Promise.all([
     FinishedGood.aggregate([{ $group: { _id: '$status', count: { $sum: 1 }, lengthCm: { $sum: '$lengthCm' } } }]),
