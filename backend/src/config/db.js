@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import mongoose from 'mongoose';
 
 // Fail fast: a floor tablet should get a 503 in seconds, not hang for 30s (driver default).
@@ -16,6 +17,15 @@ function attachConnectionListeners(logger) {
 }
 
 export async function connectDatabase(uri, { logger, serverSelectionTimeoutMS = SERVER_SELECTION_TIMEOUT_MS } = {}) {
+  // Avoid querySrv ECONNREFUSED caused by local router/ISP DNS proxies on Windows
+  if (typeof uri === 'string' && uri.startsWith('mongodb+srv://')) {
+    try {
+      dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+    } catch {
+      // Ignore if setting DNS servers is not supported in the current environment
+    }
+  }
+
   // Queries issued while disconnected wait at most this long before failing (default 10s).
   mongoose.set('bufferTimeoutMS', serverSelectionTimeoutMS);
   attachConnectionListeners(logger);
