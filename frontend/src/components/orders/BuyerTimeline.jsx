@@ -58,7 +58,10 @@ export function BuyerTimeline({ order }) {
           ))}
         </ul>
       )}
-      {!timeline.closed && (
+      {timeline.completed && (
+        <div className="order-stepper-done"><Check size={14} aria-hidden="true" /> Order completed: every stage is done.</div>
+      )}
+      {!timeline.closed && !timeline.completed && (
         <div className={`next-step ${expectedDelivery.status === 'ON_TRACK' ? '' : 'delivery-warning'}`}>
           <div>
             <strong>Expected delivery: {formatDate(expectedDelivery.requiredBy)}.</strong> {DELIVERY_TEXT[expectedDelivery.status] ?? ''}
