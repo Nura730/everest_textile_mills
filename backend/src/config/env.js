@@ -42,6 +42,8 @@ const envSchema = z
     // Share of the daily wage paid for a half day, in basis points (5000 = 50%). Snapshotted on each
     // attendance record, so changing it never rewrites wages already recorded.
     HALF_DAY_WAGE_FACTOR_BP: z.coerce.number().int().min(0).max(10_000).default(5000),
+    // Days a buyer has to pay an invoice (due date = issue date + this). Shown on every invoice.
+    PAYMENT_TERMS_DAYS: z.coerce.number().int().min(0).max(365).default(30),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.BCRYPT_ROUNDS < MIN_PRODUCTION_BCRYPT_ROUNDS) {
@@ -90,6 +92,7 @@ export function parseEnv(source) {
     signingKeyEncryptionKey: env.SIGNING_KEY_ENCRYPTION_KEY ? Buffer.from(env.SIGNING_KEY_ENCRYPTION_KEY, 'base64') : null,
     signingRsaBits: env.SIGNING_RSA_BITS,
     halfDayWageFactorBp: env.HALF_DAY_WAGE_FACTOR_BP,
+    paymentTermsDays: env.PAYMENT_TERMS_DAYS,
   });
 }
 

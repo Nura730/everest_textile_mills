@@ -25,6 +25,7 @@ import { todayInIndia } from '../utils/dates.js';
 import { searchAcross } from '../utils/search.js';
 import { cmToMetres } from '../utils/units.js';
 import { executeIdempotent } from './idempotency.service.js';
+import { paymentState, withPayments } from './payment.service.js';
 import { onRollInspected, onRollPassed } from './quality.service.js';
 import { dispatchRecord, ensureSigningKey, signApproval, toSignatureMeta } from './signing.service.js';
 
@@ -435,7 +436,7 @@ export function issueInvoice(dispatchId, context) {
       const uninvoiced = await Dispatch.countDocuments({ orderId: order._id, status: DISPATCH_STATUS.CONFIRMED, invoiceId: null }).session(session);
       if (uninvoiced === 0) after = await moveOrder(order, ORDER_STATUS.INVOICED, context, session, `Invoice ${invoiceNumber} issued`);
     }
-    return { statusCode: 201, body: { invoice: toPublicInvoice(invoice.toObject()), order: toPublicOrder(after, context.actor) } };
+    return { statusCode: 201, body: { invoice: { ...toPublicInvoice(invoice.toObject()), payment: paymentState(invoice, 0) }, order: toPublicOrder(after, context.actor) } };
   });
 }
 
@@ -446,13 +447,14 @@ export async function listInvoices({ orderId, page, limit }, actor) {
     Invoice.find(filter).sort({ issuedAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Invoice.countDocuments(filter),
   ]);
-  return { invoices: invoices.map(toPublicInvoice), meta: { page, limit, total } };
+  return { invoices: await withPayments(invoices), meta: { page, limit, total } };
 }
 
 export async function getInvoice(id, actor) {
   const invoice = await Invoice.findOne({ _id: id, ...buyerScope(actor) }).lean();
   if (!invoice) throw notFound('Invoice');
-  return { invoice: toPublicInvoice(invoice) };
+  const [withState] = await withPayments([invoice]);
+  return { invoice: withState };
 }
 
 /** Dispatch summary for dashboards. */

@@ -16,6 +16,7 @@ import { Dispatch, FinishedGood, Invoice } from '../../src/models/Fulfilment.js'
 import { Attendance } from '../../src/models/Attendance.js';
 import { Worker } from '../../src/models/Worker.js';
 import { todayInIndia } from '../../src/utils/dates.js';
+import { Payment } from '../../src/models/Payment.js';
 import { User } from '../../src/models/User.js';
 import { YarnLot } from '../../src/models/YarnLot.js';
 import { TEST_PASSWORD, bearer, captureLogs, createTestUser } from '../helpers/auth.js';
@@ -59,6 +60,13 @@ async function existingLot({ totalGrams = 100_000 } = {}) {
 }
 const MATRIX_ACTOR = '64b7f0c2a1b2c3d4e5f60718';
 const WORKFORCE_READERS = [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN];
+async function newInvoice() {
+  seq += 1;
+  return Invoice.create({
+    invoiceNumber: `INV-MTX-${seq}`, orderId: new mongoose.Types.ObjectId(), orderNumber: `ORD-MTX-${seq}`, dispatchId: new mongoose.Types.ObjectId(), dispatchNumber: `DSP-MTXI-${seq}`,
+    buyerId: matrixBuyer._id, buyer: { code: 'B', name: 'B' }, lines: [], subtotalPaise: 1000, taxRateBasisPoints: 500, taxPaise: 50, totalPaise: 1050, issuedBy: MATRIX_ACTOR,
+  });
+}
 async function newWorker() {
   seq += 1;
   return Worker.create({ code: `MXW-${seq}`, name: 'Matrix Worker', department: 'GENERAL', wageBasis: 'DAILY', ratePaise: 50_000, createdBy: MATRIX_ACTOR });
@@ -702,6 +710,25 @@ const MATRIX = [
     },
   },
   { name: 'GET /api/wages/summary', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/wages/summary?from=${todayInIndia()}&to=${todayInIndia()}` }) },
+  // ── Buyer payments ──
+  { name: 'GET /api/invoices/:id/payments', method: 'get', allowed: [ROLES.ADMIN, ROLES.BUYER], build: async () => ({ path: `/api/invoices/${(await newInvoice())._id}/payments` }) },
+  {
+    name: 'POST /api/invoices/:id/payments',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => ({ path: `/api/invoices/${(await newInvoice())._id}/payments`, body: { amountPaise: 100, receivedOn: todayInIndia(), method: 'UPI' }, headers: { 'Idempotency-Key': newKey() } }),
+  },
+  {
+    name: 'POST /api/payments/:id/reverse',
+    method: 'post',
+    allowed: [ROLES.ADMIN],
+    build: async () => {
+      const inv = await newInvoice();
+      const payment = await Payment.create({ kind: 'RECEIPT', invoiceId: inv._id, invoiceNumber: inv.invoiceNumber, orderId: inv.orderId, buyerId: inv.buyerId, buyerName: 'B', amountPaise: 100, receivedOn: todayInIndia(), recordedBy: MATRIX_ACTOR, recordedByRole: 'ADMIN' });
+      return { path: `/api/payments/${payment._id}/reverse`, body: { reason: 'Matrix reversal' }, headers: { 'Idempotency-Key': newKey() } };
+    },
+  },
+  { name: 'GET /api/payments/receivables', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/payments/receivables' }) },
 ];
 
 const actorFor = (role) => createTestUser({ role, ...(role === ROLES.BUYER ? { buyerId: matrixBuyer._id } : {}) });
@@ -724,7 +751,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await Promise.all([Worker.deleteMany({}), Attendance.deleteMany({})]);
+  await Promise.all([Worker.deleteMany({}), Attendance.deleteMany({}), Payment.collection.deleteMany({}), Invoice.deleteMany({})]);
   await Machine.deleteMany({});
   await MachineEvent.collection.deleteMany({});
   await User.deleteMany({});
