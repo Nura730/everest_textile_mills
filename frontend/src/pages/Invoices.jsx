@@ -1,9 +1,7 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fulfilmentApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { ROLES } from '../auth/roles.js';
-import { InvoiceView } from '../components/fulfilment/Fulfilment.jsx';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
@@ -13,7 +11,6 @@ import { formatDate, formatPaise } from '../utils/format.js';
 export default function Invoices() {
   const { user } = useAuth();
   const invoices = useApiQuery(() => fulfilmentApi.invoices({ limit: 100 }), []);
-  const [viewing, setViewing] = useState(null);
   const list = invoices.data?.invoices ?? [];
   const isBuyer = user.role === ROLES.BUYER;
   return (
@@ -29,13 +26,13 @@ export default function Invoices() {
             <tbody>
               {list.map((inv) => (
                 <tr key={inv.id}>
-                  <td className="mono">{inv.invoiceNumber}</td>
+                  <td className="mono"><Link to={`/invoices/${inv.id}`}>{inv.invoiceNumber}</Link></td>
                   <td><Link to={`/orders/${inv.orderId}`}>{inv.orderNumber}</Link></td>
                   {!isBuyer && <td>{inv.buyer.name}</td>}
                   <td>{inv.dispatchNumber}</td>
                   <td>{formatDate(inv.issuedAt)}</td>
                   <td className="num">{formatPaise(inv.totalPaise)}</td>
-                  <td className="row-actions"><button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setViewing(inv)}>View</button></td>
+                  <td className="row-actions"><Link className="erp-btn-outline erp-btn-sm" to={`/invoices/${inv.id}`}>View</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -43,7 +40,6 @@ export default function Invoices() {
         )}
         <ListLimitNotice shown={list.length} total={invoices.meta?.total} />
       </div>
-      {viewing && <InvoiceView invoice={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

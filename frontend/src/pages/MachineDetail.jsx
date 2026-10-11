@@ -18,7 +18,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/ui/States.js
 import { useToast } from '../components/ui/Toast.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
 import { useFilters } from '../hooks/useFilters.js';
-import { formatDateTime, formatNumber } from '../utils/format.js';
+import { formatDateTime, formatNumber, formatPaise, rupeesToPaise } from '../utils/format.js';
 
 const CATEGORIES = ['MECHANICAL', 'ELECTRICAL', 'MATERIAL', 'QUALITY', 'OTHER'];
 const SEVERITIES = ['LOW', 'MEDIUM', 'CRITICAL'];
@@ -141,6 +141,62 @@ function ReportProblemModal({ machine, onClose, onDone }) {
   );
 }
 
+/**
+ * Finish maintenance: the cost is recorded once, now (₹0 if nothing was spent). It is a machine
+ * expense, shown in Costing next to order profit, not spread over orders.
+ */
+function FinishMaintenanceModal({ machine, onClose, onDone }) {
+  const toast = useToast();
+  const [cost, setCost] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const touch = () => { setError(null); setKey(newIdempotencyKey()); };
+
+  async function submit(event) {
+    event.preventDefault();
+    if (busy) return;
+    const costPaise = rupeesToPaise(cost);
+    if (cost.trim() === '' || costPaise === null) return setError('Enter the maintenance cost in rupees (0 if nothing was spent), at most 2 decimals.');
+    setBusy(true);
+    try {
+      await machinesApi.endMaintenance(machine.id, { costPaise, ...(note.trim() ? { note: note.trim() } : {}) }, key);
+      toast.success(`${machine.code} is available again. Maintenance cost ${formatPaise(costPaise)} recorded.`, { title: 'Maintenance finished' });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Finish maintenance on ${machine.code}`}
+      subtitle="The machine becomes available for production again. Record what the maintenance cost."
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="maint-end-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Finish maintenance'}</button>
+        </>
+      }
+    >
+      <form id="maint-end-form" className="erp-form-grid" onSubmit={submit} noValidate>
+        <Field label="Maintenance cost (₹)" htmlFor="maint-cost" hint="Parts and labour. Enter 0 if nothing was spent." required>
+          <input id="maint-cost" className="erp-input" inputMode="decimal" value={cost} onChange={(e) => { setCost(e.target.value); touch(); }} disabled={busy} placeholder="0" />
+        </Field>
+        <Field label="Note (optional)" htmlFor="maint-note">
+          <input id="maint-note" className="erp-input" maxLength={1000} value={note} onChange={(e) => { setNote(e.target.value); touch(); }} disabled={busy} placeholder="Replaced two bearings" />
+        </Field>
+        {error && <p className="login-field-error" role="alert">{error}</p>}
+      </form>
+    </Modal>
+  );
+}
+
 function EditMachineModal({ machine, onClose, onDone }) {
   const toast = useToast();
   const initial = { name: machine.name, ratedMetresPerHour: String(machine.ratedMetresPerHour), location: machine.location ?? '' };
@@ -256,6 +312,7 @@ function History({ machineId, refreshKey }) {
                     </>
                   )}
                   {!event.problem && (event.note ?? '—')}
+                  {event.costPaise !== null && event.costPaise !== undefined && <div className="cell-sub">Maintenance cost {formatPaise(event.costPaise)}</div>}
                 </td>
                 <td>{ROLE_LABELS[event.actorRole] ?? event.actorRole}</td>
               </tr>
@@ -416,7 +473,8 @@ export default function MachineDetail() {
           onClose={() => setModal(null)}
         />
       )}
-      {modal?.maintenance && (
+      {modal?.maintenance === 'end' && <FinishMaintenanceModal machine={machine} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      {modal?.maintenance === 'start' && (
         <ConfirmDialog
           title={modal.maintenance === 'start' ? `Start maintenance on ${machine.code}?` : `Finish maintenance on ${machine.code}?`}
           message={modal.maintenance === 'start' ? 'The machine cannot take production while in maintenance.' : 'The machine becomes available for production again.'}

@@ -5,6 +5,9 @@
 //   danger   failed, rejected, blocked, down, overdue
 //   info     in progress, active workflow
 //   neutral  planned, inactive, cancelled, not started
+// Machines use the factory floor's own colours (one mapping for the floor map, badges and cards):
+//   running (green) · idle (yellow: available, assigned not started, paused) · maintenance (orange)
+//   · down (red: not working; also retired machines, out of service)
 // Colour is never the only signal: <StatusBadge> always shows an icon and the text label too.
 
 export const TONES = Object.freeze({
@@ -20,11 +23,12 @@ export const TONES = Object.freeze({
     CANCELLED: 'neutral',
     REJECTED: 'danger',
   },
-  MACHINE: { AVAILABLE: 'success', ASSIGNED: 'info', RUNNING: 'info', PAUSED: 'warning', MAINTENANCE: 'warning', DOWN: 'danger' },
+  MACHINE: { RUNNING: 'running', AVAILABLE: 'idle', ASSIGNED: 'idle', PAUSED: 'idle', MAINTENANCE: 'maintenance', DOWN: 'down', OUT_OF_SERVICE: 'down' },
   RUN: { PLANNED: 'neutral', RUNNING: 'info', PAUSED: 'warning', COMPLETED: 'success', CANCELLED: 'neutral' },
   ROLL: { QC_PENDING: 'warning', IN_REWORK: 'warning', QC_PASSED: 'success', FINISHED: 'success', REJECTED: 'danger' },
   QC_RESULT: { PASS: 'success', REWORK: 'warning', REJECT: 'danger' },
   DISPATCH: { PREPARED: 'warning', CONFIRMED: 'success', CANCELLED: 'neutral' },
+  DELIVERY: { IN_TRANSIT: 'info', DELIVERED: 'warning', DISCREPANCY: 'danger', VERIFIED: 'success' },
   FINISHED_GOOD: { IN_STOCK: 'success', RESERVED_FOR_DISPATCH: 'info', DISPATCHED: 'neutral' },
   RISK: { ON_TRACK: 'success', AT_RISK: 'warning', LATE: 'danger' },
   SEVERITY: { LOW: 'neutral', MEDIUM: 'warning', CRITICAL: 'danger', MINOR: 'neutral', MAJOR: 'warning', HIGH: 'danger' },

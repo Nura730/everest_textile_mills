@@ -364,7 +364,7 @@ export default function OrderDetail() {
           <div className="next-step">
             <Info size={16} aria-hidden="true" />
             <div>
-              <strong>Next step: yarn reservation.</strong> The store reserves {current.requiredYarnKg !== undefined ? `${formatNumber(current.requiredYarnKg, 'kg')} of ` : ''}
+              <strong>Next step: yarn reservation.</strong> The floor manager reserves {current.requiredYarnKg !== undefined ? `${formatNumber(current.requiredYarnKg, 'kg')} of ` : ''}
               {current.product.material.toLowerCase()} · {current.product.colour} yarn for this order, so no other order can use it.
               {canCancel && ' A confirmed order can still be cancelled.'}
             </div>
@@ -429,10 +429,10 @@ export default function OrderDetail() {
       {user.role === ROLES.ADMIN && ['IN_PRODUCTION', 'PRODUCTION_COMPLETED', 'READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && <OrderCostPanel orderId={current.id} refreshKey={current.updatedAt} />}
       {user.role === ROLES.BUYER && !['ORDER_CREATED', 'CANCELLED', 'REJECTED'].includes(current.status) && <BuyerTimeline order={current} />}
       {['READY_FOR_DISPATCH', 'DISPATCHED', 'INVOICED'].includes(current.status) && (
-        <OrderFulfilmentPanel order={current} showInvoices={user.role === ROLES.ADMIN || user.role === ROLES.BUYER} />
+        <OrderFulfilmentPanel order={current} showInvoices={user.role === ROLES.ADMIN || user.role === ROLES.BUYER} onChanged={order.reload} />
       )}
       {showsRuns && <OrderRunsPanel order={current} canPlan={can.runProduction(user.role)} onChanged={order.reload} />}
-      {showsYarn && <ReservationPanel order={current} canMove={can.issueMaterial(user.role)} onChanged={order.reload} />}
+      {showsYarn && <ReservationPanel order={current} canMove={can.issueMaterial(user.role)} canTopUp={can.reserveMaterial(user.role)} onChanged={order.reload} />}
       {current.feasibility && (
         <div className="erp-card section-gap">
           <h3 className="card-title">Feasibility at confirmation</h3>

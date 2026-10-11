@@ -183,8 +183,6 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 
 .run-progress { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
 
-.signature-pad { display: flex; flex-direction: column; gap: 6px; }
-.signature-canvas { width: 100%; max-width: 400px; aspect-ratio: 10 / 3; border: 1px dashed var(--color-gray-400); border-radius: 8px; background: var(--color-white); touch-action: none; cursor: crosshair; }
 .signature-actions { display: flex; justify-content: space-between; align-items: center; max-width: 400px; }
 .signature-block { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--color-gray-100); }
 .signature-record { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-gray-200); }
@@ -303,6 +301,34 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 }
 
 .signature-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+/* Machine floor colours: red not working, orange maintenance, green running, yellow idle. */
+:root {
+  --tone-running-bg: #e3f6e8; --tone-running-fg: #0f5132; --tone-running-border: #34a853;
+  --tone-idle-bg: #fff8d6; --tone-idle-fg: #6b5200; --tone-idle-border: #e0b400;
+  --tone-maintenance-bg: #ffecd9; --tone-maintenance-fg: #8a3b00; --tone-maintenance-border: #f08c2e;
+  --tone-down-bg: #fde3e3; --tone-down-fg: #8f1d1d; --tone-down-border: #d93025;
+}
+.status-badge.tone-running { background: var(--tone-running-bg); color: var(--tone-running-fg); border-color: var(--tone-running-border); }
+.status-badge.tone-idle { background: var(--tone-idle-bg); color: var(--tone-idle-fg); border-color: var(--tone-idle-border); }
+.status-badge.tone-maintenance { background: var(--tone-maintenance-bg); color: var(--tone-maintenance-fg); border-color: var(--tone-maintenance-border); }
+.status-badge.tone-down { background: var(--tone-down-bg); color: var(--tone-down-fg); border-color: var(--tone-down-border); }
+/* Factory floor map: status colours on the original tiles (green running, yellow idle/available,
+   orange maintenance, red not working / out of service). Layout and spacing stay as designed. */
+.floor-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 4px 0 12px; font-size: 0.8125rem; }
+.floor-legend-item { display: inline-flex; gap: 6px; align-items: center; }
+.floor-legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid; display: inline-block; }
+.floor-legend-swatch.floor-tone-running, .factory-unit-tile.floor-tone-running { background: var(--tone-running-bg); border-color: var(--tone-running-border); }
+.floor-legend-swatch.floor-tone-idle, .factory-unit-tile.floor-tone-idle { background: var(--tone-idle-bg); border-color: var(--tone-idle-border); }
+.floor-legend-swatch.floor-tone-maintenance, .factory-unit-tile.floor-tone-maintenance { background: var(--tone-maintenance-bg); border-color: var(--tone-maintenance-border); }
+.floor-legend-swatch.floor-tone-down, .factory-unit-tile.floor-tone-down { background: var(--tone-down-bg); border-color: var(--tone-down-border); }
+.factory-unit-status-tag.floor-tone-running { background: var(--tone-running-border); color: #fff; }
+.factory-unit-status-tag.floor-tone-idle { background: var(--tone-idle-border); color: #2b2100; }
+.factory-unit-status-tag.floor-tone-maintenance { background: var(--tone-maintenance-border); color: #fff; }
+.factory-unit-status-tag.floor-tone-down { background: var(--tone-down-border); color: #fff; }
+.factory-kpi-card.floor-kpi-running { border-top: 3px solid var(--tone-running-border); }
+.factory-kpi-card.floor-kpi-idle { border-top: 3px solid var(--tone-idle-border); }
+.factory-kpi-card.floor-kpi-maintenance { border-top: 3px solid var(--tone-maintenance-border); }
 
 .list-limit-notice { margin: 10px 0 0; font-size: 0.75rem; color: var(--color-gray-500); }
 

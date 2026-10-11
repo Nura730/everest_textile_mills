@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CheckCircle2, Pause, Play, PlusCircle, XOctagon } from 'lucide-react';
+import { CheckCircle2, Pause, Play, PlusCircle, RotateCcw, XOctagon } from 'lucide-react';
 import { fieldErrorsOf, newIdempotencyKey } from '../api/client.js';
 import { productionApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -97,6 +97,13 @@ const ACTIONS = {
   pause: { title: 'Pause this run?', label: 'Pause', success: 'Run paused.', message: 'The machine pauses with the run.', reason: true },
   resume: { title: 'Resume this run?', label: 'Resume', success: 'Run resumed.', message: 'The machine starts producing again.' },
   complete: { title: 'Complete this run?', label: 'Complete run', success: 'Run completed.', message: 'The machine becomes available. If the order is fully produced it moves to "Production completed".' },
+  reopen: {
+    title: 'Reopen this run?',
+    label: 'Reopen run',
+    success: 'Run reopened. It is paused on its machine: resume it to record the remaining rolls.',
+    message: 'Only for a run that was completed by mistake. The run goes back to Paused on the same machine; its rolls and history are kept and the correction is recorded in the audit trail.',
+    reason: true,
+  },
   cancel: { title: 'Cancel this run?', label: 'Cancel run', success: 'Run cancelled.', message: 'The machine is freed and the quantity can be planned again.', reason: true, danger: true },
 };
 
@@ -123,14 +130,19 @@ export default function RunDetail() {
   const { run, rolls } = detail.data;
   const operate = can.runProduction(user.role);
   const producing = ['RUNNING', 'PAUSED'].includes(run.status);
+  // A completed run below its target: the floor may have completed it by mistake (reopen) or continue elsewhere.
+  const endedShort = operate && run.status === 'COMPLETED' && run.producedMetres < run.targetMetres;
+  // Completing below target is a deliberate partial completion: the server requires the shortfall reason.
+  const completingShort = run.producedMetres < run.targetMetres;
 
   async function confirm() {
     const config = ACTIONS[action.name];
     const reason = (action.reason ?? '').trim();
-    if (config.reason && reason.length < 5) return setAction({ ...action, error: 'Give a reason of at least 5 characters.' });
+    const needsReason = config.reason || (action.name === 'complete' && completingShort);
+    if (needsReason && reason.length < 5) return setAction({ ...action, error: action.name === 'complete' ? 'Give the reason for the shortfall (at least 5 characters).' : 'Give a reason of at least 5 characters.' });
     setAction({ ...action, busy: true, error: null });
     try {
-      const body = config.reason ? { reason } : {};
+      const body = action.name === 'complete' ? (completingShort ? { shortfallReason: reason } : {}) : config.reason ? { reason } : {};
       const offlineType = { pause: 'RUN_PAUSE', resume: 'RUN_RESUME', complete: 'RUN_COMPLETE' }[action.name];
       const call = (k) => productionApi.act(run.id, action.name, body, k);
       const sent = offlineType
@@ -164,6 +176,7 @@ export default function RunDetail() {
                   <CheckCircle2 size={15} aria-hidden="true" /> Complete
                 </button>
               )}
+              {endedShort && <button type="button" className="erp-btn-outline" onClick={() => open('reopen')} disabled={!online} title={online ? 'Use if the run was completed by mistake' : 'Needs a connection.'}><RotateCcw size={15} aria-hidden="true" /> Reopen run</button>}
               {run.status === 'PLANNED' && <button type="button" className="erp-btn-danger" onClick={() => open('cancel')} disabled={!online} title={online ? undefined : 'Needs a connection.'}><XOctagon size={15} aria-hidden="true" /> Cancel run</button>}
             </>
           )
@@ -171,6 +184,15 @@ export default function RunDetail() {
       />
       <CachedNotice cachedAt={detail.cachedAt} />
       <PendingActions match={(item) => item.ref?.runId === run.id} onApplied={() => detail.reload()} />
+      {endedShort && (
+        <div className="next-step delivery-warning section-gap" role="status">
+          <div>
+            <strong>This run ended short: {formatNumber(run.producedMetres, 'm')} of its {formatNumber(run.targetMetres, 'm')} target.</strong>{' '}
+            If it was completed by mistake, <strong>Reopen run</strong> (a reason is required, and it is audited). Otherwise plan a continuation run for the rest on the{' '}
+            <Link to={`/orders/${run.orderId}`}>order page</Link>.
+          </div>
+        </div>
+      )}
 
       <div className="erp-tall-kpi-grid">
         <div className="erp-card"><div className="detail-label">Status</div><div className="detail-value"><RunStatusBadge status={run.status} /></div></div>
@@ -227,13 +249,17 @@ export default function RunDetail() {
       {action && (
         <ConfirmDialog
           title={ACTIONS[action.name].title}
-          message={ACTIONS[action.name].message}
+          message={
+            action.name === 'complete' && completingShort
+              ? `This run has produced ${formatNumber(run.producedMetres, 'm')} of its ${formatNumber(run.targetMetres, 'm')} target. If production really stops here, give the reason for the ${formatNumber(run.targetMetres - run.producedMetres, 'm')} shortfall; it is recorded with the run. Otherwise cancel and keep producing.`
+              : ACTIONS[action.name].message
+          }
           confirmLabel={ACTIONS[action.name].label}
           danger={ACTIONS[action.name].danger}
           busy={action.busy}
           reason={action.reason}
           reasonError={action.error}
-          onReasonChange={ACTIONS[action.name].reason ? (reason) => setAction({ ...action, reason, error: null, key: newIdempotencyKey() }) : undefined}
+          onReasonChange={ACTIONS[action.name].reason || (action.name === 'complete' && completingShort) ? (reason) => setAction({ ...action, reason, error: null, key: newIdempotencyKey() }) : undefined}
           onConfirm={confirm}
           onClose={() => setAction(null)}
         />

@@ -1,7 +1,7 @@
-import { AlertTriangle, CheckCircle2, Circle, CircleDot, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, CircleDot, CirclePause, Play, Wrench, XCircle } from 'lucide-react';
 import { toneOf } from '../../utils/statusTones.js';
 
-const ICON = { success: CheckCircle2, warning: AlertTriangle, danger: XCircle, info: CircleDot, neutral: Circle };
+const ICON = { success: CheckCircle2, warning: AlertTriangle, danger: XCircle, info: CircleDot, neutral: Circle, running: Play, idle: CirclePause, maintenance: Wrench, down: XCircle };
 
 /**
  * One status badge for the whole app: colour from the central tone map (utils/statusTones.js), plus

@@ -36,3 +36,5 @@ export const DEFECT_LABELS = {
 };
 
 export const DISPATCH_STATUS_LABELS = { PREPARED: 'Prepared', CONFIRMED: 'Dispatched', CANCELLED: 'Cancelled' };
+// Delivery after dispatch (each step distinct; the invoice waits for VERIFIED).
+export const DELIVERY_STATUS_LABELS = { IN_TRANSIT: 'In transit', DELIVERED: 'Delivered (buyer confirmed)', DISCREPANCY: 'Problem reported', VERIFIED: 'Delivery verified' };

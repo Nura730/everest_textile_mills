@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { newIdempotencyKey } from '../api/client.js';
 import { fulfilmentApi, ordersApi } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
 import { can } from '../auth/roles.js';
-import { ConfirmDispatchModal, DispatchStatusBadge, InvoiceView, PrepareDispatchModal } from '../components/fulfilment/Fulfilment.jsx';
+import { ConfirmDispatchModal, DeliveryBadge, DeliveryModal, DispatchStatusBadge, PrepareDispatchModal } from '../components/fulfilment/Fulfilment.jsx';
+import { deliveryActionsFor } from '../utils/delivery.js';
 import { DISPATCH_STATUS_LABELS } from '../utils/machineStatus.js';
 import { FilterBar, FilterSelect, SearchInput } from '../components/ui/Filters.jsx';
 import { ConfirmDialog } from '../components/ui/Modal.jsx';
@@ -25,6 +26,7 @@ const FG_LABELS = { IN_STOCK: 'In stock', RESERVED_FOR_DISPATCH: 'Reserved for d
 export default function DispatchPage() {
   const { user } = useAuth();
   const toast = useToast();
+  const navigate = useNavigate();
   const [tab, setTab] = useState('ready');
   const ready = useApiQuery(() => ordersApi.list({ status: 'READY_FOR_DISPATCH', limit: 100 }), []);
   // Same rule as the Prepare window: what is actually dispatchable per ready order, and why not.
@@ -32,6 +34,11 @@ export default function DispatchPage() {
   const availabilityOf = (orderId) => describeAvailability(availability.data?.orders.find((a) => a.orderId === orderId));
   const dispatchFilters = useFilters({ status: '' });
   const dispatches = useApiQuery(() => fulfilmentApi.dispatches({ ...dispatchFilters.query, limit: 100 }), [dispatchFilters.query]);
+  // Prepared dispatches holding this order's stock (full records, for the confirm / cancel actions).
+  const preparedFor = (orderId) => {
+    const ids = new Set((availability.data?.orders.find((a) => a.orderId === orderId)?.reserved.dispatches ?? []).map((d) => d.id));
+    return (dispatches.data?.dispatches ?? []).filter((d) => ids.has(d.id) && d.status === 'PREPARED');
+  };
   const stockFilters = useFilters({ q: '', status: 'IN_STOCK' });
   const stock = useApiQuery(() => fulfilmentApi.finishedGoods({ ...stockFilters.query, limit: 100 }), [stockFilters.query]);
   useLive(liveMatch.actions('FINISHED_GOOD_', 'DISPATCH_', 'ORDER_READY', 'ORDER_DISPATCHED', 'QC_PASSED', 'QC_REJECTED', 'RUN_COMPLETED'), () => { ready.reload(); availability.reload(); dispatches.reload(); stock.reload(); });
@@ -53,8 +60,8 @@ export default function DispatchPage() {
     try {
       const result = await call();
       toast.success(success(result));
-      if (modal.type === 'invoice') setModal({ type: 'view', invoice: result.data.invoice });
-      else setModal(null);
+      setModal(null);
+      if (modal.type === 'invoice') navigate(`/invoices/${result.data.invoice.id}`);
     } catch (error) {
       toast.error(error, { title: 'Not saved' });
       setModal(null);
@@ -98,10 +105,20 @@ export default function DispatchPage() {
                       </td>
                       <td>{formatDate(order.requiredBy)}</td>
                       <td className="row-actions">
-                        {store && (
-                          <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'prepare', order })} disabled={!availabilityOf(order.id).canPrepare} title={availabilityOf(order.id).canPrepare ? undefined : availabilityOf(order.id).detail ?? undefined}>
+                        {store && availabilityOf(order.id).canPrepare && (
+                          <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'prepare', order })}>
                             Prepare dispatch
                           </button>
+                        )}
+                        {/* Stock already in a prepared dispatch: the next step is to confirm or cancel THAT dispatch. */}
+                        {store && preparedFor(order.id).map((d) => (
+                          <span key={d.id} className="row-actions">
+                            <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'confirm', dispatch: d })}>Confirm {d.dispatchNumber}</button>
+                            <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'cancel', dispatch: d, key: newIdempotencyKey(), reason: '' })}>Cancel</button>
+                          </span>
+                        ))}
+                        {store && !availabilityOf(order.id).canPrepare && preparedFor(order.id).length === 0 && (
+                          <button type="button" className="erp-btn-primary erp-btn-sm" disabled title={availabilityOf(order.id).detail ?? undefined}>Prepare dispatch</button>
                         )}
                       </td>
                     </tr>
@@ -120,7 +137,7 @@ export default function DispatchPage() {
             {dispatches.data && dispatches.data.dispatches.length === 0 && <EmptyState title="No dispatches" />}
             {dispatches.data?.dispatches.length > 0 && (
               <table className="erp-data-table">
-                <thead><tr><th scope="col">Dispatch</th><th scope="col">Order</th><th scope="col" className="num">Rolls</th><th scope="col" className="num">Metres</th><th scope="col">Vehicle</th><th scope="col">Status</th><th scope="col">When</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th scope="col">Dispatch</th><th scope="col">Order</th><th scope="col" className="num">Rolls</th><th scope="col" className="num">Metres</th><th scope="col">Vehicle</th><th scope="col">Status</th><th scope="col">Delivery</th><th scope="col">When</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   {dispatches.data.dispatches.map((d) => (
                     <tr key={d.id}>
@@ -130,12 +147,20 @@ export default function DispatchPage() {
                       <td className="num">{formatNumber(d.totalMetres, 'm')}</td>
                       <td>{d.vehicleNumber ?? '—'}</td>
                       <td><DispatchStatusBadge status={d.status} />{d.signed && <span className="cell-sub"> · signed</span>}</td>
+                      <td>
+                        {d.delivery ? <DeliveryBadge delivery={d.delivery} /> : '—'}
+                        {d.delivery?.discrepancy && <div className="cell-sub">Problem: {d.delivery.discrepancy.note}</div>}
+                        {d.delivery?.status === 'IN_TRANSIT' && <div className="cell-sub">Waiting for the buyer to confirm receipt</div>}
+                      </td>
                       <td>{formatDateTime(d.confirmedAt ?? d.createdAt)}</td>
                       <td className="row-actions">
                         {store && d.status === 'PREPARED' && <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'confirm', dispatch: d })}>Confirm</button>}
                         {store && d.status === 'PREPARED' && <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'cancel', dispatch: d, key: newIdempotencyKey(), reason: '' })}>Cancel</button>}
-                        {can.issueInvoice(user.role) && d.status === 'CONFIRMED' && !d.invoiceId && <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'invoice', dispatch: d, key: newIdempotencyKey() })}>Issue invoice</button>}
-                        {d.invoiceId && <span className="cell-sub">Invoiced</span>}
+                        {deliveryActionsFor(user.role, d).map((action) => (
+                          <button key={action} type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setModal({ type: 'delivery', action, dispatch: d })}>{action === 'confirm' ? 'Confirm for buyer' : 'Verify delivery'}</button>
+                        ))}
+                        {can.issueInvoice(user.role) && d.status === 'CONFIRMED' && !d.invoiceId && d.delivery?.status === 'VERIFIED' && <button type="button" className="erp-btn-primary erp-btn-sm" onClick={() => setModal({ type: 'invoice', dispatch: d, key: newIdempotencyKey() })}>Issue invoice</button>}
+                        {d.invoiceId && (can.issueInvoice(user.role) ? <Link className="erp-btn-outline erp-btn-sm" to={`/invoices/${d.invoiceId}`}>View invoice</Link> : <span className="cell-sub">Invoiced</span>)}
                       </td>
                     </tr>
                   ))}
@@ -202,7 +227,7 @@ export default function DispatchPage() {
           onClose={() => setModal(null)}
         />
       )}
-      {modal?.type === 'view' && <InvoiceView invoice={modal.invoice} onClose={() => setModal(null)} />}
+      {modal?.type === 'delivery' && <DeliveryModal dispatch={modal.dispatch} action={modal.action} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === 'move' && (
         <ConfirmDialog
           title={`Move ${modal.good.rollNumber}`}

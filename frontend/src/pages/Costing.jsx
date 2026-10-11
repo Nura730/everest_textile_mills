@@ -127,6 +127,23 @@ export default function Costing() {
               <Kpi label="Rolls awaiting QC" value={formatNumber((o.quality.rolls.QC_PENDING?.rolls ?? 0) + (o.quality.rolls.IN_REWORK?.rolls ?? 0))} />
             </div>
           )}
+          {s.factoryExpenses && (
+            <div className="erp-card section-gap">
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">Factory expenses (not allocated to orders)</h3>
+                  <p className="card-subtitle">Recorded where they happen; shown next to order profit, never spread over orders (no allocation rule is agreed).</p>
+                </div>
+              </div>
+              <ul className="plain-list">
+                <li>
+                  Machine maintenance: <strong>{formatPaise(s.factoryExpenses.maintenance.totalPaise)}</strong> over {s.factoryExpenses.maintenance.jobs} maintenance job(s)
+                  {s.factoryExpenses.maintenance.byMachine.length > 0 && ` — ${s.factoryExpenses.maintenance.byMachine.slice(0, 5).map((m) => `${m.code} ${formatPaise(m.totalPaise)}`).join(', ')}`}
+                </li>
+                {s.factoryExpenses.wages && <li>Worker wages (attendance register): <strong>{formatPaise(s.factoryExpenses.wages.totalPaise)}</strong> for {s.factoryExpenses.wages.periodLabel}</li>}
+              </ul>
+            </div>
+          )}
           <div className="erp-card section-gap">
             <div className="card-header"><h3 className="card-title">Profit by order</h3></div>
             {s.orders.length === 0 ? (

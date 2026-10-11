@@ -7,6 +7,7 @@ import {
   ScrollText,
   Building2,
   Factory,
+  CalendarCheck,
   ClipboardCheck,
   ClipboardList,
   History,
@@ -18,6 +19,8 @@ import {
   TrendingUp,
   Truck,
   Users,
+  UserSquare,
+  Wallet,
 } from 'lucide-react';
 
 // Roles exactly as defined by the backend (backend/README.md permission matrix).
@@ -78,7 +81,12 @@ export const can = {
   adjustStock: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
   // Descriptive lot details (supplier, count, cost, lot number); never quantities.
   editLot: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
-  reconcileStock: (role) => role === ROLES.ADMIN,
+  reconcileStock: (role) => role === ROLES.STORE_KEEPER || role === ROLES.ADMIN,
+  // Workers, attendance and wages: the admin manages workers and sees wages; the floor manager records
+  // attendance (and corrects recent days); QC reads the register. Store keeper and buyers: no access.
+  manageWorkers: (role) => role === ROLES.ADMIN,
+  recordAttendance: (role) => role === ROLES.FLOOR_MANAGER || role === ROLES.ADMIN,
+  viewWages: (role) => role === ROLES.ADMIN,
 };
 
 /** Screens connected to the real backend. */
@@ -94,7 +102,11 @@ export const LIVE_NAV = [
   { to: '/quality', label: 'Quality control', icon: ClipboardCheck, roles: [ROLES.QC_INSPECTOR, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/rolls', label: 'Rolls', icon: ScrollText, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/floor-map', label: 'Factory floor map', icon: Sliders, roles: [ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/insights', label: 'Insights', icon: TrendingUp, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
+  { to: '/attendance', label: 'Attendance', icon: CalendarCheck, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/workers', label: 'Workers', icon: UserSquare, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
+  { to: '/wages', label: 'Wages', icon: Wallet, roles: [ROLES.ADMIN] },
   { to: '/costing', label: 'Costing', icon: BarChart2, roles: [ROLES.ADMIN] },
   { to: '/audit', label: 'Audit trail', icon: ShieldCheck, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
@@ -105,7 +117,6 @@ export const LIVE_NAV = [
  * (docs/PROGRESS.md). They are labelled as previews everywhere so nobody mistakes them for live data.
  */
 export const PREVIEW_NAV = [
-  { to: '/floor-map', label: 'Factory Floor Map', icon: Sliders, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Sample layout; live machines are under Machines' },
   { to: '/production-board', label: 'Production board', icon: Activity, roles: [ROLES.ADMIN, ROLES.FLOOR_MANAGER], phase: 'Sample board; live runs are under Production' },
   { to: '/quality-board', label: 'QC board', icon: ClipboardCheck, roles: [ROLES.ADMIN, ROLES.QC_INSPECTOR], phase: 'Sample board; live QC is under Quality control' },
   { to: '/dispatch-board', label: 'Dispatch board', icon: Truck, roles: [ROLES.ADMIN, ROLES.STORE_KEEPER], phase: 'Sample board; live dispatch is under Dispatch' },

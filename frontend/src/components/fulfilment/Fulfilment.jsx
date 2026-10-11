@@ -1,21 +1,106 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { SigningProgress } from '../signing/SigningProgress.jsx';
 import { useSignedSubmit } from '../signing/useSignedSubmit.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { fieldErrorsOf, newIdempotencyKey } from '../../api/client.js';
 import { fulfilmentApi } from '../../api/endpoints.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
-import { formatDate, formatDateTime, formatNumber, formatPaise } from '../../utils/format.js';
-import { DISPATCH_STATUS_LABELS } from '../../utils/machineStatus.js';
+import { formatDateTime, formatNumber, formatPaise } from '../../utils/format.js';
+import { deliveryActionsFor } from '../../utils/delivery.js';
+import { DELIVERY_STATUS_LABELS, DISPATCH_STATUS_LABELS } from '../../utils/machineStatus.js';
 import { describeAvailability } from '../../utils/dispatchAvailability.js';
 import { Field, Modal } from '../ui/Modal.jsx';
-import { SignaturePad } from '../ui/SignaturePad.jsx';
 import { StatusBadge } from '../ui/StatusBadge.jsx';
 import { EmptyState, ErrorState, LoadingState } from '../ui/States.jsx';
 import { useToast } from '../ui/Toast.jsx';
 
 export function DispatchStatusBadge({ status }) {
   return <StatusBadge domain="DISPATCH" state={status} label={DISPATCH_STATUS_LABELS[status] ?? status} title={status === 'PREPARED' ? 'Awaiting signed confirmation' : undefined} />;
+}
+
+export function DeliveryBadge({ delivery }) {
+  if (!delivery) return null;
+  return <StatusBadge domain="DELIVERY" state={delivery.status} label={DELIVERY_STATUS_LABELS[delivery.status] ?? delivery.status} title={delivery.confirmedOnBuyersBehalf ? 'Confirmed by the factory on the buyer\'s behalf' : undefined} />;
+}
+
+const DELIVERY_ACTIONS = {
+  confirm: {
+    title: (d) => `Confirm delivery of ${d.dispatchNumber}`,
+    buyer: 'Confirm that the goods arrived. The factory then verifies the delivery and issues the invoice.',
+    admin: 'Record the buyer\'s receipt on their behalf. Say what proves it (e.g. signed delivery note).',
+    label: 'Confirm delivery',
+    noteLabel: { buyer: 'Note (optional)', admin: 'Proof of delivery' },
+    required: (role) => role !== 'BUYER',
+  },
+  discrepancy: {
+    title: (d) => `Report a problem with ${d.dispatchNumber}`,
+    buyer: 'Tell the factory what is short, damaged or wrong. The invoice waits until it is resolved.',
+    admin: 'Record the problem the buyer reported.',
+    label: 'Report problem',
+    noteLabel: { buyer: 'What is wrong', admin: 'What is wrong' },
+    required: () => true,
+    danger: true,
+  },
+  verify: {
+    title: (d) => `Verify delivery of ${d.dispatchNumber}`,
+    admin: 'Check the buyer\'s confirmation. After verification the dispatch can be invoiced.',
+    label: 'Verify delivery',
+    noteLabel: { admin: 'Verification note' },
+    required: (role, d) => d.delivery?.status === 'DISCREPANCY',
+  },
+};
+
+/** One delivery step (buyer confirms / reports; admin confirms for the buyer with proof, verifies). */
+export function DeliveryModal({ dispatch, action, onClose, onDone }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const config = DELIVERY_ACTIONS[action];
+  const who = user.role === 'BUYER' ? 'buyer' : 'admin';
+  const required = config.required(user.role, dispatch);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const resolving = action === 'verify' && dispatch.delivery?.status === 'DISCREPANCY';
+
+  async function submit(event) {
+    event.preventDefault();
+    if (busy) return;
+    if (required && note.trim().length < 5) return setError(resolving ? 'Say how the reported problem was resolved (at least 5 characters).' : 'At least 5 characters.');
+    setBusy(true);
+    try {
+      await fulfilmentApi.delivery(dispatch.id, action, note.trim() ? { note: note.trim() } : {}, key);
+      toast.success(`${config.label}: ${dispatch.dispatchNumber}.`);
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={config.title(dispatch)}
+      subtitle={resolving ? `Reported problem: "${dispatch.delivery.discrepancy?.note}". Say how it was resolved.` : config[who]}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="delivery-form" className={config.danger ? 'erp-btn-danger' : 'erp-btn-primary'} disabled={busy}>{busy ? 'Saving…' : config.label}</button>
+        </>
+      }
+    >
+      <form id="delivery-form" className="erp-form-grid" onSubmit={submit} noValidate>
+        <Field label={resolving ? 'Resolution' : config.noteLabel[who]} htmlFor="delivery-note" required={required}>
+          <textarea id="delivery-note" className="erp-input" rows={3} maxLength={1000} value={note} onChange={(e) => { setNote(e.target.value); setError(null); setKey(newIdempotencyKey()); }} disabled={busy} />
+        </Field>
+        {error && <p className="login-field-error" role="alert">{error}</p>}
+      </form>
+    </Modal>
+  );
 }
 
 /** Choose in-stock finished goods of one ready order and prepare a dispatch. */
@@ -121,17 +206,14 @@ export function PrepareDispatchModal({ order, onClose, onDone }) {
 export function ConfirmDispatchModal({ dispatch, onClose, onDone }) {
   const toast = useToast();
   const { user } = useAuth();
-  const [accepted, setAccepted] = useState(false);
-  const [image, setImage] = useState(null);
-  const [error, setError] = useState(null);
   const statement = `I confirm that the finished goods in dispatch ${dispatch.dispatchNumber} have been dispatched.`;
+  // Clicking "Confirm and sign" while signed in is the confirmation; the server signs with your key.
   const signed = useSignedSubmit({
-    call: (k) => fulfilmentApi.confirm(dispatch.id, { signature: { accepted: true, ...(image ? { image } : {}) } }, k),
+    call: (k) => fulfilmentApi.confirm(dispatch.id, { signature: { accepted: true } }, k),
   });
 
   function submit() {
     if (signed.busy) return;
-    if (!accepted) return setError('Tick the statement to sign the dispatch.');
     signed.submit();
   }
   function finish() {
@@ -155,7 +237,7 @@ export function ConfirmDispatchModal({ dispatch, onClose, onDone }) {
         ) : (
           <>
             <button type="button" className="erp-btn-outline" onClick={onClose}>Cancel</button>
-            <button type="button" className="erp-btn-primary" onClick={submit}>Sign and confirm</button>
+            <button type="button" className="erp-btn-primary" onClick={submit}>Confirm dispatch and sign as {user.name}</button>
           </>
         )
       }
@@ -178,34 +260,18 @@ export function ConfirmDispatchModal({ dispatch, onClose, onDone }) {
           <p className="confirm-message">Rolls: {dispatch.lines.map((l) => l.rollNumber).join(', ')}</p>
           <div className="signature-block">
             <div className="erp-label">Signed approval</div>
-            <label className="filter-check" htmlFor="dsp-accept">
-              <input id="dsp-accept" type="checkbox" checked={accepted} onChange={(e) => { setAccepted(e.target.checked); setError(null); signed.reset(); }} /> {statement}
-            </label>
-            <p className="cell-sub">The server signs this handoff with your personal RSA key and verifies it before saving.</p>
-            <SignaturePad onChange={(value) => { setImage(value); setError(null); signed.reset(); }} label="Handwritten acknowledgment (optional, visual only)" />
+            <p className="confirm-message">“{statement}”</p>
+            <p className="cell-sub">Confirming records this handoff under your account ({user.name}). The server signs it with your personal RSA key and verifies it before saving; no drawing is needed.</p>
           </div>
-          {error && <p className="login-field-error" role="alert">{error}</p>}
         </>
       )}
     </Modal>
   );
 }
 
-/** A printable invoice. */
-export function InvoiceView({ invoice, onClose }) {
+/** The printable body of an invoice (the invoice page /invoices/:id). */
+export function InvoiceSheet({ invoice }) {
   return (
-    <Modal
-      title={`Invoice ${invoice.invoiceNumber}`}
-      subtitle={`Issued ${formatDate(invoice.issuedAt)} · dispatch ${invoice.dispatchNumber} · order ${invoice.orderNumber}`}
-      onClose={onClose}
-      wide
-      footer={
-        <>
-          <button type="button" className="erp-btn-outline" onClick={onClose}>Close</button>
-          <button type="button" className="erp-btn-primary" onClick={() => window.print()}>Print</button>
-        </>
-      }
-    >
       <div className="invoice-sheet">
         <div className="invoice-parties">
           <div><div className="detail-label">From</div><strong>Everest Textile Mills</strong></div>
@@ -226,15 +292,15 @@ export function InvoiceView({ invoice, onClose }) {
         </table>
         <p className="cell-sub">GST at {invoice.taxRateBasisPoints / 100}% is an assumption for woven fabric (HSN 5208–5407). Prices are the order's agreed price per metre.</p>
       </div>
-    </Modal>
   );
 }
 
 /** Dispatches and invoices of one order (order detail). Buyers see their own; money only where allowed. */
-export function OrderFulfilmentPanel({ order, showInvoices }) {
+export function OrderFulfilmentPanel({ order, showInvoices, onChanged }) {
+  const { user } = useAuth();
   const dispatches = useApiQuery(() => fulfilmentApi.dispatches({ orderId: order.id, limit: 50 }), [order.id, order.updatedAt]);
   const invoices = useApiQuery(() => (showInvoices ? fulfilmentApi.invoices({ orderId: order.id, limit: 50 }) : Promise.resolve({ data: { invoices: [] } })), [order.id, order.updatedAt, showInvoices]);
-  const [viewing, setViewing] = useState(null);
+  const [acting, setActing] = useState(null); // { dispatch, action }
   const list = dispatches.data?.dispatches ?? [];
   if (dispatches.data && list.length === 0) return null;
   return (
@@ -243,7 +309,7 @@ export function OrderFulfilmentPanel({ order, showInvoices }) {
       {!dispatches.data && <LoadingState />}
       {list.length > 0 && (
         <table className="erp-data-table">
-          <thead><tr><th scope="col">Dispatch</th><th scope="col" className="num">Rolls</th><th scope="col" className="num">Metres</th><th scope="col">Status</th><th scope="col">Dispatched</th>{showInvoices && <th scope="col">Invoice</th>}</tr></thead>
+          <thead><tr><th scope="col">Dispatch</th><th scope="col" className="num">Rolls</th><th scope="col" className="num">Metres</th><th scope="col">Status</th><th scope="col">Dispatched</th><th scope="col">Delivery</th>{showInvoices && <th scope="col">Invoice</th>}</tr></thead>
           <tbody>
             {list.map((d) => {
               const invoice = (invoices.data?.invoices ?? []).find((i) => i.dispatchId === d.id);
@@ -254,14 +320,34 @@ export function OrderFulfilmentPanel({ order, showInvoices }) {
                   <td className="num">{formatNumber(d.totalMetres, 'm')}</td>
                   <td><DispatchStatusBadge status={d.status} /></td>
                   <td>{d.confirmedAt ? formatDateTime(d.confirmedAt) : '—'}</td>
-                  {showInvoices && <td>{invoice ? <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setViewing(invoice)}>{invoice.invoiceNumber} · {formatPaise(invoice.totalPaise)}</button> : '—'}</td>}
+                  <td>
+                    {d.delivery ? <DeliveryBadge delivery={d.delivery} /> : '—'}
+                    {d.delivery?.discrepancy && <div className="cell-sub">Problem: {d.delivery.discrepancy.note}</div>}
+                    <div className="row-actions">
+                      {deliveryActionsFor(user.role, d).map((action) => (
+                        <button key={action} type="button" className={action === 'discrepancy' ? 'erp-btn-outline erp-btn-sm' : 'erp-btn-primary erp-btn-sm'} onClick={() => setActing({ dispatch: d, action })}>{DELIVERY_ACTIONS[action].label}</button>
+                      ))}
+                    </div>
+                  </td>
+                  {showInvoices && <td>{invoice ? <Link to={`/invoices/${invoice.id}`}>{invoice.invoiceNumber} · {formatPaise(invoice.totalPaise)}</Link> : d.delivery && d.delivery.status !== 'VERIFIED' ? <span className="cell-sub">After delivery is verified</span> : '—'}</td>}
                 </tr>
               );
             })}
           </tbody>
         </table>
       )}
-      {viewing && <InvoiceView invoice={viewing} onClose={() => setViewing(null)} />}
+      {acting && (
+        <DeliveryModal
+          dispatch={acting.dispatch}
+          action={acting.action}
+          onClose={() => setActing(null)}
+          onDone={() => {
+            setActing(null);
+            dispatches.reload();
+            onChanged?.();
+          }}
+        />
+      )}
     </div>
   );
 }

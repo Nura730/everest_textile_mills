@@ -7,7 +7,6 @@ import { DEFECT_LABELS, QC_RESULT_LABELS } from '../../utils/machineStatus.js';
 import { SigningProgress } from '../signing/SigningProgress.jsx';
 import { useSignedSubmit } from '../signing/useSignedSubmit.js';
 import { Field, Modal } from '../ui/Modal.jsx';
-import { SignaturePad } from '../ui/SignaturePad.jsx';
 import { useToast } from '../ui/Toast.jsx';
 
 const SEVERITIES = ['MINOR', 'MAJOR', 'CRITICAL'];
@@ -30,8 +29,6 @@ export function InspectRollModal({ roll, onClose, onDone }) {
   const [result, setResult] = useState('PASS');
   const [defects, setDefects] = useState([]);
   const [notes, setNotes] = useState('');
-  const [accepted, setAccepted] = useState(false);
-  const [image, setImage] = useState(null);
   const [error, setError] = useState(null);
   const statement = STATEMENT[result](roll.rollNumber);
 
@@ -40,9 +37,10 @@ export function InspectRollModal({ roll, onClose, onDone }) {
       result,
       defects: defects.map((d) => ({ type: d.type, severity: d.severity, ...(d.notes.trim() ? { notes: d.notes.trim() } : {}) })),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
-      signature: { accepted: true, ...(image ? { image } : {}) },
+      // Clicking "Confirm and sign" while signed in is the confirmation; the server signs with your key.
+      signature: { accepted: true },
     }),
-    [result, defects, notes, image],
+    [result, defects, notes],
   );
   const signed = useSignedSubmit({
     call: (k) => rollsApi.inspect(roll.id, body, k),
@@ -60,7 +58,6 @@ export function InspectRollModal({ roll, onClose, onDone }) {
   function submit() {
     if (signed.busy) return;
     if (result !== 'PASS' && defects.length === 0) return setError(`Record at least one defect for ${QC_RESULT_LABELS[result].toLowerCase()}.`);
-    if (!accepted) return setError('Tick the statement to sign this decision.');
     signed.submit();
   }
 
@@ -93,7 +90,7 @@ export function InspectRollModal({ roll, onClose, onDone }) {
           <>
             <button type="button" className="erp-btn-outline" onClick={onClose}>Cancel</button>
             <button type="button" className={result === 'REJECT' ? 'erp-btn-danger' : 'erp-btn-primary'} onClick={submit}>
-              {result === 'PASS' ? 'Sign and pass' : result === 'REWORK' ? 'Sign and send to rework' : 'Sign and reject'}
+              {result === 'PASS' ? `Confirm pass and sign as ${user.name}` : result === 'REWORK' ? `Confirm rework and sign as ${user.name}` : `Confirm reject and sign as ${user.name}`}
             </button>
           </>
         )
@@ -117,7 +114,7 @@ export function InspectRollModal({ roll, onClose, onDone }) {
         <div className="erp-form-grid">
           <div className="erp-tabs-bar" role="radiogroup" aria-label="Result">
             {Object.entries(QC_RESULT_LABELS).map(([value, label]) => (
-              <button key={value} type="button" role="radio" aria-checked={result === value} className={`erp-tab-btn ${result === value ? 'active' : ''}`} onClick={() => { setResult(value); setAccepted(false); touch(); }}>
+              <button key={value} type="button" role="radio" aria-checked={result === value} className={`erp-tab-btn ${result === value ? 'active' : ''}`} onClick={() => { setResult(value); touch(); }}>
                 {label}
               </button>
             ))}
@@ -153,11 +150,8 @@ export function InspectRollModal({ roll, onClose, onDone }) {
 
           <div className="signature-block">
             <div className="erp-label">Signed approval</div>
-            <label className="filter-check" htmlFor="qc-accept">
-              <input id="qc-accept" type="checkbox" checked={accepted} onChange={(e) => { setAccepted(e.target.checked); touch(); }} /> {statement}
-            </label>
-            <p className="cell-sub">The server signs this decision with your personal RSA key and verifies it before saving.</p>
-            <SignaturePad onChange={(value) => { setImage(value); touch(); }} label="Handwritten acknowledgment (optional, visual only)" />
+            <p className="confirm-message">“{statement}”</p>
+            <p className="cell-sub">Confirming records this decision under your account ({user.name}). The server signs it with your personal RSA key and verifies it before saving; no drawing is needed.</p>
           </div>
           {error && <p className="login-field-error" role="alert">{error}</p>}
         </div>
