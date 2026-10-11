@@ -8,7 +8,7 @@ import { runOrQueue } from '../offline/syncManager.js';
 import { CachedNotice } from '../offline/CachedNotice.jsx';
 import { PendingActions } from '../offline/PendingActions.jsx';
 import { liveMatch, useLive } from '../realtime/realtimeBus.js';
-import { ROLE_LABELS, can } from '../auth/roles.js';
+import { ROLE_LABELS, ROLES, can } from '../auth/roles.js';
 import { MachineStatusBadge } from '../components/machines/MachineStatus.jsx';
 import { MACHINE_STATUS_LABELS, MACHINE_TYPE_LABELS, SEVERITY_TONES } from '../utils/machineStatus.js';
 import { FilterBar, FilterDate, FilterSelect } from '../components/ui/Filters.jsx';
@@ -28,7 +28,9 @@ const EVENT_LABELS = {
   PROBLEM_RESOLVED: 'Problem resolved',
   MAINTENANCE_STARTED: 'Maintenance started',
   MAINTENANCE_ENDED: 'Maintenance finished',
+  MAINTENANCE_COST_CORRECTED: 'Maintenance cost corrected',
 };
+const MAINTENANCE_CATEGORY_LABELS = { PREVENTIVE: 'Preventive', BREAKDOWN_REPAIR: 'Breakdown repair', PARTS_REPLACEMENT: 'Parts replacement', CLEANING: 'Cleaning', OTHER: 'Other' };
 const titleCase = (value) => value.charAt(0) + value.slice(1).toLowerCase();
 const PAGE_SIZE = 20;
 
@@ -149,6 +151,8 @@ function FinishMaintenanceModal({ machine, onClose, onDone }) {
   const toast = useToast();
   const [cost, setCost] = useState('');
   const [note, setNote] = useState('');
+  const [category, setCategory] = useState('');
+  const [reference, setReference] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
@@ -161,7 +165,7 @@ function FinishMaintenanceModal({ machine, onClose, onDone }) {
     if (cost.trim() === '' || costPaise === null) return setError('Enter the maintenance cost in rupees (0 if nothing was spent), at most 2 decimals.');
     setBusy(true);
     try {
-      await machinesApi.endMaintenance(machine.id, { costPaise, ...(note.trim() ? { note: note.trim() } : {}) }, key);
+      await machinesApi.endMaintenance(machine.id, { costPaise, ...(note.trim() ? { note: note.trim() } : {}), ...(category ? { category } : {}), ...(reference.trim() ? { reference: reference.trim() } : {}) }, key);
       toast.success(`${machine.code} is available again. Maintenance cost ${formatPaise(costPaise)} recorded.`, { title: 'Maintenance finished' });
       onDone();
     } catch (err) {
@@ -188,8 +192,71 @@ function FinishMaintenanceModal({ machine, onClose, onDone }) {
         <Field label="Maintenance cost (₹)" htmlFor="maint-cost" hint="Parts and labour. Enter 0 if nothing was spent." required>
           <input id="maint-cost" className="erp-input" inputMode="decimal" value={cost} onChange={(e) => { setCost(e.target.value); touch(); }} disabled={busy} placeholder="0" />
         </Field>
+        <Field label="Kind of work (optional)" htmlFor="maint-category">
+          <select id="maint-category" className="erp-input" value={category} onChange={(e) => { setCategory(e.target.value); touch(); }} disabled={busy}>
+            <option value="">—</option>
+            {Object.entries(MAINTENANCE_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+        <Field label="Supplier / bill reference (optional)" htmlFor="maint-ref">
+          <input id="maint-ref" className="erp-input" maxLength={60} value={reference} onChange={(e) => { setReference(e.target.value); touch(); }} disabled={busy} />
+        </Field>
         <Field label="Note (optional)" htmlFor="maint-note">
           <input id="maint-note" className="erp-input" maxLength={1000} value={note} onChange={(e) => { setNote(e.target.value); touch(); }} disabled={busy} placeholder="Replaced two bearings" />
+        </Field>
+        {error && <p className="login-field-error" role="alert">{error}</p>}
+      </form>
+    </Modal>
+  );
+}
+
+/** Admin: correct a finished maintenance's cost with a reason (a new record; the original stays). */
+function CorrectCostModal({ machineId, event, onClose, onDone }) {
+  const toast = useToast();
+  const [cost, setCost] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const touch = () => { setError(null); setKey(newIdempotencyKey()); };
+
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    const costPaise = rupeesToPaise(cost);
+    if (cost.trim() === '' || costPaise === null) return setError('Enter the correct cost in rupees (0 or more, at most 2 decimals).');
+    if (reason.trim().length < 5) return setError('Give the reason (at least 5 characters).');
+    setBusy(true);
+    try {
+      await machinesApi.correctMaintenanceCost(machineId, event.id, { costPaise, reason: reason.trim() }, key);
+      toast.success(`Maintenance cost corrected to ${formatPaise(costPaise)}.`);
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="Correct the maintenance cost"
+      subtitle={`Recorded ${formatPaise(event.costPaise)} on ${formatDateTime(event.occurredAt)}. The correction and its reason are kept; reports use the latest figure.`}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button type="button" className="erp-btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" form="cost-fix-form" className="erp-btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save correction'}</button>
+        </>
+      }
+    >
+      <form id="cost-fix-form" className="erp-form-grid" onSubmit={submit} noValidate>
+        <Field label="Correct cost (₹)" htmlFor="fix-cost" required>
+          <input id="fix-cost" className="erp-input" inputMode="decimal" value={cost} onChange={(e) => { setCost(e.target.value); touch(); }} disabled={busy} />
+        </Field>
+        <Field label="Reason" htmlFor="fix-reason" required>
+          <input id="fix-reason" className="erp-input" maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); touch(); }} disabled={busy} placeholder="Supplier bill arrived for a different amount" />
         </Field>
         {error && <p className="login-field-error" role="alert">{error}</p>}
       </form>
@@ -276,7 +343,8 @@ function EditMachineModal({ machine, onClose, onDone }) {
 
 const NO_EVENT_FILTERS = { type: '', from: '', to: '' };
 
-function History({ machineId, refreshKey }) {
+function History({ machineId, refreshKey, canCorrectCost }) {
+  const [correcting, setCorrecting] = useState(null);
   const { filters, set, clear, query, active, page, setPage } = useFilters(NO_EVENT_FILTERS);
   const events = useApiQuery(() => machinesApi.events(machineId, { ...query, page, limit: PAGE_SIZE }), [machineId, query, page, refreshKey]);
   const list = events.data?.events ?? [];
@@ -312,7 +380,17 @@ function History({ machineId, refreshKey }) {
                     </>
                   )}
                   {!event.problem && (event.note ?? '—')}
-                  {event.costPaise !== null && event.costPaise !== undefined && <div className="cell-sub">Maintenance cost {formatPaise(event.costPaise)}</div>}
+                  {event.costPaise !== null && event.costPaise !== undefined && (
+                    <div className="cell-sub">
+                      {event.type === 'MAINTENANCE_COST_CORRECTED' ? 'Corrected cost' : 'Maintenance cost'} {formatPaise(event.costPaise)}
+                      {event.maintenanceCategory && ` · ${MAINTENANCE_CATEGORY_LABELS[event.maintenanceCategory]}`}
+                      {event.reference && ` · ref ${event.reference}`}
+                      {event.downtimeMinutes !== null && event.downtimeMinutes !== undefined && ` · down ${minutesText(event.downtimeMinutes)}`}
+                    </div>
+                  )}
+                  {canCorrectCost && event.type === 'MAINTENANCE_ENDED' && (
+                    <button type="button" className="erp-btn-outline erp-btn-sm" onClick={() => setCorrecting(event)}>Correct cost</button>
+                  )}
                 </td>
                 <td>{ROLE_LABELS[event.actorRole] ?? event.actorRole}</td>
               </tr>
@@ -327,6 +405,7 @@ function History({ machineId, refreshKey }) {
           <button type="button" className="erp-btn-outline" disabled={page >= pages || events.loading} onClick={() => setPage(page + 1)}>Next</button>
         </div>
       )}
+      {correcting && <CorrectCostModal machineId={machineId} event={correcting} onClose={() => setCorrecting(null)} onDone={() => { setCorrecting(null); events.reload(); }} />}
     </div>
   );
 }
@@ -453,7 +532,7 @@ export default function MachineDetail() {
         )}
       </div>
 
-      <History machineId={machine.id} refreshKey={refreshKey} />
+      <History machineId={machine.id} refreshKey={refreshKey} canCorrectCost={user.role === ROLES.ADMIN} />
 
       {modal === 'problem' && <ReportProblemModal machine={machine} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
       {modal === 'edit' && <EditMachineModal machine={machine} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}

@@ -42,6 +42,8 @@ export const BUYER_ACTIONS = new Set([
   'DELIVERY_VERIFIED',
   'INVOICE_ISSUED',
   'ORDER_INVOICED',
+  'PAYMENT_RECORDED',
+  'PAYMENT_REVERSED',
 ]);
 
 /** Plain-language milestone names for the buyer's history. */
@@ -62,6 +64,8 @@ const BUYER_LABELS = {
   DELIVERY_DISCREPANCY_REPORTED: 'Problem with a delivery reported',
   DELIVERY_VERIFIED: 'Delivery verified',
   INVOICE_ISSUED: 'Invoice issued',
+  PAYMENT_RECORDED: 'Payment received',
+  PAYMENT_REVERSED: 'Payment entry reversed',
   ORDER_INVOICED: 'Order invoiced',
 };
 

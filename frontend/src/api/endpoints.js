@@ -114,6 +114,9 @@ export const machinesApi = {
       body: { resolution },
       idempotencyKey,
     }),
+  // Admin: correct a finished maintenance's cost (reason required; a new record).
+  correctMaintenanceCost: (id, eventId, body, idempotencyKey) =>
+    apiRequest(`/machines/${id}/maintenance/${eventId}/cost-correction`, { method: "POST", body, idempotencyKey }),
 };
 
 // Phase 8: production runs. Every action carries an Idempotency-Key (one per user action).
@@ -161,7 +164,24 @@ export const fulfilmentApi = {
     apiRequest(`/dispatches/${id}/delivery/${action}`, { method: "POST", body, idempotencyKey }),
   invoices: (query) => apiRequest("/invoices", { query }),
   getInvoice: (id) => apiRequest(`/invoices/${id}`),
+  // Buyer payments (admin records and reverses; the owning buyer reads).
+  invoicePayments: (id) => apiRequest(`/invoices/${id}/payments`),
+  recordPayment: (id, body, idempotencyKey) => apiRequest(`/invoices/${id}/payments`, { method: "POST", body, idempotencyKey }),
+  reversePayment: (id, reason, idempotencyKey) => apiRequest(`/payments/${id}/reverse`, { method: "POST", body: { reason }, idempotencyKey }),
+  receivables: () => apiRequest("/payments/receivables"),
   summary: () => apiRequest("/summary/fulfilment"),
+};
+
+// Production reports: output by machine, shift and day; defects; today at the mill.
+export const reportsApi = {
+  production: (query) => apiRequest("/reports/production", { query }),
+  today: () => apiRequest("/reports/today"),
+};
+
+// The owner's month-end statement (admin).
+export const financeApi = {
+  monthly: (month) => apiRequest("/finance/monthly", { query: { month } }),
+  trend: (months = 6) => apiRequest("/finance/trend", { query: { months } }),
 };
 
 // Workers, attendance register and wages (wages and rates: admin only; the server decides).

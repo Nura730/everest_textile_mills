@@ -8,6 +8,7 @@ import { fulfilmentApi } from '../../api/endpoints.js';
 import { useApiQuery } from '../../hooks/useApiQuery.js';
 import { formatDateTime, formatNumber, formatPaise } from '../../utils/format.js';
 import { deliveryActionsFor } from '../../utils/delivery.js';
+import { PaymentBadge } from './Payments.jsx';
 import { DELIVERY_STATUS_LABELS, DISPATCH_STATUS_LABELS } from '../../utils/machineStatus.js';
 import { describeAvailability } from '../../utils/dispatchAvailability.js';
 import { Field, Modal } from '../ui/Modal.jsx';
@@ -329,7 +330,7 @@ export function OrderFulfilmentPanel({ order, showInvoices, onChanged }) {
                       ))}
                     </div>
                   </td>
-                  {showInvoices && <td>{invoice ? <Link to={`/invoices/${invoice.id}`}>{invoice.invoiceNumber} · {formatPaise(invoice.totalPaise)}</Link> : d.delivery && d.delivery.status !== 'VERIFIED' ? <span className="cell-sub">After delivery is verified</span> : '—'}</td>}
+                  {showInvoices && <td>{invoice ? <><Link to={`/invoices/${invoice.id}`}>{invoice.invoiceNumber} · {formatPaise(invoice.totalPaise)}</Link> <PaymentBadge payment={invoice.payment} /></> : d.delivery && d.delivery.status !== 'VERIFIED' ? <span className="cell-sub">After delivery is verified</span> : '—'}</td>}
                 </tr>
               );
             })}

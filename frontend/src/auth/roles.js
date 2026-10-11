@@ -21,6 +21,7 @@ import {
   Users,
   UserSquare,
   Wallet,
+  Landmark,
 } from 'lucide-react';
 
 // Roles exactly as defined by the backend (backend/README.md permission matrix).
@@ -103,11 +104,13 @@ export const LIVE_NAV = [
   { to: '/rolls', label: 'Rolls', icon: ScrollText, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/floor-map', label: 'Factory floor map', icon: Sliders, roles: [ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
+  { to: '/production-report', label: 'Production report', icon: BarChart2, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/insights', label: 'Insights', icon: TrendingUp, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/attendance', label: 'Attendance', icon: CalendarCheck, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/workers', label: 'Workers', icon: UserSquare, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/wages', label: 'Wages', icon: Wallet, roles: [ROLES.ADMIN] },
   { to: '/costing', label: 'Costing', icon: BarChart2, roles: [ROLES.ADMIN] },
+  { to: '/finance', label: 'Finance', icon: Landmark, roles: [ROLES.ADMIN] },
   { to: '/audit', label: 'Audit trail', icon: ShieldCheck, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
 ];

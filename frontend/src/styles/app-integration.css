@@ -147,6 +147,7 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
 .order-step.stopped .order-step-icon { border-color: var(--color-error); background: var(--color-error-light); color: var(--color-error); }
 .order-step-label { font-size: 0.6875rem; color: var(--color-gray-500); line-height: 1.25; }
 .order-step.done .order-step-label, .order-step.current .order-step-label { color: var(--color-gray-900); font-weight: 600; }
+.order-stepper-done { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 0.8125rem; font-weight: 600; color: var(--tone-running-fg); }
 .order-stepper-stop { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 0.75rem; color: var(--color-error-dark); }
 .order-stepper.compact { flex-wrap: nowrap; min-width: 150px; }
 .order-stepper.compact .order-step { min-width: 18px; }
@@ -627,3 +628,6 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
   .feasibility-metrics-summary { grid-template-columns: 1fr 1fr; }
   .feasibility-verdict-row { flex-direction: column; align-items: flex-start; gap: 4px; }
 }
+
+/* A button that reads as a link (in-table navigation). */
+.link-button { background: none; border: 0; padding: 0; color: var(--color-primary, #1d4ed8); text-decoration: underline; cursor: pointer; font: inherit; }

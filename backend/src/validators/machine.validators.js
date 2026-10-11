@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ALL_MACHINE_STATUSES, MACHINE_EVENT_TYPES, PROBLEM_CATEGORIES, PROBLEM_SEVERITIES } from '../constants/machines.js';
+import { MAINTENANCE_CATEGORIES, ALL_MACHINE_STATUSES, MACHINE_EVENT_TYPES, PROBLEM_CATEGORIES, PROBLEM_SEVERITIES } from '../constants/machines.js';
 import { MACHINE_TYPES } from '../constants/production.js';
 import { normalizeCode } from '../utils/normalize.js';
 import { hasAtMostDecimals } from '../utils/units.js';
@@ -79,7 +79,16 @@ export const maintenanceBodySchema = z.strictObject({ note: z.string().trim().mi
 export const endMaintenanceBodySchema = z.strictObject({
   note: z.string().trim().min(1).max(1000).optional(),
   costPaise: z.number({ error: 'is required (0 if nothing was spent)' }).int().min(0).max(1_000_000_000),
+  category: z.enum(MAINTENANCE_CATEGORIES).optional(),
+  reference: z.string().trim().min(1).max(60).optional(),
 });
+
+// Correct a maintenance cost recorded by mistake (ADMIN): a new record, the original stays.
+export const maintenanceCostCorrectionBodySchema = z.strictObject({
+  costPaise: z.number().int().min(0).max(1_000_000_000),
+  reason: z.string().trim().min(5).max(500),
+});
+export const maintenanceEventParamsSchema = z.object({ id: objectIdSchema, eventId: objectIdSchema });
 
 export const reportProblemBodySchema = z.strictObject({
   category: z.enum(PROBLEM_CATEGORIES),

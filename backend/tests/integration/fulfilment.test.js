@@ -271,6 +271,10 @@ describe('dispatch', () => {
       });
       expect(res.body.data.order.status).toBe('INVOICED');
       expect((await post(admin, `/api/dispatches/${dispatchId}/invoice`)).body.error.code).toBe('DUPLICATE_RESOURCE');
+      // an invoiced order is complete: every timeline stage done, none left "current"
+      const timeline = (await get(buyerUser, `/api/orders/${order._id}/timeline`)).body.data.timeline;
+      expect(timeline.completed).toBe(true);
+      expect(timeline.stages.every((stage) => stage.state === 'done')).toBe(true);
     });
 
     it('only the admin issues; the owning buyer can read the invoice, another buyer cannot', async () => {

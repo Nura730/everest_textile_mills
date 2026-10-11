@@ -7,6 +7,8 @@ import { authorize } from '../middleware/authorize.js';
 import { requireIdempotencyKey } from '../middleware/idempotencyKey.js';
 import { validate } from '../middleware/validate.js';
 import * as fulfilment from '../services/fulfilment.service.js';
+import * as payments from '../services/payment.service.js';
+import { PAYMENT_METHODS } from '../models/Payment.js';
 import { sendIdempotent, sendSuccess } from '../utils/apiResponse.js';
 import { requestContext } from '../utils/requestContext.js';
 import { objectIdSchema, searchQuerySchema } from '../validators/common.validators.js';
@@ -127,6 +129,34 @@ invoiceRoutes.get('/', invoiceViewers, validate({ query: z.object({ orderId: obj
   sendSuccess(res, { invoices }, { meta });
 });
 invoiceRoutes.get('/:id', invoiceViewers, validate({ params: idParams }), async (req, res) => sendSuccess(res, await fulfilment.getInvoice(req.validated.params.id, req.user)));
+// Buyer payments: the admin records money received (never more than is owed); the owning buyer reads.
+invoiceRoutes.get('/:id/payments', invoiceViewers, validate({ params: idParams }), async (req, res) => sendSuccess(res, await payments.listInvoicePayments(req.validated.params.id, req.user)));
+invoiceRoutes.post(
+  '/:id/payments',
+  adminOnly,
+  requireIdempotencyKey,
+  validate({
+    params: idParams,
+    body: z.strictObject({
+      amountPaise: z.number().int().positive().max(100_000_000_000),
+      receivedOn: z.iso.date({ error: 'must be a date in YYYY-MM-DD format' }),
+      method: z.enum(PAYMENT_METHODS),
+      reference: z.string().trim().min(1).max(60).optional(),
+      note: z.string().trim().min(1).max(500).optional(),
+    }),
+  }),
+  async (req, res) => sendIdempotent(res, await payments.recordPayment(req.validated.params.id, req.validated.body, requestContext(req))),
+);
+
+export const paymentRoutes = Router();
+paymentRoutes.post(
+  '/:id/reverse',
+  adminOnly,
+  requireIdempotencyKey,
+  validate({ params: idParams, body: z.strictObject({ reason: z.string().trim().min(5).max(500) }) }),
+  async (req, res) => sendIdempotent(res, await payments.reversePayment(req.validated.params.id, req.validated.body, requestContext(req))),
+);
+paymentRoutes.get('/receivables', adminOnly, async (req, res) => sendSuccess(res, await payments.receivables()));
 
 export const summaryRoutes = Router();
 summaryRoutes.get('/fulfilment', staff, async (req, res) => sendSuccess(res, await fulfilment.fulfilmentSummary()));

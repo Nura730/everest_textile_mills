@@ -51,10 +51,13 @@ export async function getTimeline(orderId, actor) {
   const reachedAt = new Map(order.statusHistory.map((h) => [h.to, h.at]));
   const currentIndex = ORDERED.indexOf(order.status);
   const closed = CLOSED.includes(order.status);
+  // INVOICED is the end of the lifecycle (produced, dispatched, delivery verified, invoiced): every stage
+  // is done and the order is complete, not "current".
+  const completed = order.status === ORDER_STATUS.INVOICED;
   const stages = STAGES.map((stage, index) => {
     let state = 'upcoming';
     if (reachedAt.has(stage.status) && (currentIndex > index || (closed && reachedAt.has(stage.status)))) state = 'done';
-    if (index === currentIndex) state = 'current';
+    if (index === currentIndex) state = completed ? 'done' : 'current';
     if (currentIndex > index) state = 'done';
     const detail = {
       PRODUCTION: producedCm > 0 ? `${Math.min(100, Math.round((producedCm / order.quantityCm) * 100))}% produced` : null,
@@ -69,6 +72,7 @@ export async function getTimeline(orderId, actor) {
     orderNumber: order.orderNumber,
     status: order.status,
     closed,
+    completed,
     stages,
     progress: {
       orderedMetres: cmToMetres(order.quantityCm),
