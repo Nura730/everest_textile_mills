@@ -628,3 +628,6 @@ a.erp-btn-primary, a.erp-btn-outline { text-decoration: none; }
   .feasibility-metrics-summary { grid-template-columns: 1fr 1fr; }
   .feasibility-verdict-row { flex-direction: column; align-items: flex-start; gap: 4px; }
 }
+
+/* A button that reads as a link (in-table navigation). */
+.link-button { background: none; border: 0; padding: 0; color: var(--color-primary, #1d4ed8); text-decoration: underline; cursor: pointer; font: inherit; }

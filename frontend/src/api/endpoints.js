@@ -114,6 +114,9 @@ export const machinesApi = {
       body: { resolution },
       idempotencyKey,
     }),
+  // Admin: correct a finished maintenance's cost (reason required; a new record).
+  correctMaintenanceCost: (id, eventId, body, idempotencyKey) =>
+    apiRequest(`/machines/${id}/maintenance/${eventId}/cost-correction`, { method: "POST", body, idempotencyKey }),
 };
 
 // Phase 8: production runs. Every action carries an Idempotency-Key (one per user action).
@@ -167,6 +170,12 @@ export const fulfilmentApi = {
   reversePayment: (id, reason, idempotencyKey) => apiRequest(`/payments/${id}/reverse`, { method: "POST", body: { reason }, idempotencyKey }),
   receivables: () => apiRequest("/payments/receivables"),
   summary: () => apiRequest("/summary/fulfilment"),
+};
+
+// The owner's month-end statement (admin).
+export const financeApi = {
+  monthly: (month) => apiRequest("/finance/monthly", { query: { month } }),
+  trend: (months = 6) => apiRequest("/finance/trend", { query: { months } }),
 };
 
 // Workers, attendance register and wages (wages and rates: admin only; the server decides).

@@ -21,6 +21,7 @@ import {
   Users,
   UserSquare,
   Wallet,
+  Landmark,
 } from 'lucide-react';
 
 // Roles exactly as defined by the backend (backend/README.md permission matrix).
@@ -108,6 +109,7 @@ export const LIVE_NAV = [
   { to: '/workers', label: 'Workers', icon: UserSquare, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/wages', label: 'Wages', icon: Wallet, roles: [ROLES.ADMIN] },
   { to: '/costing', label: 'Costing', icon: BarChart2, roles: [ROLES.ADMIN] },
+  { to: '/finance', label: 'Finance', icon: Landmark, roles: [ROLES.ADMIN] },
   { to: '/audit', label: 'Audit trail', icon: ShieldCheck, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/users', label: 'Users', icon: Users, roles: [ROLES.ADMIN] },
 ];
