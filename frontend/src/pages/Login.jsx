@@ -17,6 +17,8 @@ const DEMO_ACCOUNTS = [
 
 // Always in local dev; in a deployed build only when VITE_SHOW_DEMO_ACCOUNTS=true (a demo database).
 const SHOW_DEMO_ACCOUNTS = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
+// Shared demo password to fill on click. Public once bundled: set it only for a demo database.
+const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD ?? '';
 
 function loginErrorMessage(error) {
   switch (error.code) {
@@ -101,14 +103,15 @@ export default function Login() {
     }
   }
 
-  // Fills the email only. Passwords never live in frontend code: the dev password is SEED_PASSWORD in
-  // backend/.env (docs/DEV_ACCOUNTS.md).
+  // Fills the email, and the password too when VITE_DEMO_PASSWORD is set (a public demo deployment:
+  // the value is bundled into the JavaScript). Otherwise the password is SEED_PASSWORD in backend/.env
+  // (docs/DEV_ACCOUNTS.md) and must be typed.
   function pickDemoAccount(demo) {
     setEmail(demo.email);
-    setPassword('');
+    setPassword(DEMO_PASSWORD);
     setFieldErrors({});
     setFormError(null);
-    document.getElementById('password')?.focus();
+    document.getElementById(DEMO_PASSWORD ? 'login-submit' : 'password')?.focus();
   }
 
   return (
@@ -174,6 +177,7 @@ export default function Login() {
           </div>
 
           <button
+            id="login-submit"
             type="submit"
             className="login-submit-btn"
             disabled={busy}
