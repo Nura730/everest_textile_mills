@@ -104,6 +104,7 @@ export const LIVE_NAV = [
   { to: '/rolls', label: 'Rolls', icon: ScrollText, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/machines', label: 'Machines', icon: Factory, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/floor-map', label: 'Factory floor map', icon: Sliders, roles: [ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
+  { to: '/production-report', label: 'Production report', icon: BarChart2, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/insights', label: 'Insights', icon: TrendingUp, roles: [ROLES.STORE_KEEPER, ROLES.FLOOR_MANAGER, ROLES.ADMIN] },
   { to: '/attendance', label: 'Attendance', icon: CalendarCheck, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },
   { to: '/workers', label: 'Workers', icon: UserSquare, roles: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN] },

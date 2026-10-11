@@ -5,6 +5,7 @@ import { buyersApi, inventoryApi, machinesApi, ordersApi, productsApi, rollsApi,
 import { useAuth } from '../auth/AuthContext.jsx';
 import { PREVIEW_NAV, ROLES, ROLE_LABELS, SHOW_SAMPLE_SCREENS } from '../auth/roles.js';
 import { OperationalInsights } from '../attention/OperationalInsights.jsx';
+import { TodayAtTheMill } from '../components/reports/TodayAtTheMill.jsx';
 import { CreateOrderModal } from '../components/orders/CreateOrderModal.jsx';
 import { DeadlineChip, OrderProgress, OrderStatusBadge } from '../components/ui/OrderStatus.jsx';
 import { isOpenOrder } from '../utils/orderStatus.js';
@@ -416,6 +417,7 @@ export default function Dashboard() {
     <div>
       <PageHeader title={`Welcome, ${user.name.split(' ')[0]}`} subtitle={`${ROLE_LABELS[user.role]} · ${config.subtitle}`} />
       <OperationalInsights />
+      {(user.role === ROLES.ADMIN || user.role === ROLES.FLOOR_MANAGER) && <TodayAtTheMill />}
       <Board />
     </div>
   );

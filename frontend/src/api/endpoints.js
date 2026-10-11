@@ -172,6 +172,12 @@ export const fulfilmentApi = {
   summary: () => apiRequest("/summary/fulfilment"),
 };
 
+// Production reports: output by machine, shift and day; defects; today at the mill.
+export const reportsApi = {
+  production: (query) => apiRequest("/reports/production", { query }),
+  today: () => apiRequest("/reports/today"),
+};
+
 // The owner's month-end statement (admin).
 export const financeApi = {
   monthly: (month) => apiRequest("/finance/monthly", { query: { month } }),

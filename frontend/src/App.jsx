@@ -24,6 +24,7 @@ import Attendance from './pages/Attendance';
 import Workers from './pages/Workers';
 import Wages from './pages/Wages';
 import Finance from './pages/Finance';
+import ProductionReport from './pages/ProductionReport';
 import QcQueue from './pages/QcQueue';
 import RollDetail from './pages/RollDetail';
 import RollList from './pages/RollList';
@@ -56,6 +57,7 @@ const LIVE_PAGES = {
   '/workers': <Workers />,
   '/wages': <Wages />,
   '/finance': <Finance />,
+  '/production-report': <ProductionReport />,
   '/audit': <AuditTrail />,
   '/costing': <Costing />,
   '/floor-map': <Machines />,
