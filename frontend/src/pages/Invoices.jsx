@@ -5,6 +5,7 @@ import { ROLES } from '../auth/roles.js';
 import { PageHeader } from '../components/ui/PageHeader.jsx';
 import { EmptyState, ErrorState, ListLimitNotice, LoadingState } from '../components/ui/States.jsx';
 import { useApiQuery } from '../hooks/useApiQuery.js';
+import { PaymentBadge } from '../components/fulfilment/Payments.jsx';
 import { formatDate, formatPaise } from '../utils/format.js';
 
 /** Invoices: all of them for the owner, only the company's own for a buyer. */
@@ -22,7 +23,7 @@ export default function Invoices() {
         {invoices.data && list.length === 0 && <EmptyState title="No invoices yet" />}
         {list.length > 0 && (
           <table className="erp-data-table">
-            <thead><tr><th scope="col">Invoice</th><th scope="col">Order</th>{!isBuyer && <th scope="col">Buyer</th>}<th scope="col">Dispatch</th><th scope="col">Issued</th><th scope="col" className="num">Total</th><th scope="col"><span className="sr-only">View</span></th></tr></thead>
+            <thead><tr><th scope="col">Invoice</th><th scope="col">Order</th>{!isBuyer && <th scope="col">Buyer</th>}<th scope="col">Dispatch</th><th scope="col">Issued</th><th scope="col">Due</th><th scope="col" className="num">Total</th><th scope="col" className="num">Owed</th><th scope="col">Payment</th><th scope="col"><span className="sr-only">View</span></th></tr></thead>
             <tbody>
               {list.map((inv) => (
                 <tr key={inv.id}>
@@ -31,7 +32,10 @@ export default function Invoices() {
                   {!isBuyer && <td>{inv.buyer.name}</td>}
                   <td>{inv.dispatchNumber}</td>
                   <td>{formatDate(inv.issuedAt)}</td>
+                  <td>{formatDate(inv.payment?.dueDate)}</td>
                   <td className="num">{formatPaise(inv.totalPaise)}</td>
+                  <td className="num">{formatPaise(inv.payment?.outstandingPaise)}</td>
+                  <td><PaymentBadge payment={inv.payment} /></td>
                   <td className="row-actions"><Link className="erp-btn-outline erp-btn-sm" to={`/invoices/${inv.id}`}>View</Link></td>
                 </tr>
               ))}

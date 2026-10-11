@@ -161,6 +161,11 @@ export const fulfilmentApi = {
     apiRequest(`/dispatches/${id}/delivery/${action}`, { method: "POST", body, idempotencyKey }),
   invoices: (query) => apiRequest("/invoices", { query }),
   getInvoice: (id) => apiRequest(`/invoices/${id}`),
+  // Buyer payments (admin records and reverses; the owning buyer reads).
+  invoicePayments: (id) => apiRequest(`/invoices/${id}/payments`),
+  recordPayment: (id, body, idempotencyKey) => apiRequest(`/invoices/${id}/payments`, { method: "POST", body, idempotencyKey }),
+  reversePayment: (id, reason, idempotencyKey) => apiRequest(`/payments/${id}/reverse`, { method: "POST", body: { reason }, idempotencyKey }),
+  receivables: () => apiRequest("/payments/receivables"),
   summary: () => apiRequest("/summary/fulfilment"),
 };
 
