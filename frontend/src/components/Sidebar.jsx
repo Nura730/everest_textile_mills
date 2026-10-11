@@ -65,6 +65,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onNavigate })
             label={user.role === ROLES.BUYER && item.buyerLabel ? item.buyerLabel : item.label}
           />
         ))}
+{/*         
         {preview.length > 0 && (
           <>
             {!collapsed && <div className="sidebar-group-label">Sample screens (development only)</div>}
@@ -72,7 +73,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onNavigate })
               <NavItem key={item.to} item={item} collapsed={collapsed} label={item.label} preview onNavigate={onNavigate} />
             ))}
           </>
-        )}
+        )} */}
       </nav>
     </aside>
   );

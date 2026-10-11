@@ -154,29 +154,29 @@ function ModuleStatus({ role }) {
   // A development aid only: production builds have no sample screens to point to.
   const previews = PREVIEW_NAV.filter((item) => item.roles.includes(role));
   if (!SHOW_SAMPLE_SCREENS || previews.length === 0) return null;
-  return (
-    <div className="erp-card">
-      <h3 className="card-title">What is live</h3>
-      <p className="card-subtitle">Live screens read and write the real database. Previews show sample data only.</p>
-      <ul className="module-list">
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Sign-in, roles and user accounts</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Buyers, fabric catalog and orders</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Order feasibility check and confirmation</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn reservation, issue to production and returns</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Machines: registry, maintenance, problems and downtime</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Production runs and roll output</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Roll traceability and quality control (cryptographically signed decisions)</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Finished goods, signed dispatch and invoices</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Audit trail by role and buyer order timeline</li>
-        <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
-        {previews.map((item) => (
-          <li key={item.to} className="module-preview">
-            <FlaskConical size={14} aria-hidden="true" /> <Link to={item.to}>{item.label}</Link> — preview ({item.phase})
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+  // return (
+  //   <div className="erp-card">
+  //     <h3 className="card-title">What is live</h3>
+  //     <p className="card-subtitle">Live screens read and write the real database. Previews show sample data only.</p>
+  //     <ul className="module-list">
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Sign-in, roles and user accounts</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Buyers, fabric catalog and orders</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Order feasibility check and confirmation</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn reservation, issue to production and returns</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Machines: registry, maintenance, problems and downtime</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Production runs and roll output</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Roll traceability and quality control (cryptographically signed decisions)</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Finished goods, signed dispatch and invoices</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Audit trail by role and buyer order timeline</li>
+  //       <li><CheckCircle2 size={14} aria-hidden="true" /> Yarn inventory, ledger and reconciliation</li>
+  //       {previews.map((item) => (
+  //         <li key={item.to} className="module-preview">
+  //           <FlaskConical size={14} aria-hidden="true" /> <Link to={item.to}>{item.label}</Link> — preview ({item.phase})
+  //         </li>
+  //       ))}
+  //     </ul>
+  //   </div>
+  // );
 }
 
 function Section({ title, subtitle, action, children }) {
