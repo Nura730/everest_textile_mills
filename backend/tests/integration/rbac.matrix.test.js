@@ -732,6 +732,8 @@ const MATRIX = [
   // ── Month-end statement and maintenance cost corrections ──
   { name: 'GET /api/finance/monthly', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: `/api/finance/monthly?month=${todayInIndia().slice(0, 7)}` }) },
   { name: 'GET /api/finance/trend', method: 'get', allowed: [ROLES.ADMIN], build: async () => ({ path: '/api/finance/trend?months=2' }) },
+  { name: 'GET /api/reports/production', method: 'get', allowed: [ROLES.FLOOR_MANAGER, ROLES.QC_INSPECTOR, ROLES.ADMIN], build: async () => ({ path: `/api/reports/production?from=${todayInIndia()}&to=${todayInIndia()}` }) },
+  { name: 'GET /api/reports/today', method: 'get', allowed: [ROLES.FLOOR_MANAGER, ROLES.ADMIN], build: async () => ({ path: '/api/reports/today' }) },
   {
     name: 'POST /api/machines/:id/maintenance/:eventId/cost-correction',
     method: 'post',
